@@ -44,7 +44,9 @@ from datetime import datetime
 
 PROMPT_VERSION = "2.0.0"
 PROMPT_AUTHOR = "Sidekick AI - Engineering Team"
-LAST_UPDATED = "2024-01-15"
+from datetime import datetime
+
+LAST_UPDATED = datetime.now().strftime("%Y-%m-%d")
 PROJECT_NAME = "Sidekick AI - Executive Assistant"
 
 # ============================================================================
