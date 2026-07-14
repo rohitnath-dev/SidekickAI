@@ -46,18 +46,22 @@ class Settings(BaseSettings):
     DATABASE_URL: str
 
     # --------------------------------------------------
-    # Mesh AI
+    # OpenRouter
     # --------------------------------------------------
 
-    MESH_API_KEY: str
+    OPENROUTER_API_KEY: str
 
-    MESH_BASE_URL: str
+    OPENROUTER_BASE_URL: str = "https://openrouter.ai/api/v1"
 
-    MODEL_NAME: str = "mesh-chat"
+    MODEL_NAME: str = "openai/gpt-4.1-mini"
 
     TEMPERATURE: float = 0.4
 
     MAX_TOKENS: int = 2048
+
+    HTTP_REFERER: str = "http://localhost:3000"
+
+    APP_TITLE: str = "Sidekick AI"
 
     # --------------------------------------------------
     # Google OAuth
@@ -68,12 +72,6 @@ class Settings(BaseSettings):
     GOOGLE_CLIENT_SECRET: str
 
     GOOGLE_REDIRECT_URI: str
-
-    # --------------------------------------------------
-    # Embeddings
-    # --------------------------------------------------
-
-    EMBEDDING_MODEL: str = "text-embedding-3-small"
 
     # --------------------------------------------------
     # CORS
