@@ -3,7 +3,7 @@ Base agent for Sidekick AI.
 
 Provides shared functionality for all agents:
 - Logging infrastructure
-- Mesh AI access
+- LLM access
 - Retry logic with exponential backoff
 - Input validation
 - Error handling
