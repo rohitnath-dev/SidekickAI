@@ -15,7 +15,7 @@ from abc import ABC
 from typing import Any, Optional
 from datetime import datetime
 
-from services.mesh import MeshService
+from services.llm import llm
 from config import settings
 
 logger = logging.getLogger(__name__)
@@ -42,7 +42,7 @@ class BaseAgent(ABC):
             agent_name: Descriptive name for logging purposes
         """
         self.agent_name = agent_name
-        self.mesh_service = MeshService()
+        self.llm = llm
         self.logger = logging.getLogger(f"{__name__}.{agent_name}")
         self.created_at = datetime.utcnow()
 
