@@ -1,15 +1,8 @@
-"""
-Central configuration for the Sidekick AI backend.
-Loads all environment variables from the .env file.
-"""
-
+ ## BaseSettings loads settings from the .env file.
+# SettingsConfigDict configures how those settings are loaded.
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-
 class Settings(BaseSettings):
-    # --------------------------------------------------
-    # Project Information
-    # --------------------------------------------------
 
     PROJECT_NAME: str = "Sidekick AI Backend"
     VERSION: str = "1.0.0"
@@ -22,32 +15,18 @@ class Settings(BaseSettings):
 
     DEBUG: bool = True
 
-    # --------------------------------------------------
-    # Server
-    # --------------------------------------------------
 
     HOST: str = "127.0.0.1"
     PORT: int = 8000
 
-    # --------------------------------------------------
-    # Security
-    # --------------------------------------------------
+  # Used to create and verify user login tokens.
 
     SECRET_KEY: str
-
     JWT_ALGORITHM: str = "HS256"
-
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 60
-
-    # --------------------------------------------------
-    # Database
-    # --------------------------------------------------
 
     DATABASE_URL: str
 
-    # --------------------------------------------------
-    # OpenRouter
-    # --------------------------------------------------
 
     OPENROUTER_API_KEY: str
 
@@ -63,27 +42,17 @@ class Settings(BaseSettings):
 
     APP_TITLE: str = "Sidekick AI"
 
-    # --------------------------------------------------
-    # Google OAuth
-    # --------------------------------------------------
+  # Used for Google Login and Gmail access.
 
     GOOGLE_CLIENT_ID: str
-
     GOOGLE_CLIENT_SECRET: str
-
     GOOGLE_REDIRECT_URI: str
 
-    # --------------------------------------------------
-    # CORS
-    # --------------------------------------------------
 
     ALLOWED_ORIGINS: list[str] = [
         "http://localhost:3000",
     ]
 
-    # --------------------------------------------------
-    # Environment Configuration
-    # --------------------------------------------------
 
     model_config = SettingsConfigDict(
         env_file=".env",

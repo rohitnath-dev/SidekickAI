@@ -1,21 +1,3 @@
-"""  
-Message Model  
-  
-SQLAlchemy model representing a communication message inside Sidekick AI.  
-  
-Supported sources:  
-- Gmail  
-- Slack  
-- Discord  
-- Microsoft Teams  
-- LinkedIn  
-- Twitter/X  
-- Other communication platforms  
-  
-This model stores normalized message metadata so that AI agents  
-can summarize, prioritize, reply, and build memory consistently.  
-"""  
-  
 from __future__ import annotations  
   
 from datetime import datetime  
@@ -398,4 +380,3 @@ class Message(Base):
         """  
   
         return self.is_processed  
-  
