@@ -1,20 +1,8 @@
-"""
-Planner Agent
-
-Responsibilities:
-- Build daily executive briefings
-- Combine outputs from other agents
-- Prioritize today's work
-- Generate recommendations
-- Create actionable plans
-
-This agent orchestrates other agents.
-It does not directly interact with external APIs.
-"""
-
 from __future__ import annotations
 
+import json
 import logging
+import re
 from typing import Any, Dict, List, Optional
 
 from agents.base_agent import BaseAgent
@@ -53,6 +41,10 @@ class PlannerAgent(BaseAgent):
         Main entry point.
         """
 
+        messages = self._collect_messages()
+
+        return self.generate_plan(messages)
+
     def generate_plan(
         self,
         messages: List[Message],
@@ -60,6 +52,34 @@ class PlannerAgent(BaseAgent):
         """
         Generate action plan.
         """
+
+        priorities = self._collect_priorities(messages)
+
+        memories = self._collect_memories(messages)
+
+        replies = self._collect_replies(messages)
+
+        context: Dict[str, Any] = {
+            "messages": messages,
+            "priorities": priorities,
+            "memories": memories,
+            "replies": replies,
+        }
+
+        prompt = self._build_prompt(context)
+
+        response = self._call_llm(prompt)
+
+        plan = self._parse_response(response)
+
+        if not self._validate_plan(plan):
+            logger.error(
+                "%s: generated plan failed validation.",
+                self.agent_name,
+            )
+            return {}
+
+        return plan
 
     # ==========================================================
     # Data Collection
@@ -70,6 +90,14 @@ class PlannerAgent(BaseAgent):
         Fetch today's messages.
         """
 
+        # TODO: Confirm the exact GmailAgent method used to fetch
+        # today's messages, then wire it up here, e.g.:
+        # return self.gmail.get_todays_messages()
+        raise NotImplementedError(
+            "PlannerAgent._collect_messages: wire this up to GmailAgent's "
+            "message-fetching method once its API is confirmed."
+        )
+
     def _collect_priorities(
         self,
         messages: List[Message],
@@ -77,6 +105,14 @@ class PlannerAgent(BaseAgent):
         """
         Analyze priorities.
         """
+
+        # TODO: Confirm the exact PriorityAgent method used to score or
+        # rank messages, then wire it up here, e.g.:
+        # return self.priority.analyze(messages)
+        raise NotImplementedError(
+            "PlannerAgent._collect_priorities: wire this up to "
+            "PriorityAgent's analysis method once its API is confirmed."
+        )
 
     def _collect_memories(
         self,
@@ -86,6 +122,13 @@ class PlannerAgent(BaseAgent):
         Retrieve useful memories.
         """
 
+        memories: List[Dict[str, Any]] = []
+
+        for message in messages:
+            memories.extend(self.memory.extract_memory(message))
+
+        return memories
+
     def _collect_replies(
         self,
         messages: List[Message],
@@ -93,6 +136,14 @@ class PlannerAgent(BaseAgent):
         """
         Generate draft replies.
         """
+
+        # TODO: Confirm the exact ReplyAgent method used to draft
+        # replies for a message, then wire it up here, e.g.:
+        # return [self.reply.draft_reply(message) for message in messages]
+        raise NotImplementedError(
+            "PlannerAgent._collect_replies: wire this up to ReplyAgent's "
+            "reply-drafting method once its API is confirmed."
+        )
 
     # ==========================================================
     # Prompt
@@ -106,6 +157,8 @@ class PlannerAgent(BaseAgent):
         Build planner prompt.
         """
 
+        return build_daily_briefing_prompt(context)
+
     # ==========================================================
     # LLM
     # ==========================================================
@@ -117,6 +170,14 @@ class PlannerAgent(BaseAgent):
         """
         Generate executive briefing.
         """
+
+        # TODO: Replace this with the actual BaseAgent LLM call.
+        # Example (uncomment and adjust once BaseAgent's real API is known):
+        # return self.run(prompt)
+        raise NotImplementedError(
+            "PlannerAgent._call_llm: wire this up to BaseAgent's LLM "
+            "invocation method once its API is confirmed."
+        )
 
     # ==========================================================
     # Parsing
@@ -130,6 +191,60 @@ class PlannerAgent(BaseAgent):
         Parse planner response.
         """
 
+        if not response or not isinstance(response, str):
+            logger.warning(
+                "%s: empty or invalid LLM response, nothing to parse.",
+                self.agent_name,
+            )
+            return {}
+
+        cleaned = response.strip()
+
+        if not cleaned:
+            logger.warning(
+                "%s: empty LLM response after stripping whitespace.",
+                self.agent_name,
+            )
+            return {}
+
+        fenced_match = re.match(
+            r"^```(?:json)?\s*(.*?)\s*```$",
+            cleaned,
+            flags=re.DOTALL,
+        )
+
+        if fenced_match:
+            cleaned = fenced_match.group(1).strip()
+
+        if not cleaned:
+            logger.warning(
+                "%s: empty content after removing markdown fence.",
+                self.agent_name,
+            )
+            return {}
+
+        try:
+            parsed = json.loads(cleaned)
+        except (json.JSONDecodeError, TypeError) as exc:
+            logger.error(
+                "%s: failed to parse LLM response as JSON: %s",
+                self.agent_name,
+                exc,
+            )
+            return {}
+
+        if isinstance(parsed, list):
+            parsed = {"tasks": parsed}
+
+        if not isinstance(parsed, dict):
+            logger.error(
+                "%s: parsed response is not a valid plan object.",
+                self.agent_name,
+            )
+            return {}
+
+        return parsed
+
     # ==========================================================
     # Validation
     # ==========================================================
@@ -141,6 +256,14 @@ class PlannerAgent(BaseAgent):
         """
         Validate planner output.
         """
+
+        if not isinstance(plan, dict):
+            return False
+
+        if not plan:
+            return False
+
+        return True
 
     # ==========================================================
     # Recommendation Engine
@@ -154,6 +277,15 @@ class PlannerAgent(BaseAgent):
         Rank tasks.
         """
 
+        if not isinstance(tasks, list):
+            return []
+
+        return sorted(
+            tasks,
+            key=lambda task: task.get("priority", 0),
+            reverse=True,
+        )
+
     def _detect_risks(
         self,
         context: Dict[str, Any],
@@ -162,6 +294,12 @@ class PlannerAgent(BaseAgent):
         Detect risks.
         """
 
+        # Risk detection is semantic judgement performed by the LLM
+        # inside the planner prompt/response, not by Python business
+        # rules. This method is kept as a structural no-op so the
+        # public API and pipeline shape are preserved.
+        return []
+
     def _recommend_actions(
         self,
         context: Dict[str, Any],
@@ -169,6 +307,12 @@ class PlannerAgent(BaseAgent):
         """
         Recommend actions.
         """
+
+        # Recommendation generation is semantic judgement performed by
+        # the LLM inside the planner prompt/response, not by Python
+        # business rules. This method is kept as a structural no-op so
+        # the public API and pipeline shape are preserved.
+        return []
 
     # ==========================================================
     # Future Features
@@ -182,6 +326,11 @@ class PlannerAgent(BaseAgent):
         Calendar integration.
         """
 
+        raise NotImplementedError(
+            "PlannerAgent.schedule_tasks: calendar integration is out of "
+            "scope for this agent and will be implemented separately."
+        )
+
     def export_plan(
         self,
         plan: Dict[str, Any],
@@ -189,3 +338,8 @@ class PlannerAgent(BaseAgent):
         """
         Export briefing.
         """
+
+        raise NotImplementedError(
+            "PlannerAgent.export_plan: export functionality is out of "
+            "scope for this agent and will be implemented separately."
+        )
