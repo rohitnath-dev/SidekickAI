@@ -1,167 +1,152 @@
-import logging
+"""Reply routes — draft generation, improvement, and regeneration."""
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
-from pydantic import BaseModel, Field
+from __future__ import annotations
+
+import logging
+from typing import Optional
+
+from fastapi import APIRouter, Depends, HTTPException, status
+from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from database import get_db
-from agents.reply_agent import (
-    generate_reply,
-    regenerate_reply,
-    improve_reply,
-)
+from dependencies import get_current_user
+from models.user import User
+from repositories.message_repo import MessageRepository
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(
-    prefix="/reply",
-    tags=["Reply"],
-)
+router = APIRouter(prefix="/reply", tags=["Reply"])
 
+
+# ---------------------------------------------------------------------------
+# Schemas
+# ---------------------------------------------------------------------------
 
 class ReplyRequest(BaseModel):
-    recipient_name: str = Field(..., min_length=1, max_length=100)
-    email_content: str = Field(..., min_length=1)
-    context: str | None = None
-    tone: str = Field(default="professional")
-    language: str = Field(default="English")
+    recipient_name: str
+    email_content: str
+    context: Optional[str] = None
+    tone: str = "professional"
+    language: str = "English"
 
 
-class ImproveReplyRequest(BaseModel):
-    original_email: str = Field(..., min_length=1)
-    reply_draft: str = Field(..., min_length=1)
+class ImproveRequest(BaseModel):
+    original_email: str
+    reply_draft: str
 
 
 class ReplyResponse(BaseModel):
     reply: str
+    tone: Optional[str] = None
+    language: Optional[str] = None
 
 
-@router.post(
-    "/generate",
-    response_model=ReplyResponse,
-    status_code=status.HTTP_200_OK,
-)
-async def generate(
+# ---------------------------------------------------------------------------
+# Endpoints
+# ---------------------------------------------------------------------------
+
+@router.post("/generate", response_model=ReplyResponse)
+async def generate_reply(
     request: ReplyRequest,
-    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ):
+    """Generate an AI-drafted reply to an email."""
+    from agents.reply_agent import ReplyAgent
+
     try:
-        result = generate_reply(
+        result = await ReplyAgent().generate_reply(
             recipient_name=request.recipient_name,
             email_content=request.email_content,
             context=request.context,
             tone=request.tone,
             language=request.language,
-            db=db,
         )
     except Exception as exc:
-        logger.error("Failed to generate reply: %s", exc)
-        raise HTTPException(
-            status_code=status.HTTP_502_BAD_GATEWAY,
-            detail="Failed to generate reply.",
-        )
+        logger.error("Reply generation failed: %s", exc)
+        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(exc))
 
-    reply_text = _extract_reply_text(result)
-
+    reply_text = result.get("reply", "")
     if not reply_text:
-        logger.error("Reply generation returned no usable reply text.")
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
-            detail="Reply generation returned no usable reply text.",
+            detail="LLM returned an empty reply.",
         )
+    return ReplyResponse(reply=reply_text, tone=result.get("tone"), language=result.get("language"))
 
-    return ReplyResponse(reply=reply_text)
 
-
-@router.post(
-    "/improve",
-    response_model=ReplyResponse,
-    status_code=status.HTTP_200_OK,
-)
-async def improve(
-    request: ImproveReplyRequest,
-    db: Session = Depends(get_db),
+@router.post("/improve", response_model=ReplyResponse)
+async def improve_reply(
+    request: ImproveRequest,
+    current_user: User = Depends(get_current_user),
 ):
+    """Improve an existing draft reply."""
+    from agents.reply_agent import ReplyAgent
+
     try:
-        result = improve_reply(
+        result = await ReplyAgent().improve_reply(
             original_email=request.original_email,
             reply_draft=request.reply_draft,
-            db=db,
         )
     except Exception as exc:
-        logger.error("Failed to improve reply: %s", exc)
-        raise HTTPException(
-            status_code=status.HTTP_502_BAD_GATEWAY,
-            detail="Failed to improve reply.",
-        )
+        logger.error("Reply improvement failed: %s", exc)
+        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(exc))
 
-    reply_text = _extract_reply_text(result)
-
-    if not reply_text:
-        logger.error("Reply improvement returned no usable reply text.")
-        raise HTTPException(
-            status_code=status.HTTP_502_BAD_GATEWAY,
-            detail="Reply improvement returned no usable reply text.",
-        )
-
-    return ReplyResponse(reply=reply_text)
+    return ReplyResponse(reply=result.get("reply", ""))
 
 
-@router.post(
-    "/regenerate",
-    response_model=ReplyResponse,
-    status_code=status.HTTP_200_OK,
-)
-async def regenerate(
+@router.post("/regenerate", response_model=ReplyResponse)
+async def regenerate_reply(
     request: ReplyRequest,
-    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ):
+    """Regenerate a reply with higher temperature for variety."""
+    from agents.reply_agent import ReplyAgent
+
     try:
-        result = regenerate_reply(
+        result = await ReplyAgent().regenerate_reply(
             recipient_name=request.recipient_name,
             email_content=request.email_content,
             context=request.context,
             tone=request.tone,
             language=request.language,
-            db=db,
         )
     except Exception as exc:
-        logger.error("Failed to regenerate reply: %s", exc)
-        raise HTTPException(
-            status_code=status.HTTP_502_BAD_GATEWAY,
-            detail="Failed to regenerate reply.",
+        logger.error("Reply regeneration failed: %s", exc)
+        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(exc))
+
+    return ReplyResponse(reply=result.get("reply", ""), tone=result.get("tone"), language=result.get("language"))
+
+
+@router.post("/message/{message_id}", response_model=ReplyResponse)
+async def reply_to_stored_message(
+    message_id: int,
+    tone: str = "professional",
+    language: str = "English",
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Generate a reply for a stored message and save it."""
+    from agents.reply_agent import ReplyAgent
+
+    msg = MessageRepository.get_by_id(db, message_id, current_user.id)
+    if msg is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Message not found.")
+
+    try:
+        result = await ReplyAgent().generate_reply(
+            recipient_name=msg.sender,
+            email_content=msg.to_context_string(),
+            tone=tone,
+            language=language,
         )
+    except Exception as exc:
+        logger.error("Reply for message %d failed: %s", message_id, exc)
+        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(exc))
 
-    reply_text = _extract_reply_text(result)
+    reply_text = result.get("reply", "")
+    if reply_text:
+        msg.update_from_ai(suggested_reply=reply_text, requires_reply=True)
+        db.commit()
 
-    if not reply_text:
-        logger.error("Reply regeneration returned no usable reply text.")
-        raise HTTPException(
-            status_code=status.HTTP_502_BAD_GATEWAY,
-            detail="Reply regeneration returned no usable reply text.",
-        )
-
-    return ReplyResponse(reply=reply_text)
-
-
-@router.get(
-    "/health",
-    status_code=status.HTTP_200_OK,
-)
-async def health():
-    return {"status": "ok", "service": "Reply API"}
-
-
-def _extract_reply_text(result) -> str | None:
-    if isinstance(result, dict):
-        reply_text = result.get("reply")
-    else:
-        reply_text = getattr(result, "reply", None)
-
-    if not isinstance(reply_text, str):
-        return None
-
-    if not reply_text.strip():
-        return None
-
-    return reply_text
+    return ReplyResponse(reply=reply_text, tone=tone, language=language)

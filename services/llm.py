@@ -1,7 +1,12 @@
+"""
+Sidekick AI — LLM Service (OpenRouter)
+
+Uses async httpx so it never blocks the FastAPI event loop.
+"""
+
 from __future__ import annotations
 
 import logging
-import time
 from typing import Any, Optional
 
 import httpx
@@ -11,43 +16,38 @@ from config import settings
 logger = logging.getLogger(__name__)
 
 
-# =========================================================================
-# Custom Exceptions
-# =========================================================================
-
+# ---------------------------------------------------------------------------
+# Custom exceptions
+# ---------------------------------------------------------------------------
 
 class LLMException(Exception):
-    """Base exception for all LLM-related errors."""
+    """Base LLM error."""
 
 
 class LLMConnectionError(LLMException):
-    """Raised when the LLM service cannot be reached or returns a server error."""
+    """Network or timeout error."""
 
 
 class LLMAuthenticationError(LLMException):
-    """Raised when authentication with the LLM provider fails (HTTP 401)."""
+    """HTTP 401 from provider."""
 
 
 class LLMRateLimitError(LLMException):
-    """Raised when the LLM provider throttles requests (HTTP 429)."""
+    """HTTP 429 from provider."""
 
 
 class LLMResponseError(LLMException):
-    """Raised when the LLM provider returns an invalid or unparsable response."""
+    """Unparsable or malformed response."""
 
 
-# =========================================================================
-# LLM Client
-# =========================================================================
-
+# ---------------------------------------------------------------------------
+# Client
+# ---------------------------------------------------------------------------
 
 class LLMClient:
-    """
-    A production-grade client for communicating with the OpenRouter API.
-    
-    """
+    """Async client for the OpenRouter chat-completions API."""
 
-    CHAT_COMPLETIONS_PATH = "/chat/completions"
+    CHAT_PATH = "/chat/completions"
     MODELS_PATH = "/models"
 
     def __init__(
@@ -57,52 +57,35 @@ class LLMClient:
         model: Optional[str] = None,
         timeout: Optional[float] = None,
     ) -> None:
-        """
-        Initialize the LLM client with configuration values.
-        
-        """
         self.api_key: str = api_key or settings.OPENROUTER_API_KEY
         self.base_url: str = (base_url or settings.OPENROUTER_BASE_URL).rstrip("/")
         self.model: str = model or settings.OPENROUTER_MODEL
         self.timeout: float = timeout or settings.OPENROUTER_TIMEOUT
 
         if not self.api_key:
-            logger.warning("LLMClient initialized without an OpenRouter API key.")
+            logger.warning("LLMClient: no API key configured.")
 
-        self._client: httpx.Client = httpx.Client(
+        # Async client — one shared instance, closed at app shutdown.
+        self._client: httpx.AsyncClient = httpx.AsyncClient(
             base_url=self.base_url,
             timeout=self.timeout,
         )
 
-        logger.debug(
-            "LLMClient initialized (base_url=%s, model=%s, timeout=%s)",
-            self.base_url,
-            self.model,
-            self.timeout,
-        )
+    async def close(self) -> None:
+        """Close the underlying async HTTP client."""
+        if not self._client.is_closed:
+            await self._client.aclose()
 
-    def __del__(self) -> None:
-        """Ensure the underlying HTTP client is closed on garbage collection."""
-        try:
-            self.close()
-        except Exception:  # noqa: BLE001 - best-effort cleanup, never raise
-            pass
-
-    def close(self) -> None:
-        """Close the underlying httpx.Client, releasing pooled connections."""
-        if getattr(self, "_client", None) is not None and not self._client.is_closed:
-            self._client.close()
-            logger.debug("LLMClient HTTP client closed.")
-
-    # ---------------------------------------------------------------
+    # ------------------------------------------------------------------
     # Internal helpers
-    # ---------------------------------------------------------------
+    # ------------------------------------------------------------------
 
     def _headers(self) -> dict[str, str]:
-        """Build the HTTP headers required by the OpenRouter API."""
         return {
             "Authorization": f"Bearer {self.api_key}",
             "Content-Type": "application/json",
+            "HTTP-Referer": settings.HTTP_REFERER,
+            "X-Title": settings.APP_TITLE,
         }
 
     def _payload(
@@ -113,160 +96,78 @@ class LLMClient:
         max_tokens: Optional[int] = None,
         **kwargs: Any,
     ) -> dict[str, Any]:
-        """
-        Construct the JSON payload for a chat completion request.
-
-        Only includes optional parameters (temperature, max_tokens, and any
-        additional keyword arguments) when they are explicitly provided.
-        """
         payload: dict[str, Any] = {
             "model": model or self.model,
             "messages": messages,
         }
-
         if temperature is not None:
             payload["temperature"] = temperature
-
         if max_tokens is not None:
             payload["max_tokens"] = max_tokens
-
-        for key, value in kwargs.items():
-            if value is not None:
-                payload[key] = value
-
+        for k, v in kwargs.items():
+            if v is not None:
+                payload[k] = v
         return payload
 
-    def _request(
+    async def _request(
         self,
         method: str,
         path: str,
         json_payload: Optional[dict[str, Any]] = None,
     ) -> httpx.Response:
-        """
-        Execute an HTTP request against the OpenRouter API.
-
-        Handles timing, logging, and translation of transport-level failures
-        (timeouts, connection errors) into the appropriate custom exception.
-        Raises the response's HTTP status errors via raise_for_status(),
-        which are subsequently translated in _handle_error().
-        """
-        start_time = time.monotonic()
         try:
-            response = self._client.request(
+            response = await self._client.request(
                 method=method,
                 url=path,
                 headers=self._headers(),
                 json=json_payload,
             )
-            elapsed = time.monotonic() - start_time
-            logger.info(
-                "LLM request completed (method=%s, path=%s, status=%s, elapsed=%.3fs)",
-                method,
-                path,
-                response.status_code,
-                elapsed,
-            )
             response.raise_for_status()
             return response
-
         except httpx.TimeoutException as exc:
-            elapsed = time.monotonic() - start_time
-            logger.error(
-                "LLM request timed out (method=%s, path=%s, elapsed=%.3fs): %s",
-                method,
-                path,
-                elapsed,
-                exc,
-            )
-            raise LLMConnectionError(f"Request to LLM provider timed out: {exc}") from exc
-
+            raise LLMConnectionError(f"LLM request timed out: {exc}") from exc
         except httpx.HTTPStatusError as exc:
-            self._handle_error(exc)
-            raise  # _handle_error always raises; this satisfies static analysis
-
+            self._handle_http_error(exc)
+            raise  # _handle_http_error always raises; satisfies type checkers
         except httpx.RequestError as exc:
-            elapsed = time.monotonic() - start_time
-            logger.error(
-                "LLM request failed (method=%s, path=%s, elapsed=%.3fs): %s",
-                method,
-                path,
-                elapsed,
-                exc,
-            )
-            raise LLMConnectionError(f"Failed to connect to LLM provider: {exc}") from exc
+            raise LLMConnectionError(f"LLM connection failed: {exc}") from exc
 
-    def _handle_error(self, exc: httpx.HTTPStatusError) -> None:
-        """
-        Translate an HTTP status error from the LLM provider into the
-        appropriate custom exception, based on the response status code.
-        """
-        status_code = exc.response.status_code
-
+    def _handle_http_error(self, exc: httpx.HTTPStatusError) -> None:
+        status = exc.response.status_code
         try:
-            error_body = exc.response.json()
+            body = exc.response.json()
         except ValueError:
-            error_body = exc.response.text
+            body = exc.response.text
 
-        logger.error(
-            "LLM provider returned an error (status=%s, body=%s)",
-            status_code,
-            error_body,
-        )
+        if status == 401:
+            raise LLMAuthenticationError(f"Auth failed: {body}") from exc
+        if status == 429:
+            raise LLMRateLimitError(f"Rate limit: {body}") from exc
+        if 500 <= status < 600:
+            raise LLMConnectionError(f"Provider error {status}: {body}") from exc
+        raise LLMException(f"Unexpected LLM error {status}: {body}") from exc
 
-        if status_code == 401:
-            raise LLMAuthenticationError(
-                f"Authentication with LLM provider failed: {error_body}"
-            ) from exc
-
-        if status_code == 429:
-            raise LLMRateLimitError(
-                f"LLM provider rate limit exceeded: {error_body}"
-            ) from exc
-
-        if 500 <= status_code < 600:
-            raise LLMConnectionError(
-                f"LLM provider server error ({status_code}): {error_body}"
-            ) from exc
-
-        raise LLMException(
-            f"Unexpected error from LLM provider ({status_code}): {error_body}"
-        ) from exc
-
-    def _parse_response(self, response: httpx.Response) -> str:
-        """
-        Extract the assistant's message content from a chat completion response.
-
-        Raises LLMResponseError if the response body is not valid JSON or does
-        not contain the expected structure.
-        """
+    def _extract_content(self, response: httpx.Response) -> str:
         try:
             data = response.json()
         except ValueError as exc:
-            logger.error("Failed to parse LLM response as JSON: %s", exc)
-            raise LLMResponseError(f"Invalid JSON response from LLM provider: {exc}") from exc
-
+            raise LLMResponseError(f"Non-JSON response: {exc}") from exc
         try:
             choices = data["choices"]
             if not choices:
-                raise LLMResponseError("LLM response contained no choices.")
-
-            message = choices[0]["message"]
-            content = message["content"]
-
+                raise LLMResponseError("Empty choices list.")
+            content = choices[0]["message"]["content"]
             if not isinstance(content, str) or not content.strip():
-                raise LLMResponseError("LLM response message content is empty or invalid.")
-
+                raise LLMResponseError("Empty content in response.")
             return content
-
         except (KeyError, IndexError, TypeError) as exc:
-            logger.error("Unexpected LLM response structure: %s | payload=%s", exc, data)
-            raise LLMResponseError(f"Unexpected response structure from LLM provider: {exc}") from exc
+            raise LLMResponseError(f"Unexpected response shape: {exc}") from exc
 
-    # ---------------------------------------------------------------
+    # ------------------------------------------------------------------
     # Public API
-    # ---------------------------------------------------------------
+    # ------------------------------------------------------------------
 
-    def generate(
+    async def generate(
         self,
         prompt: str,
         system_prompt: Optional[str] = None,
@@ -274,67 +175,44 @@ class LLMClient:
         max_tokens: Optional[int] = None,
         model: Optional[str] = None,
     ) -> str:
-        """
-        Generate a completion for a single user prompt.
-
-        Optionally accepts a system prompt to steer the model's behavior.
-        Returns the assistant's response text.
-        """
+        """Generate a completion for a single prompt."""
         messages: list[dict[str, str]] = []
         if system_prompt:
             messages.append({"role": "system", "content": system_prompt})
         messages.append({"role": "user", "content": prompt})
-
-        return self.chat(
+        return await self.chat(
             messages=messages,
             temperature=temperature,
             max_tokens=max_tokens,
             model=model,
         )
 
-    def chat(
+    async def chat(
         self,
         messages: list[dict[str, str]],
         temperature: Optional[float] = None,
         max_tokens: Optional[int] = None,
         model: Optional[str] = None,
     ) -> str:
-        """
-        Send a full conversation history to the LLM and return the assistant's reply.
-
-        This is the core method used by higher-level features that need
-        multi-turn context (e.g. chat sessions, agents).
-        """
+        """Send a conversation and return the assistant reply."""
         if not messages:
-            raise LLMException("Cannot send an empty messages list to the LLM provider.")
-
+            raise LLMException("Cannot send empty messages list.")
         payload = self._payload(
             messages=messages,
             model=model,
-            temperature=temperature,
-            max_tokens=max_tokens,
+            temperature=temperature or settings.OPENROUTER_TEMPERATURE,
+            max_tokens=max_tokens or settings.OPENROUTER_MAX_TOKENS,
         )
-
-        logger.debug("Sending chat completion request (model=%s, n_messages=%d)", 
-                     payload["model"], len(messages))
-
-        response = self._request(
-            method="POST",
-            path=self.CHAT_COMPLETIONS_PATH,
-            json_payload=payload,
+        logger.debug(
+            "LLM request — model=%s messages=%d", payload["model"], len(messages)
         )
+        response = await self._request("POST", self.CHAT_PATH, payload)
+        return self._extract_content(response)
 
-        return self._parse_response(response)
-
-    def health_check(self) -> bool:
-        """
-        Perform a lightweight health check against the LLM provider.
-
-        Returns True if the provider responds successfully to a minimal
-        chat completion request, False otherwise. Never raises.
-        """
+    async def health_check(self) -> bool:
+        """Return True if the provider is reachable."""
         try:
-            self.chat(
+            await self.chat(
                 messages=[{"role": "user", "content": "ping"}],
                 max_tokens=1,
             )
@@ -343,103 +221,35 @@ class LLMClient:
             logger.warning("LLM health check failed: %s", exc)
             return False
 
-    def list_models(self) -> list[dict[str, Any]]:
-        """
-        Retrieve the list of models available from the OpenRouter API.
-
-        Returns a list of model metadata dictionaries as provided by the
-        provider's /models endpoint.
-        """
-        response = self._request(method="GET", path=self.MODELS_PATH)
-
+    async def list_models(self) -> list[dict[str, Any]]:
+        """Return available models from OpenRouter."""
+        response = await self._request("GET", self.MODELS_PATH)
         try:
-            data = response.json()
-            return data.get("data", [])
+            return response.json().get("data", [])
         except ValueError as exc:
-            logger.error("Failed to parse models list response: %s", exc)
-            raise LLMResponseError(f"Invalid JSON response when listing models: {exc}") from exc
+            raise LLMResponseError(f"Cannot parse models list: {exc}") from exc
 
     def estimate_tokens(self, text: str) -> int:
-        """
-        Provide a rough estimate of the token count for a given text.
-
-        This uses a simple heuristic (approximately 4 characters per token)
-        suitable for quick budgeting decisions. It is not a substitute for
-        an actual tokenizer when precise counts are required.
-        """
-        if not text:
-            return 0
-        return max(1, len(text) // 4)
+        """Rough token estimate (~4 chars/token)."""
+        return max(1, len(text) // 4) if text else 0
 
 
-# =========================================================================
-# Singleton instance
-# =========================================================================
+# ---------------------------------------------------------------------------
+# Singleton
+# ---------------------------------------------------------------------------
 
 llm = LLMClient()
 
 
-# =========================================================================
-# Convenience wrappers
-# =========================================================================
-
-
-def generate_response(
+async def generate_response(
     prompt: str,
     system_prompt: Optional[str] = None,
     temperature: Optional[float] = None,
     max_tokens: Optional[int] = None,
 ) -> str:
-    """Module-level convenience wrapper around the singleton LLMClient.generate()."""
-    return llm.generate(
+    return await llm.generate(
         prompt=prompt,
         system_prompt=system_prompt,
         temperature=temperature,
         max_tokens=max_tokens,
     )
-
-
-def health_check() -> bool:
-    """Module-level convenience wrapper around the singleton LLMClient.health_check()."""
-    return llm.health_check()
-
-
-# =========================================================================
-# Manual testing block
-# =========================================================================
-
-if __name__ == "__main__":
-    logging.basicConfig(
-        level=logging.DEBUG,
-        format="%(asctime)s | %(levelname)-8s | %(name)s | %(message)s",
-    )
-
-    print("=== SidekickAI LLM Service Manual Test ===")
-
-    print("\n[1] Running health check...")
-    is_healthy = health_check()
-    print(f"Health check result: {is_healthy}")
-
-    if is_healthy:
-        print("\n[2] Sending test prompt...")
-        try:
-            result = generate_response(
-                prompt="In one sentence, what is the capital of France?",
-                system_prompt="You are a concise assistant.",
-                temperature=0.7,
-                max_tokens=50,
-            )
-            print(f"Response: {result}")
-        except LLMException as exc:
-            print(f"Generation failed: {exc}")
-
-        print("\n[3] Listing available models...")
-        try:
-            models = llm.list_models()
-            print(f"Retrieved {len(models)} models.")
-        except LLMException as exc:
-            print(f"Failed to list models: {exc}")
-    else:
-        print("Skipping further tests since health check failed.")
-
-    llm.close()

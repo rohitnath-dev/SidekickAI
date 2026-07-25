@@ -1,19 +1,32 @@
+"""
+Sidekick AI — Database engine, session factory and dependency.
+"""
+
 from sqlalchemy import create_engine
-from sqlalchemy.orm import DeclarativeBase
-from sqlalchemy.orm import sessionmaker
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import DeclarativeBase, sessionmaker, Session
 
 from config import settings
 
-# Create the main engine that connects the application to the database.
+
+# ---------------------------------------------------------------------------
+# Engine
+# ---------------------------------------------------------------------------
+
+connect_args: dict = {}
+if settings.DATABASE_URL.startswith("sqlite"):
+    connect_args = {"check_same_thread": False}
+
 engine = create_engine(
     settings.DATABASE_URL,
     echo=settings.DEBUG,
-    future=True
+    future=True,
+    connect_args=connect_args,
 )
 
+# ---------------------------------------------------------------------------
+# Session factory
+# ---------------------------------------------------------------------------
 
-# Create a factory that creates a new database session whenever it is needed. A session is a temporary connection used to interact with the database.
 SessionLocal = sessionmaker(
     bind=engine,
     autoflush=False,
@@ -21,28 +34,24 @@ SessionLocal = sessionmaker(
     expire_on_commit=False,
 )
 
-# Create a common base class that all database models will inherit from.
+
+# ---------------------------------------------------------------------------
+# Declarative base
+# ---------------------------------------------------------------------------
+
 class Base(DeclarativeBase):
-    """
-    Base class for all SQLAlchemy models.
-    """
+    """Common base for all SQLAlchemy models."""
     pass
 
 
-# Create and provide a database session for each request, then automatically close it when the request is finished.
+# ---------------------------------------------------------------------------
+# Dependency
+# ---------------------------------------------------------------------------
 
 def get_db():
-    """
-    Provides a database session.
-
-    Automatically closes the session
-    after the request is completed.
-    """
-
+    """FastAPI dependency that provides and closes a database session."""
     db: Session = SessionLocal()
-
     try:
         yield db
-
     finally:
         db.close()

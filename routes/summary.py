@@ -1,179 +1,154 @@
-import logging
-from typing import Any
+"""Summary routes — email summarisation, thread summaries, action item extraction."""
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
-from pydantic import BaseModel, Field
+from __future__ import annotations
+
+import logging
+from typing import Optional
+
+from fastapi import APIRouter, Depends, HTTPException, status
+from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from database import get_db
-from agents.summary_agent import (
-    generate_summary,
-    summarize_thread,
-    extract_action_items,
-)
+from dependencies import get_current_user
+from models.user import User
+from repositories.message_repo import MessageRepository
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(
-    prefix="/summary",
-    tags=["Summary"],
-)
+router = APIRouter(prefix="/summary", tags=["Summary"])
 
+
+# ---------------------------------------------------------------------------
+# Schemas
+# ---------------------------------------------------------------------------
 
 class SummaryRequest(BaseModel):
-    email_content: str = Field(..., min_length=1)
-    context: str | None = None
+    email_content: str
+    context: Optional[str] = None
 
 
 class ThreadSummaryRequest(BaseModel):
-    thread_content: str = Field(..., min_length=1)
+    thread_content: str
 
 
 class ActionItemsRequest(BaseModel):
-    email_content: str = Field(..., min_length=1)
+    email_content: str
 
 
 class SummaryResponse(BaseModel):
-    summary: str
+    summary: Optional[str] = None
+    key_points: list[str] = []
+    action_items: list[str] = []
+    sentiment: Optional[str] = None
+    reply_required: Optional[bool] = None
+    confidence_score: Optional[int] = None
 
 
 class ActionItemsResponse(BaseModel):
-    action_items: list[str]
+    action_items: list
 
 
-def _get_field(result: Any, field: str) -> Any:
-    if isinstance(result, dict):
-        return result.get(field)
-    return getattr(result, field, None)
+# ---------------------------------------------------------------------------
+# Endpoints
+# ---------------------------------------------------------------------------
 
-
-def _extract_summary_text(result: Any) -> str | None:
-    summary_text = _get_field(result, "summary")
-
-    if not isinstance(summary_text, str):
-        return None
-
-    if not summary_text.strip():
-        return None
-
-    return summary_text
-
-
-def _extract_action_items_list(result: Any) -> list[str] | None:
-    items = _get_field(result, "action_items")
-
-    if not isinstance(items, list):
-        return None
-
-    if not all(isinstance(item, str) for item in items):
-        return None
-
-    return items
-
-
-@router.post(
-    "/generate",
-    response_model=SummaryResponse,
-    status_code=status.HTTP_200_OK,
-)
-async def generate(
+@router.post("/generate", response_model=SummaryResponse)
+async def generate_summary(
     request: SummaryRequest,
-    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ):
+    """Generate an AI summary of an email."""
+    from agents.summary_agent import SummaryAgent
+
     try:
-        result = generate_summary(
+        result = await SummaryAgent().generate_summary(
             email_content=request.email_content,
             context=request.context,
-            db=db,
         )
     except Exception as exc:
-        logger.error("Failed to generate summary: %s", exc)
-        raise HTTPException(
-            status_code=status.HTTP_502_BAD_GATEWAY,
-            detail="Failed to generate summary.",
-        )
+        logger.error("Summary generation failed: %s", exc)
+        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(exc))
 
-    summary_text = _extract_summary_text(result)
-
-    if not summary_text:
-        logger.error("Summary generation returned no usable summary text.")
-        raise HTTPException(
-            status_code=status.HTTP_502_BAD_GATEWAY,
-            detail="Summary generation returned no usable summary text.",
-        )
-
-    return SummaryResponse(summary=summary_text)
+    return SummaryResponse(
+        summary=result.get("summary"),
+        key_points=result.get("key_points", []),
+        action_items=result.get("action_items", []),
+        sentiment=result.get("sentiment"),
+        reply_required=result.get("reply_required"),
+        confidence_score=result.get("confidence_score"),
+    )
 
 
-@router.post(
-    "/thread",
-    response_model=SummaryResponse,
-    status_code=status.HTTP_200_OK,
-)
-async def thread(
+@router.post("/thread", response_model=dict)
+async def summarize_thread(
     request: ThreadSummaryRequest,
-    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ):
+    """Summarise an entire email thread."""
+    from agents.summary_agent import SummaryAgent
+
     try:
-        result = summarize_thread(
-            thread_content=request.thread_content,
-            db=db,
-        )
+        result = await SummaryAgent().summarize_thread(thread_content=request.thread_content)
     except Exception as exc:
-        logger.error("Failed to summarize thread: %s", exc)
-        raise HTTPException(
-            status_code=status.HTTP_502_BAD_GATEWAY,
-            detail="Failed to summarize thread.",
-        )
+        logger.error("Thread summary failed: %s", exc)
+        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(exc))
 
-    summary_text = _extract_summary_text(result)
-
-    if not summary_text:
-        logger.error("Thread summarization returned no usable summary text.")
-        raise HTTPException(
-            status_code=status.HTTP_502_BAD_GATEWAY,
-            detail="Thread summarization returned no usable summary text.",
-        )
-
-    return SummaryResponse(summary=summary_text)
+    return result
 
 
-@router.post(
-    "/action-items",
-    response_model=ActionItemsResponse,
-    status_code=status.HTTP_200_OK,
-)
-async def action_items(
+@router.post("/action-items", response_model=ActionItemsResponse)
+async def extract_action_items(
     request: ActionItemsRequest,
-    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ):
+    """Extract action items from an email."""
+    from agents.summary_agent import SummaryAgent
+
     try:
-        result = extract_action_items(
-            email_content=request.email_content,
-            db=db,
-        )
+        result = await SummaryAgent().extract_action_items(email_content=request.email_content)
     except Exception as exc:
-        logger.error("Failed to extract action items: %s", exc)
-        raise HTTPException(
-            status_code=status.HTTP_502_BAD_GATEWAY,
-            detail="Failed to extract action items.",
-        )
+        logger.error("Action items extraction failed: %s", exc)
+        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(exc))
 
-    items = _extract_action_items_list(result)
-
-    if items is None:
-        logger.error("Action item extraction returned no usable data.")
-        raise HTTPException(
-            status_code=status.HTTP_502_BAD_GATEWAY,
-            detail="Action item extraction returned no usable data.",
-        )
-
+    items = result.get("action_items", [])
     return ActionItemsResponse(action_items=items)
 
 
-@router.get(
-    "/health",
-    status_code=status.HTTP_200_OK,
-)
-async def health():
-    return {"status": "ok", "service": "Summary API"}
+@router.post("/message/{message_id}", response_model=SummaryResponse)
+async def summarize_stored_message(
+    message_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Summarise a stored message and save the result."""
+    from agents.summary_agent import SummaryAgent
+
+    msg = MessageRepository.get_by_id(db, message_id, current_user.id)
+    if msg is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Message not found.")
+
+    try:
+        result = await SummaryAgent().generate_summary(email_content=msg.to_context_string())
+    except Exception as exc:
+        logger.error("Message summary failed for msg %d: %s", message_id, exc)
+        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(exc))
+
+    # Persist AI fields
+    msg.update_from_ai(
+        summary=result.get("summary"),
+        sentiment=result.get("sentiment"),
+        requires_reply=result.get("reply_required"),
+        confidence_score=result.get("confidence_score"),
+        action_items=str(result.get("action_items", [])),
+    )
+    db.commit()
+
+    return SummaryResponse(
+        summary=result.get("summary"),
+        key_points=result.get("key_points", []),
+        action_items=result.get("action_items", []),
+        sentiment=result.get("sentiment"),
+        reply_required=result.get("reply_required"),
+        confidence_score=result.get("confidence_score"),
+    )

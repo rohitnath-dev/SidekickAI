@@ -1,0 +1,1 @@
+"""Sidekick AI — service layer."""

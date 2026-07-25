@@ -1,402 +1,177 @@
+"""
+Memory Agent
+
+Extracts long-term facts from messages and persists them as MemoryItem records.
+"""
+
 from __future__ import annotations
 
-import json
 import logging
-import re
-from typing import Any, Dict, List, Optional
+from typing import Optional
+
+from sqlalchemy.orm import Session
 
 from agents.base_agent import BaseAgent
+from models.memory_item import MemoryItem
 from models.message import Message
-from prompts.prompt_engine import build_memory_prompt
+from utils.prompts.memory import build_memory_prompt
 
 logger = logging.getLogger(__name__)
 
 
 class MemoryAgent(BaseAgent):
-
-    """
-    Extracts useful long-term memories
-    from communications.
-    """
+    """Extracts and manages long-term memory facts for users."""
 
     def __init__(self) -> None:
+        super().__init__(agent_name="MemoryAgent")
 
-        super().__init__(
-            agent_name="MemoryAgent"
-        )
-
-    # ==========================================================
-    # Public API
-    # ==========================================================
-
-    def extract_memory(
-        self,
-        message: Message,
-    ) -> List[Dict[str, Any]]:
+    async def extract_memory(self, message: Message) -> list[dict]:
         """
-        Main entry point.
+        Extract memorable facts from a message.
+
+        Args:
+            message: A Message ORM object.
+
+        Returns:
+            List of validated memory dicts, each with at least
+            'content' and 'confidence' keys.
         """
+        message_content = message.to_context_string()
+        prompt = build_memory_prompt(message_content)
+        raw = await self._call_llm(prompt)
+        parsed = self.parse_json_response(raw)
 
-        text = getattr(message, "text", None)
-
-        if text is None:
-            text = getattr(message, "body", None)
-
-        if not text:
-            logger.warning(
-                "%s: message has no extractable text.",
-                self.agent_name,
-            )
-            return []
-
-        return self.extract_from_text(text)
-
-    def extract_from_text(
-        self,
-        text: str,
-    ) -> List[Dict[str, Any]]:
-        """
-        Extract memories directly
-        from raw text.
-        """
-
-        if not text or not text.strip():
-            logger.warning(
-                "%s: empty text passed to extract_from_text.",
-                self.agent_name,
-            )
-            return []
-
-        prompt = self._build_prompt(text)
-
-        response = self._call_llm(prompt)
-
-        memories = self._parse_response(response)
-
-        memories = self._validate_schema(memories)
-
-        memories = self._normalize(memories)
-
-        memories = self._remove_duplicates(memories)
-
-        memories = self._sort_by_confidence(memories)
-
-        return memories
-
-    # ==========================================================
-    # Prompt
-    # ==========================================================
-
-    def _build_prompt(
-        self,
-        text: str,
-    ) -> str:
-        """
-        Construct memory prompt.
-        """
-
-        return build_memory_prompt(text)
-
-    # ==========================================================
-    # LLM
-    # ==========================================================
-
-    def _call_llm(
-        self,
-        prompt: str,
-    ) -> str:
-        """
-        Send prompt to LLM.
-        """
-
-        # TODO: Replace this with the actual BaseAgent LLM call.
-        # Example (uncomment and adjust once BaseAgent's real API is known):
-        # return self.run(prompt)
-        raise NotImplementedError(
-            "MemoryAgent._call_llm: wire this up to BaseAgent's LLM "
-            "invocation method once its API is confirmed."
-        )
-
-    # ==========================================================
-    # Parsing
-    # ==========================================================
-
-    def _parse_response(
-        self,
-        response: str,
-    ) -> List[Dict[str, Any]]:
-        """
-        Parse JSON response.
-        """
-
-        if not response or not isinstance(response, str):
-            logger.warning(
-                "%s: empty or invalid LLM response, nothing to parse.",
-                self.agent_name,
-            )
-            return []
-
-        cleaned = response.strip()
-
-        if not cleaned:
-            logger.warning(
-                "%s: empty LLM response after stripping whitespace.",
-                self.agent_name,
-            )
-            return []
-
-        fenced_match = re.match(
-            r"^```(?:json)?\s*(.*?)\s*```$",
-            cleaned,
-            flags=re.DOTALL,
-        )
-
-        if fenced_match:
-            cleaned = fenced_match.group(1).strip()
-
-        if not cleaned:
-            logger.warning(
-                "%s: empty content after removing markdown fence.",
-                self.agent_name,
-            )
-            return []
-
-        try:
-            parsed = json.loads(cleaned)
-        except (json.JSONDecodeError, TypeError) as exc:
-            logger.error(
-                "%s: failed to parse LLM response as JSON: %s",
-                self.agent_name,
-                exc,
-            )
-            return []
-
+        # Expect {"memories": [...]}
         if isinstance(parsed, dict):
-            parsed = parsed.get("memories", [])
-
-        if not isinstance(parsed, list):
-            logger.error(
-                "%s: parsed response is not a list of memories.",
-                self.agent_name,
-            )
+            memories_raw = parsed.get("memories", [])
+        elif isinstance(parsed, list):
+            memories_raw = parsed
+        else:
+            self.logger.warning("MemoryAgent.extract_memory: unexpected LLM response shape")
             return []
 
-        return parsed
-
-    # ==========================================================
-    # Validation
-    # ==========================================================
-
-    def _validate_memory(
-        self,
-        memory: Dict[str, Any],
-    ) -> bool:
-        """
-        Validate one memory object.
-        """
-
-        if not isinstance(memory, dict):
-            return False
-
-        required_fields = ("content", "confidence")
-
-        for field in required_fields:
-            if field not in memory:
-                return False
-
-        if not isinstance(memory.get("content"), str):
-            return False
-
-        if not memory["content"].strip():
-            return False
-
-        confidence = memory.get("confidence")
-
-        if not isinstance(confidence, (int, float)):
-            return False
-
-        if isinstance(confidence, bool):
-            return False
-
-        if confidence < 0 or confidence > 1:
-            return False
-
-        return True
-
-    def _validate_schema(
-        self,
-        memories: List[Dict[str, Any]],
-    ) -> List[Dict[str, Any]]:
-        """
-        Validate all memories.
-        """
-
-        if not isinstance(memories, list):
+        if not isinstance(memories_raw, list):
             return []
 
-        return [
-            memory
-            for memory in memories
-            if self._validate_memory(memory)
-        ]
-
-    # ==========================================================
-    # Filtering
-    # ==========================================================
-
-    def _filter_low_value(
-        self,
-        memories: List[Dict[str, Any]],
-    ) -> List[Dict[str, Any]]:
-        """
-        Remove useless memories.
-        """
-
-        # Business-level judgement of what counts as "low value" is
-        # the LLM's responsibility, not Python's. This method is kept
-        # as a structural no-op so the pipeline shape and public API
-        # are preserved.
-        return memories
-
-    def _remove_duplicates(
-        self,
-        memories: List[Dict[str, Any]],
-    ) -> List[Dict[str, Any]]:
-        """
-        Remove duplicate memories.
-        """
-
-        best_by_key: Dict[tuple, Dict[str, Any]] = {}
-        order: List[tuple] = []
-
-        for memory in memories:
-            memory_type = memory.get("type", "")
-            if not isinstance(memory_type, str):
-                memory_type = ""
-
-            content = memory.get("content", "")
-            if not isinstance(content, str):
-                content = ""
-
-            key = (memory_type, content.strip().lower())
-
-            confidence = memory.get("confidence", 0)
+        # Validate each memory
+        validated: list[dict] = []
+        for item in memories_raw:
+            if not isinstance(item, dict):
+                continue
+            if "content" not in item or "confidence" not in item:
+                continue
+            if not isinstance(item.get("content"), str) or not item["content"].strip():
+                continue
+            confidence = item.get("confidence")
             if not isinstance(confidence, (int, float)) or isinstance(confidence, bool):
-                confidence = 0
+                continue
+            # Clamp confidence to [0.0, 1.0]
+            item["confidence"] = max(0.0, min(1.0, float(confidence)))
+            validated.append(item)
 
-            if key not in best_by_key:
-                best_by_key[key] = memory
-                order.append(key)
-            else:
-                existing_confidence = best_by_key[key].get("confidence", 0)
-                if not isinstance(existing_confidence, (int, float)) or isinstance(existing_confidence, bool):
-                    existing_confidence = 0
+        return validated
 
-                if confidence > existing_confidence:
-                    best_by_key[key] = memory
-
-        return [best_by_key[key] for key in order]
-
-    # ==========================================================
-    # Post Processing
-    # ==========================================================
-
-    def _normalize(
+    async def save_memories(
         self,
-        memories: List[Dict[str, Any]],
-    ) -> List[Dict[str, Any]]:
+        memories: list[dict],
+        user_id: int,
+        db: Session,
+        source_message_id: Optional[str] = None,
+    ) -> list[MemoryItem]:
         """
-        Normalize values.
+        Persist memory dicts as MemoryItem records in the database.
+
+        Args:
+            memories: List of validated memory dicts.
+            user_id: The owning user's ID.
+            db: SQLAlchemy session.
+            source_message_id: Optional source message ID for traceability.
+
+        Returns:
+            List of saved MemoryItem ORM objects.
         """
+        saved: list[MemoryItem] = []
 
-        normalized: List[Dict[str, Any]] = []
+        for mem in memories:
+            item = MemoryItem(
+                user_id=user_id,
+                category=mem.get("category", "personal"),
+                content=mem["content"],
+                context=mem.get("context"),
+                related_person=mem.get("related_person"),
+                related_project=mem.get("related_project"),
+                retention_value=mem.get("retention_value", "medium"),
+                confidence=float(mem.get("confidence", 0.8)),
+                source_message_id=source_message_id,
+            )
+            db.add(item)
+            saved.append(item)
 
-        for memory in memories:
-            normalized_memory = dict(memory)
+        if saved:
+            db.commit()
+            for item in saved:
+                db.refresh(item)
 
-            content = normalized_memory.get("content", "")
-            if isinstance(content, str):
-                normalized_memory["content"] = " ".join(content.split())
+        self.logger.info(
+            "MemoryAgent.save_memories: saved %d memories for user_id=%d",
+            len(saved),
+            user_id,
+        )
+        return saved
 
-            confidence = normalized_memory.get("confidence")
-            if isinstance(confidence, (int, float)) and not isinstance(confidence, bool):
-                normalized_memory["confidence"] = float(confidence)
-
-            normalized.append(normalized_memory)
-
-        return normalized
-
-    def _sort_by_confidence(
+    async def get_memories(
         self,
-        memories: List[Dict[str, Any]],
-    ) -> List[Dict[str, Any]]:
+        user_id: int,
+        db: Session,
+        category: Optional[str] = None,
+        limit: int = 50,
+    ) -> list[MemoryItem]:
         """
-        Highest confidence first.
-        """
+        Retrieve stored memories for a user.
 
-        return sorted(
-            memories,
-            key=lambda memory: memory.get("confidence", 0),
-            reverse=True,
+        Args:
+            user_id: The user's ID.
+            db: SQLAlchemy session.
+            category: Optional category filter.
+            limit: Maximum number of results.
+
+        Returns:
+            List of MemoryItem objects sorted by confidence descending.
+        """
+        query = db.query(MemoryItem).filter_by(user_id=user_id)
+        if category:
+            query = query.filter_by(category=category)
+        return (
+            query.order_by(MemoryItem.confidence.desc())
+            .limit(limit)
+            .all()
         )
 
-    # ==========================================================
-    # Future Features
-    # ==========================================================
-
-    def save_memory(
+    async def delete_memory(
         self,
-        memories: List[Dict[str, Any]],
-    ) -> None:
-        """
-        Save into database.
-        Future implementation.
-        """
-
-        raise NotImplementedError(
-            "MemoryAgent.save_memory: persistence is out of scope for "
-            "this agent and will be implemented by a repository layer."
-        )
-
-    def search_memory(
-        self,
-        query: str,
-    ) -> List[Dict[str, Any]]:
-        """
-        Search stored memories.
-        Future implementation.
-        """
-
-        raise NotImplementedError(
-            "MemoryAgent.search_memory: persistence is out of scope for "
-            "this agent and will be implemented by a repository layer."
-        )
-
-    def delete_memory(
-        self,
-        memory_id: str,
+        memory_id: int,
+        user_id: int,
+        db: Session,
     ) -> bool:
         """
-        Delete memory.
-        Future implementation.
-        """
+        Delete a memory item if it belongs to the given user.
 
-        raise NotImplementedError(
-            "MemoryAgent.delete_memory: persistence is out of scope for "
-            "this agent and will be implemented by a repository layer."
+        Returns:
+            True if deleted, False if not found or unauthorized.
+        """
+        item = (
+            db.query(MemoryItem)
+            .filter_by(id=memory_id, user_id=user_id)
+            .first()
         )
+        if item is None:
+            return False
 
-    def update_memory(
-        self,
-        memory_id: str,
-        updates: Dict[str, Any],
-    ) -> bool:
-        """
-        Update memory.
-        Future implementation.
-        """
-
-        raise NotImplementedError(
-            "MemoryAgent.update_memory: persistence is out of scope for "
-            "this agent and will be implemented by a repository layer."
+        db.delete(item)
+        db.commit()
+        self.logger.info(
+            "MemoryAgent.delete_memory: deleted memory_id=%d for user_id=%d",
+            memory_id,
+            user_id,
         )
+        return True
