@@ -22,7 +22,7 @@ class OAuthToken(Base):
     )
     provider: Mapped[str] = mapped_column(
         String(50), nullable=False, index=True
-    )  # "google", "twitter", "whatsapp"
+    )  # "google", "twitter", "whatsapp", "linkedin"
 
     access_token: Mapped[str] = mapped_column(Text, nullable=False)
     refresh_token: Mapped[str | None] = mapped_column(Text, nullable=True)

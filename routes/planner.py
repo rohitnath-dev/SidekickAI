@@ -45,27 +45,40 @@ async def daily_briefing(
 ):
     """Generate a daily executive briefing for the current user."""
     from agents.planner_agent import PlannerAgent
+    from datetime import datetime
 
-    # Google credentials are optional — briefing works without them
-    creds = get_credentials(current_user.id, db)
+    today_date = datetime.utcnow().strftime("%Y-%m-%d")
 
     try:
+        # Google credentials are optional — briefing works without them
+        creds = get_credentials(current_user.id, db)
         result = await PlannerAgent().generate_daily_briefing(
             user_id=current_user.id,
             db=db,
             creds=creds,
         )
+        if not isinstance(result, dict):
+            result = {}
+            
+        return BriefingResponse(
+            date=result.get("date") or today_date,
+            executive_summary=result.get("executive_summary") or "Your daily executive briefing is ready.",
+            critical_items=result.get("critical_items", []),
+            pending_work=result.get("pending_work", []),
+            upcoming_deadlines=result.get("upcoming_deadlines", []),
+            recommended_priorities=result.get("recommended_priorities", []),
+            risks=result.get("risks", []),
+            next_actions=result.get("next_actions", []),
+        )
     except Exception as exc:
-        logger.error("Daily briefing failed for user %d: %s", current_user.id, exc)
-        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(exc))
-
-    return BriefingResponse(
-        date=result.get("date"),
-        executive_summary=result.get("executive_summary"),
-        critical_items=result.get("critical_items", []),
-        pending_work=result.get("pending_work", []),
-        upcoming_deadlines=result.get("upcoming_deadlines", []),
-        recommended_priorities=result.get("recommended_priorities", []),
-        risks=result.get("risks", []),
-        next_actions=result.get("next_actions", []),
-    )
+        logger.error("Daily briefing failed or validated incorrectly for user %d: %s", current_user.id, exc, exc_info=True)
+        return BriefingResponse(
+            date=today_date,
+            executive_summary="AI briefing generation encountered an error. Showing offline fallback summary.",
+            critical_items=[],
+            pending_work=[],
+            upcoming_deadlines=[],
+            recommended_priorities=[],
+            risks=[],
+            next_actions=["Review communications manually in the Inbox tab."],
+        )

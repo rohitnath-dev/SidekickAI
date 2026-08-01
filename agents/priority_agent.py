@@ -75,7 +75,11 @@ class PriorityAgent(BaseAgent):
         results: list[dict] = []
 
         for message in messages:
-            priority_dict = await self.analyze(message)
+            try:
+                priority_dict = await self.analyze(message)
+            except Exception as e:
+                self.logger.error("Failed to analyze message %s in batch: %s", message.message_id, e)
+                priority_dict = _FALLBACK.copy()
             # Attach the message id for reference
             priority_dict["message_id"] = message.message_id
             results.append(priority_dict)

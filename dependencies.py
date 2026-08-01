@@ -7,7 +7,7 @@ from __future__ import annotations
 import logging
 from typing import Optional
 
-from fastapi import Depends, HTTPException, status
+from fastapi import Depends, HTTPException, Request, status
 from fastapi.security import OAuth2PasswordBearer
 from sqlalchemy.orm import Session
 
@@ -24,7 +24,7 @@ oauth2_scheme_optional = OAuth2PasswordBearer(
 
 
 async def get_current_user(
-    token: str = Depends(oauth2_scheme),
+    request: Request,
     db: Session = Depends(get_db),
 ) -> User:
     """Resolve JWT bearer token to an active User. Raises 401 on failure."""
@@ -33,6 +33,22 @@ async def get_current_user(
         detail="Could not validate credentials.",
         headers={"WWW-Authenticate": "Bearer"},
     )
+
+    token = None
+    auth_header = request.headers.get("Authorization")
+    if auth_header:
+        parts = auth_header.split(" ")
+        if len(parts) == 2 and parts[0].lower() == "bearer":
+            token = parts[1]
+
+    if not token:
+        token = request.cookies.get("access_token")
+
+    if not token:
+        token = request.query_params.get("token")
+
+    if not token:
+        raise credentials_exception
 
     user_id_str = decode_access_token(token)
     if user_id_str is None:
@@ -51,10 +67,23 @@ async def get_current_user(
 
 
 async def get_optional_user(
-    token: Optional[str] = Depends(oauth2_scheme_optional),
+    request: Request,
     db: Session = Depends(get_db),
 ) -> Optional[User]:
     """Like get_current_user but returns None instead of raising on missing/invalid token."""
+    token = None
+    auth_header = request.headers.get("Authorization")
+    if auth_header:
+        parts = auth_header.split(" ")
+        if len(parts) == 2 and parts[0].lower() == "bearer":
+            token = parts[1]
+
+    if not token:
+        token = request.cookies.get("access_token")
+
+    if not token:
+        token = request.query_params.get("token")
+
     if token is None:
         return None
     user_id_str = decode_access_token(token)

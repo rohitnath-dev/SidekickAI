@@ -150,3 +150,110 @@ async def reply_to_stored_message(
         db.commit()
 
     return ReplyResponse(reply=reply_text, tone=tone, language=language)
+
+
+class ApproveReplyRequest(BaseModel):
+    reply_text: str
+
+
+@router.post("/message/{message_id}/approve")
+async def approve_reply(
+    message_id: int,
+    request: ApproveReplyRequest,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Approve and dispatch the reply draft to the original platform."""
+    msg = MessageRepository.get_by_id(db, message_id, current_user.id)
+    if msg is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Message not found.")
+
+    from models.message import MessageSource
+    from config import settings
+
+    result = None
+    try:
+        if msg.source == MessageSource.GMAIL:
+            from services.oauth import get_credentials
+            from agents.gmail_agent import GmailAgent
+            
+            creds = get_credentials(current_user.id, db)
+            if creds is None:
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail="Google account not connected.",
+                )
+            result = GmailAgent().send_reply(creds, msg, request.reply_text)
+
+        elif msg.source == MessageSource.WHATSAPP:
+            from agents.whatsapp_agent import WhatsAppAgent
+            from repositories.token_repo import TokenRepository
+            
+            token = TokenRepository.get(db, user_id=current_user.id, provider="whatsapp")
+            if token and token.access_token != "disabled":
+                api_token = token.access_token
+                phone_number_id = token.refresh_token
+            else:
+                if token and token.access_token == "disabled":
+                    raise HTTPException(
+                        status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                        detail="WhatsApp is disconnected. Please connect in settings.",
+                    )
+                if not settings.WHATSAPP_API_TOKEN or not settings.WHATSAPP_PHONE_NUMBER_ID:
+                    raise HTTPException(
+                        status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                        detail="WhatsApp is not configured. Set WHATSAPP_API_TOKEN and WHATSAPP_PHONE_NUMBER_ID, or connect via settings.",
+                    )
+                api_token = settings.WHATSAPP_API_TOKEN
+                phone_number_id = settings.WHATSAPP_PHONE_NUMBER_ID
+
+            result = await WhatsAppAgent().send_message(
+                api_token=api_token,
+                phone_number_id=phone_number_id,
+                to=msg.sender,
+                text=request.reply_text,
+            )
+
+        elif msg.source == MessageSource.TWITTER:
+            from agents.twitter_agent import TwitterAgent
+            
+            if not all([
+                settings.TWITTER_API_KEY,
+                settings.TWITTER_API_SECRET,
+                settings.TWITTER_ACCESS_TOKEN,
+                settings.TWITTER_ACCESS_SECRET,
+            ]):
+                raise HTTPException(
+                    status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                    detail="Twitter/X write credentials not configured.",
+                )
+            result = await TwitterAgent().post_reply(
+                api_key=settings.TWITTER_API_KEY,
+                api_secret=settings.TWITTER_API_SECRET,
+                access_token=settings.TWITTER_ACCESS_TOKEN,
+                access_secret=settings.TWITTER_ACCESS_SECRET,
+                tweet_id=msg.message_id,
+                text=request.reply_text,
+            )
+        else:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Replying is not supported for message source '{msg.source.value}'",
+            )
+    except Exception as exc:
+        logger.error("Approve and send reply failed for message %d: %s", message_id, exc)
+        if msg.source == MessageSource.GMAIL:
+            from services.oauth import handle_google_error
+            handle_google_error(exc)
+        elif msg.source == MessageSource.WHATSAPP:
+            from routes.whatsapp import handle_whatsapp_error
+            handle_whatsapp_error(exc)
+        else:
+            raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(exc))
+
+    # Mark as replied and update the reply body in db
+    msg.suggested_reply = request.reply_text
+    msg.mark_as_replied()
+    db.commit()
+
+    return {"status": "sent", "source": msg.source.value}

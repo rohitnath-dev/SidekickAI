@@ -39,7 +39,7 @@ class PreferencesResponse(BaseModel):
 # Endpoints
 # ---------------------------------------------------------------------------
 
-KNOWN_PROVIDERS = ["google", "twitter", "whatsapp"]
+KNOWN_PROVIDERS = ["google", "twitter", "whatsapp", "linkedin"]
 
 
 @router.get("/preferences", response_model=PreferencesResponse)
@@ -48,17 +48,32 @@ async def get_preferences(
     db: Session = Depends(get_db),
 ):
     """Return user preferences and which services are connected."""
+    from config import settings
     tokens = TokenRepository.list_by_user(db, current_user.id)
     connected = {t.provider: t for t in tokens}
 
     services = []
     for provider in KNOWN_PROVIDERS:
+        is_connected = False
+        connected_at = None
+        
         token = connected.get(provider)
+        if token:
+            if token.access_token == "disabled":
+                is_connected = False
+            else:
+                is_connected = True
+                connected_at = token.created_at.isoformat() if token.created_at else None
+        elif provider == "twitter" and settings.TWITTER_BEARER_TOKEN:
+            is_connected = True
+        elif provider == "whatsapp" and settings.WHATSAPP_API_TOKEN and settings.WHATSAPP_PHONE_NUMBER_ID:
+            is_connected = True
+
         services.append(
             ConnectedService(
                 provider=provider,
-                connected=token is not None,
-                connected_at=token.created_at.isoformat() if token else None,
+                connected=is_connected,
+                connected_at=connected_at,
             )
         )
 
@@ -71,15 +86,37 @@ async def list_connected_services(
     db: Session = Depends(get_db),
 ):
     """List all OAuth services the user has connected."""
+    from config import settings
     tokens = TokenRepository.list_by_user(db, current_user.id)
-    return [
-        ConnectedService(
-            provider=t.provider,
-            connected=True,
-            connected_at=t.created_at.isoformat() if t.created_at else None,
-        )
-        for t in tokens
-    ]
+    connected = {t.provider: t for t in tokens}
+    
+    services = []
+    for provider in KNOWN_PROVIDERS:
+        is_connected = False
+        connected_at = None
+        
+        token = connected.get(provider)
+        if token:
+            if token.access_token == "disabled":
+                is_connected = False
+            else:
+                is_connected = True
+                connected_at = token.created_at.isoformat() if token.created_at else None
+        elif provider == "twitter" and settings.TWITTER_BEARER_TOKEN:
+            is_connected = True
+        elif provider == "whatsapp" and settings.WHATSAPP_API_TOKEN and settings.WHATSAPP_PHONE_NUMBER_ID:
+            is_connected = True
+            
+        if is_connected:
+            services.append(
+                ConnectedService(
+                    provider=provider,
+                    connected=True,
+                    connected_at=connected_at,
+                )
+            )
+            
+    return services
 
 
 @router.post("/disconnect/{provider}")
@@ -94,10 +131,26 @@ async def disconnect_service(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=f"Unknown provider '{provider}'. Supported: {', '.join(KNOWN_PROVIDERS)}",
         )
-    deleted = TokenRepository.delete(db, user_id=current_user.id, provider=provider)
-    if not deleted:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"No connected {provider} account found.",
+
+    from config import settings
+    has_system_fallback = False
+    if provider == "whatsapp" and settings.WHATSAPP_API_TOKEN and settings.WHATSAPP_PHONE_NUMBER_ID:
+        has_system_fallback = True
+    elif provider == "twitter" and settings.TWITTER_BEARER_TOKEN:
+        has_system_fallback = True
+
+    if has_system_fallback:
+        # Upsert a disabled token marker to override the system fallback
+        TokenRepository.upsert(
+            db=db,
+            user_id=current_user.id,
+            provider=provider,
+            access_token="disabled",
+            refresh_token="disabled",
+            token_uri="disabled",
         )
+    else:
+        # Just delete it since there is no system fallback
+        TokenRepository.delete(db, user_id=current_user.id, provider=provider)
+
     return {"status": "disconnected", "provider": provider}

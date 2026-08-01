@@ -60,6 +60,13 @@ class Settings(BaseSettings):
     GOOGLE_REDIRECT_URI: str = "http://localhost:8000/api/v1/gmail/callback"
 
     # ------------------------------------------------------------------ #
+    # LinkedIn OAuth                                                        #
+    # ------------------------------------------------------------------ #
+    LINKEDIN_CLIENT_ID: str
+    LINKEDIN_CLIENT_SECRET: str
+    LINKEDIN_REDIRECT_URI: str = "http://localhost:8000/api/v1/linkedin/callback"
+
+    # ------------------------------------------------------------------ #
     # Twitter / X                                                           #
     # ------------------------------------------------------------------ #
     TWITTER_API_KEY: str = ""
@@ -67,6 +74,7 @@ class Settings(BaseSettings):
     TWITTER_BEARER_TOKEN: str = ""
     TWITTER_ACCESS_TOKEN: str = ""
     TWITTER_ACCESS_SECRET: str = ""
+    TWITTER_USER_ID: str = ""
 
     # ------------------------------------------------------------------ #
     # WhatsApp (Meta Cloud API)                                             #
@@ -74,7 +82,12 @@ class Settings(BaseSettings):
     WHATSAPP_API_TOKEN: str = ""
     WHATSAPP_PHONE_NUMBER_ID: str = ""
     WHATSAPP_VERIFY_TOKEN: str = ""
+    WHATSAPP_APP_SECRET: str = ""
     WHATSAPP_API_BASE_URL: str = "https://graph.facebook.com/v19.0"
+    META_APP_ID: str = ""
+    META_APP_SECRET: str = ""
+    WHATSAPP_CONFIG_ID: str = ""
+    WHATSAPP_REDIRECT_URI: str = "http://localhost:8000/api/v1/whatsapp/callback"
 
     # ------------------------------------------------------------------ #
     # CORS                                                                  #
