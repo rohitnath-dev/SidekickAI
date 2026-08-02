@@ -17,3 +17,4 @@ alembic
 aiosqlite
 greenlet
 email-validator
+psycopg2-binary
