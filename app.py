@@ -2,8 +2,10 @@
 Sidekick AI — FastAPI application entry point.
 """
 
-import logging
+from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse
 import os
+import logging
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
@@ -121,11 +123,19 @@ app.include_router(linkedin_router, prefix=API_PREFIX)
 
 
 # ---------------------------------------------------------------------------
-# Root + Health
+# Root / Frontend UI + Health
 # ---------------------------------------------------------------------------
 
+# Mount the frontend directory to serve static assets (CSS, JS, images, etc.)
+app.mount("/static", StaticFiles(directory="frontend"), name="static")
+
+
 @app.get("/", tags=["Root"])
-async def root():
+async def serve_frontend():
+    """Serve the frontend user interface index.html file at root URL."""
+    index_path = os.path.join("frontend", "index.html")
+    if os.path.exists(index_path):
+        return FileResponse(index_path)
     return {
         "success": True,
         "project": settings.PROJECT_NAME,
@@ -133,7 +143,6 @@ async def root():
         "status": "running",
         "docs": "/docs",
     }
-
 
 @app.get("/health", tags=["Health"])
 async def health():
