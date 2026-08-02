@@ -72,7 +72,8 @@ async def get_today(
         events = await CalendarAgent().get_todays_events(creds)
     except Exception as exc:
         logger.error("Calendar today failed for user %d: %s", current_user.id, exc)
-        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(exc))
+        from services.oauth import handle_google_error
+        handle_google_error(exc)
 
     return [
         EventResponse(
@@ -102,7 +103,8 @@ async def get_upcoming(
         events = await CalendarAgent().get_upcoming_events(creds, days=days)
     except Exception as exc:
         logger.error("Calendar upcoming failed for user %d: %s", current_user.id, exc)
-        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(exc))
+        from services.oauth import handle_google_error
+        handle_google_error(exc)
 
     return [
         EventResponse(
@@ -139,7 +141,8 @@ async def create_event(
         )
     except Exception as exc:
         logger.error("Calendar create event failed for user %d: %s", current_user.id, exc)
-        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(exc))
+        from services.oauth import handle_google_error
+        handle_google_error(exc)
 
     return EventResponse(
         id=event.get("id", ""),

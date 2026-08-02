@@ -19,9 +19,13 @@ from google.auth.transport.requests import Request
 from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import Flow
 from sqlalchemy.orm import Session
+from fastapi import HTTPException, status
 
 from config import settings
 from models.token import OAuthToken
+
+import os
+os.environ['OAUTHLIB_RELAX_TOKEN_SCOPE'] = 'True'
 
 logger = logging.getLogger(__name__)
 
@@ -32,8 +36,8 @@ GOOGLE_SCOPES = [
     "https://www.googleapis.com/auth/calendar.readonly",
     "https://www.googleapis.com/auth/contacts.readonly",
     "openid",
-    "email",
-    "profile",
+    "https://www.googleapis.com/auth/userinfo.email",
+    "https://www.googleapis.com/auth/userinfo.profile",
 ]
 
 CLIENT_CONFIG = {
@@ -52,10 +56,11 @@ def _build_flow() -> Flow:
         CLIENT_CONFIG,
         scopes=GOOGLE_SCOPES,
         redirect_uri=settings.GOOGLE_REDIRECT_URI,
+        autogenerate_code_verifier=False,
     )
 
 
-def generate_authorization_url() -> tuple[str, str]:
+def generate_authorization_url(state: Optional[str] = None) -> tuple[str, str]:
     """
     Build the Google OAuth consent URL.
 
@@ -68,6 +73,7 @@ def generate_authorization_url() -> tuple[str, str]:
         access_type="offline",
         include_granted_scopes="true",
         prompt="consent",
+        state=state,
     )
     return url, state
 
@@ -165,3 +171,74 @@ def revoke_credentials(user_id: int, db: Session) -> bool:
     db.commit()
     logger.info("Google credentials revoked for user_id=%d", user_id)
     return True
+
+
+def handle_google_error(exc: Exception):
+    """
+    Analyzes a Google API exception and raises a clean, structured HTTPException
+    that can be easily parsed by the frontend.
+    """
+    from googleapiclient.errors import HttpError
+    from google.auth.exceptions import RefreshError, GoogleAuthError
+
+    # 1. Invalid or expired/revoked credentials
+    if isinstance(exc, (RefreshError, GoogleAuthError)) or "invalid_grant" in str(exc) or "authError" in str(exc):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail={
+                "code": "GOOGLE_SESSION_EXPIRED",
+                "message": "Google session expired. Please reconnect your account.",
+                "action": "reconnect",
+            }
+        )
+
+    # 2. API calls failing due to Google HTTP Error (403, 429, etc.)
+    if isinstance(exc, HttpError):
+        status_code = exc.resp.status
+        content = exc.content.decode("utf-8") if isinstance(exc.content, bytes) else str(exc.content)
+        uri = getattr(exc, 'uri', '')
+
+        # Check if the API is disabled
+        if "accessNotConfigured" in content or "has not been used in project" in content or "disabled" in content:
+            api_name = "Gmail API" if "gmail" in uri else ("Calendar API" if "calendar" in uri else "Google API")
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail={
+                    "code": "GOOGLE_API_DISABLED",
+                    "message": f"The {api_name} has not been enabled in the Google Cloud Console. Please enable it to proceed.",
+                    "action": "enable_api",
+                    "action_url": f"https://console.developers.google.com/apis/api/{'gmail' if 'gmail' in uri else 'calendar'}.googleapis.com/overview",
+                }
+            )
+
+        # Check for rate limits / quota exceeded
+        if status_code == 429 or "rateLimitExceeded" in content or "quotaExceeded" in content:
+            raise HTTPException(
+                status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+                detail={
+                    "code": "GOOGLE_RATE_LIMIT",
+                    "message": "Google API rate limit or quota exceeded. Please try again shortly.",
+                    "action": "wait",
+                }
+            )
+
+        # Other Google HttpErrors
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail={
+                "code": f"GOOGLE_HTTP_ERROR_{status_code}",
+                "message": f"Google service returned an error ({status_code}). Please try again.",
+                "action": "retry",
+            }
+        )
+
+    # 3. Generic/unexpected exception
+    raise HTTPException(
+        status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+        detail={
+            "code": "EXTERNAL_INTEGRATION_ERROR",
+            "message": f"External integration error: {str(exc)}",
+            "action": "retry",
+        }
+    )
+

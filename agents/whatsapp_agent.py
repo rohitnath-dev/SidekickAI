@@ -66,16 +66,9 @@ class WhatsAppAgent(BaseAgent):
                 response = await client.post(url, headers=headers, json=payload)
                 response.raise_for_status()
                 return response.json()
-        except httpx.HTTPStatusError as exc:
-            self.logger.error(
-                "WhatsAppAgent.send_message HTTP error: %s — %s",
-                exc,
-                exc.response.text,
-            )
-            return {}
         except Exception as exc:
             self.logger.error("WhatsAppAgent.send_message failed: %s", exc)
-            return {}
+            raise exc
 
     # ------------------------------------------------------------------
     # Webhook parsing

@@ -3,10 +3,14 @@ Sidekick AI — FastAPI application entry point.
 """
 
 import logging
+import os
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+
+# Prevent oauthlib from failing on resolved alias scope changes
+os.environ['OAUTHLIB_RELAX_TOKEN_SCOPE'] = 'True'
 
 from config import settings
 from database import Base, engine
@@ -23,6 +27,7 @@ from routes.calendar import router as calendar_router
 from routes.twitter import router as twitter_router
 from routes.whatsapp import router as whatsapp_router
 from routes.settings import router as settings_router
+from routes.linkedin import router as linkedin_router
 
 # ---------------------------------------------------------------------------
 # Logging
@@ -47,8 +52,20 @@ async def lifespan(app: FastAPI):
     Base.metadata.create_all(bind=engine)
     logger.info("Database tables ready.")
 
+    # Start background poller task
+    import asyncio
+    from services.poller import start_polling
+    polling_task = asyncio.create_task(start_polling())
+
     logger.info("Sidekick AI backend is ready.")
     yield
+
+    # Shutdown background poller
+    polling_task.cancel()
+    try:
+        await polling_task
+    except asyncio.CancelledError:
+        logger.info("Background poller task stopped.")
 
     # Shutdown — close the LLM async client
     from services.llm import llm
@@ -100,6 +117,7 @@ app.include_router(calendar_router, prefix=API_PREFIX)
 app.include_router(twitter_router,  prefix=API_PREFIX)
 app.include_router(whatsapp_router, prefix=API_PREFIX)
 app.include_router(settings_router, prefix=API_PREFIX)
+app.include_router(linkedin_router, prefix=API_PREFIX)
 
 
 # ---------------------------------------------------------------------------

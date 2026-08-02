@@ -5,12 +5,13 @@ from __future__ import annotations
 import logging
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
+from fastapi.responses import HTMLResponse
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from database import get_db
-from dependencies import get_current_user
+from dependencies import get_current_user, get_optional_user
 from models.user import User
 from repositories.message_repo import MessageRepository
 from services.oauth import (
@@ -76,10 +77,25 @@ def _msg_to_response(msg) -> MessageResponse:
 # ---------------------------------------------------------------------------
 
 @router.get("/authorize")
-async def authorize(current_user: User = Depends(get_current_user)):
+async def authorize(
+    request: Request,
+    current_user: User = Depends(get_current_user)
+):
     """Generate the Google OAuth consent URL."""
+    # Resolve the token to pass as OAuth state
+    token = None
+    auth_header = request.headers.get("Authorization")
+    if auth_header:
+        parts = auth_header.split(" ")
+        if len(parts) == 2 and parts[0].lower() == "bearer":
+            token = parts[1]
+    if not token:
+        token = request.cookies.get("access_token")
+    if not token:
+        token = request.query_params.get("token")
+
     try:
-        url, state = generate_authorization_url()
+        url, state = generate_authorization_url(state=token)
     except Exception as exc:
         logger.error("Failed to generate authorization URL: %s", exc)
         raise HTTPException(
@@ -93,19 +109,60 @@ async def authorize(current_user: User = Depends(get_current_user)):
 async def callback(
     code: str = Query(...),
     state: str = Query(default=""),
-    current_user: User = Depends(get_current_user),
+    current_user: Optional[User] = Depends(get_optional_user),
     db: Session = Depends(get_db),
 ):
     """Exchange the OAuth code for tokens and store them."""
+    user_id = None
+    if current_user:
+        user_id = current_user.id
+    elif state:
+        # Resolve token from state
+        from dependencies import decode_access_token
+        user_id_str = decode_access_token(state)
+        if user_id_str:
+            try:
+                user_id = int(user_id_str)
+            except (ValueError, TypeError):
+                pass
+
+    if not user_id:
+        logger.error("OAuth callback failed: User could not be identified.")
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="User session not found. Please log in again and reconnect.",
+        )
+
     try:
-        exchange_code_for_tokens(code=code, state=state, db=db, user_id=current_user.id)
+        exchange_code_for_tokens(code=code, state=state, db=db, user_id=user_id)
     except Exception as exc:
-        logger.error("OAuth exchange failed for user %d: %s", current_user.id, exc)
+        logger.error("OAuth exchange failed for user %s: %s", user_id, exc)
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
             detail=f"Failed to exchange authorization code: {exc}",
         )
-    return {"status": "success", "message": "Google account connected successfully."}
+    
+    # Return HTML response that automatically closes the popup
+    return HTMLResponse(
+        content="""
+        <html>
+            <head>
+                <title>Authentication Successful</title>
+                <script type="text/javascript">
+                    if (window.opener) {
+                        // Notify opener/parent page if applicable
+                        window.opener.postMessage("gmail-connected", "*");
+                    }
+                    window.close();
+                </script>
+            </head>
+            <body style="font-family: sans-serif; text-align: center; padding-top: 50px; background-color: #121214; color: #ffffff;">
+                <h2>Google account connected successfully!</h2>
+                <p>This window will close automatically.</p>
+            </body>
+        </html>
+        """
+    )
 
 
 @router.delete("/disconnect")
@@ -150,10 +207,8 @@ async def sync(
         )
     except Exception as exc:
         logger.error("Gmail sync failed for user %d: %s", current_user.id, exc)
-        raise HTTPException(
-            status_code=status.HTTP_502_BAD_GATEWAY,
-            detail=f"Gmail sync failed: {exc}",
-        )
+        from services.oauth import handle_google_error
+        handle_google_error(exc)
 
     return SyncResponse(
         synced=result.get("synced", 0),
@@ -168,6 +223,7 @@ async def list_messages(
     offset: int = Query(default=0, ge=0),
     unread_only: bool = Query(default=False),
     source: Optional[str] = Query(default=None),
+    high_priority_only: bool = Query(default=False),
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
@@ -179,6 +235,7 @@ async def list_messages(
         offset=offset,
         unread_only=unread_only,
         source=source,
+        high_priority_only=high_priority_only,
     )
     return [_msg_to_response(m) for m in messages]
 
@@ -207,6 +264,37 @@ async def mark_read(
     if msg is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Message not found.")
     msg.mark_as_read()
+    db.commit()
+    db.refresh(msg)
+    return _msg_to_response(msg)
+
+
+class StatusUpdateRequest(BaseModel):
+    status: str
+
+
+@router.patch("/messages/{message_id}/status", response_model=MessageResponse)
+async def update_status(
+    message_id: int,
+    request: StatusUpdateRequest,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Update a message's status (read, unread, replied, archived)."""
+    msg = MessageRepository.get_by_id(db, message_id, current_user.id)
+    if msg is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Message not found.")
+
+    from models.message import MessageStatus
+    try:
+        status_enum = MessageStatus(request.status.lower())
+    except ValueError:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Invalid status '{request.status}'. Allowed: read, unread, replied, archived."
+        )
+
+    msg.status = status_enum
     db.commit()
     db.refresh(msg)
     return _msg_to_response(msg)

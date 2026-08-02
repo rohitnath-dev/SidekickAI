@@ -3,14 +3,19 @@
 from __future__ import annotations
 
 import logging
+import hmac
+import hashlib
+import json
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, BackgroundTasks, status
 from pydantic import BaseModel
 
 from config import settings
 from dependencies import get_current_user
 from models.user import User
+from sqlalchemy.orm import Session
+from database import get_db
 
 logger = logging.getLogger(__name__)
 
@@ -185,3 +190,174 @@ async def post_reply(
 
     posted_id = result.get("data", {}).get("id") if isinstance(result, dict) else None
     return ReplyResponse(reply_text=reply_text, posted=True, tweet_id=posted_id)
+
+
+@router.post("/sync")
+async def sync_twitter_mentions(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Manually fetch new Twitter mentions and store them in the database."""
+    from agents.twitter_agent import TwitterAgent
+    from models.message import Message, MessageSource, MessagePriority, MessageStatus
+    from datetime import datetime
+    from services.ai_pipeline import process_message_ai
+
+    _require_twitter()
+    twitter_user_id = settings.TWITTER_USER_ID
+    if not twitter_user_id:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="TWITTER_USER_ID is not configured in settings."
+        )
+
+    try:
+        tweets = await TwitterAgent().get_mentions(
+            bearer_token=settings.TWITTER_BEARER_TOKEN,
+            user_id=twitter_user_id,
+            max_results=10,
+        )
+    except Exception as exc:
+        logger.error("Twitter sync get_mentions failed: %s", exc)
+        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(exc))
+
+    synced_count = 0
+    for t in tweets:
+        tweet_id = t.get("id")
+        if not tweet_id:
+            continue
+
+        existing = db.query(Message).filter_by(message_id=tweet_id, source=MessageSource.TWITTER).first()
+        if existing:
+            continue
+
+        db_msg = Message(
+            user_id=current_user.id,
+            message_id=tweet_id,
+            source=MessageSource.TWITTER,
+            sender=t.get("author_id") or "TwitterUser",
+            body=t.get("text", ""),
+            priority=MessagePriority.MEDIUM,
+            status=MessageStatus.UNREAD,
+            received_at=datetime.utcnow()
+        )
+        db.add(db_msg)
+        db.commit()
+        db.refresh(db_msg)
+
+        synced_count += 1
+        # Run AI pipeline
+        try:
+            await process_message_ai(db, db_msg)
+        except Exception as e:
+            logger.error("Twitter sync AI pipeline failed for tweet %s: %s", tweet_id, e)
+
+    return {"synced": synced_count, "total_stored": synced_count, "status": "success"}
+
+
+async def verify_twitter_signature(request: Request) -> bytes:
+    """Validate signature to ensure incoming payload is genuinely from Twitter/X."""
+    signature = request.headers.get("X-Twitter-Webhooks-Signature")
+    if not signature:
+        logger.warning("Twitter Webhook: Missing signature header.")
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Missing signature header."
+        )
+
+    received_sig = signature.split("sha256=")[1] if "sha256=" in signature else signature
+    raw_body = await request.body()
+    secret = settings.TWITTER_API_SECRET or "twitter_api_secret"
+    
+    computed_sig = hmac.new(
+        secret.encode("utf-8"),
+        raw_body,
+        hashlib.sha256
+    ).hexdigest()
+
+    if not hmac.compare_digest(received_sig, computed_sig):
+        logger.warning("Twitter Webhook: HMAC signature validation failed.")
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="HMAC signature validation failed."
+        )
+
+    return raw_body
+
+
+async def process_twitter_payload_async(body: dict) -> None:
+    """Asynchronously process incoming Twitter webhook payload."""
+    from database import SessionLocal
+    from models.message import Message, MessageSource, MessagePriority, MessageStatus
+    from datetime import datetime
+    from services.ai_pipeline import process_message_ai
+    from models.user import User
+
+    db = SessionLocal()
+    try:
+        tweet_id = body.get("tweet_id")
+        author_id = body.get("author_id", "TwitterUser")
+        text = body.get("text", "")
+
+        if not tweet_id:
+            logger.warning("Twitter Webhook: Missing tweet_id in payload.")
+            return
+
+        logger.info("Background Twitter processing: tweet %s from %s", tweet_id, author_id)
+
+        # Skip if already exists
+        existing = db.query(Message).filter_by(message_id=tweet_id, source=MessageSource.TWITTER).first()
+        if existing:
+            logger.info("Twitter message %s already exists in database.", tweet_id)
+            return
+
+        # Find user
+        user = db.query(User).first()
+        user_id = user.id if user else 1
+
+        db_msg = Message(
+            user_id=user_id,
+            message_id=tweet_id,
+            source=MessageSource.TWITTER,
+            sender=author_id,
+            body=text,
+            priority=MessagePriority.MEDIUM,
+            status=MessageStatus.UNREAD,
+            received_at=datetime.utcnow()
+        )
+        db.add(db_msg)
+        db.commit()
+        db.refresh(db_msg)
+
+        # Trigger AI pipeline
+        try:
+            await process_message_ai(db, db_msg)
+        except Exception as e:
+            logger.error("Failed to run AI pipeline for Twitter message %s: %s", tweet_id, e)
+
+    except Exception as exc:
+        logger.error("Background Twitter processing error: %s", exc)
+    finally:
+        db.close()
+
+
+@router.post("/webhook", status_code=status.HTTP_200_OK)
+async def twitter_webhook(
+    request: Request,
+    background_tasks: BackgroundTasks,
+):
+    """
+    Handle incoming Twitter mentions/DMs webhook.
+    Verifies signature and processes the payload asynchronously in the background.
+    """
+    raw_body = await verify_twitter_signature(request)
+    try:
+        body = json.loads(raw_body.decode("utf-8"))
+    except Exception as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Invalid JSON payload: {exc}"
+        )
+
+    background_tasks.add_task(process_twitter_payload_async, body)
+    return {"status": "ok"}

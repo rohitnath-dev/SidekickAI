@@ -59,18 +59,21 @@ class GmailAgent(BaseAgent):
     def get_messages(
         self,
         creds: Credentials,
-        limit: int = 20,
+        limit: int = 100,
         unread_only: bool = False,
     ) -> list[dict]:
         """
-        List Gmail messages.
+        List Gmail messages across all categories.
 
         Returns:
             List of dicts with 'id' and 'threadId' keys.
         """
         try:
             service = self._build_service(creds)
-            query = "is:unread" if unread_only else ""
+            if unread_only:
+                query = "is:unread OR newer_than:2d"
+            else:
+                query = "newer_than:7d"
             result = (
                 service.users()
                 .messages()
@@ -80,7 +83,7 @@ class GmailAgent(BaseAgent):
             return result.get("messages", [])
         except HttpError as exc:
             self.logger.error("GmailAgent.get_messages failed: %s", exc)
-            return []
+            raise exc
 
     def get_message(self, creds: Credentials, message_id: str) -> dict:
         """Fetch a full Gmail message by ID."""
@@ -239,19 +242,20 @@ class GmailAgent(BaseAgent):
     # Sync to DB
     # ------------------------------------------------------------------
 
-    def sync_messages(
+    async def sync_messages(
         self,
         creds: Credentials,
         db: Session,
         user_id: int,
         limit: int = 20,
+        unread_only: bool = False,
     ) -> dict:
         """
         Fetch messages from Gmail and store new ones in DB.
 
         Skips duplicates (by message_id). Returns a summary dict.
         """
-        raw_list = self.get_messages(creds, limit=limit)
+        raw_list = self.get_messages(creds, limit=limit, unread_only=unread_only)
         synced = 0
 
         for item in raw_list:
@@ -290,9 +294,17 @@ class GmailAgent(BaseAgent):
                 received_at=parsed.get("received_at") or datetime.utcnow(),
             )
             db.add(msg)
+            db.commit()
+            db.refresh(msg)
+            
+            # Run AI pipeline
+            try:
+                from services.ai_pipeline import process_message_ai
+                await process_message_ai(db, msg)
+            except Exception as e:
+                self.logger.error("Failed to run AI pipeline during sync: %s", e)
+                
             synced += 1
-
-        db.commit()
 
         total_stored = (
             db.query(Message)
@@ -334,3 +346,47 @@ class GmailAgent(BaseAgent):
             .limit(limit)
             .all()
         )
+
+    def send_reply(
+        self,
+        creds: Credentials,
+        message: Message,
+        reply_body: str,
+    ) -> dict:
+        """
+        Send a reply to a specific email message via Gmail API.
+        """
+        from email.mime.text import MIMEText
+        import base64
+
+        service = self._build_service(creds)
+
+        # Build MIME message
+        mime_msg = MIMEText(reply_body)
+        mime_msg["to"] = message.sender
+        mime_msg["from"] = "me"
+
+        subject = message.subject or ""
+        if not subject.lower().startswith("re:"):
+            subject = f"Re: {subject}"
+        mime_msg["subject"] = subject
+
+        # Thread threading headers
+        if message.message_id:
+            mime_msg["In-Reply-To"] = message.message_id
+            mime_msg["References"] = message.message_id
+
+        raw_msg = base64.urlsafe_b64encode(mime_msg.as_bytes()).decode("utf-8")
+
+        body = {
+            "raw": raw_msg,
+        }
+        if message.thread_id:
+            body["threadId"] = message.thread_id
+
+        try:
+            result = service.users().messages().send(userId="me", body=body).execute()
+            return result
+        except HttpError as exc:
+            self.logger.error("GmailAgent.send_reply failed: %s", exc)
+            raise exc
