@@ -136,12 +136,14 @@ class PlannerAgent(BaseAgent):
 
     def _fallback_briefing(self, today_date: str, message_count: int) -> dict:
         """Return a minimal fallback briefing when LLM parsing fails."""
+        msg_word = "message" if message_count == 1 else "messages"
+        summary = (
+            f"You have {message_count} {msg_word} in the last 24 hours. "
+            "AI briefing generation failed — please try again."
+        ) if message_count > 0 else "No new messages in the last 24 hours. AI briefing generation failed."
         return {
             "date": today_date,
-            "executive_summary": (
-                f"You have {message_count} messages in the last 24 hours. "
-                "AI briefing generation failed — please try again."
-            ),
+            "executive_summary": summary,
             "critical_items": [],
             "pending_work": [],
             "upcoming_deadlines": [],

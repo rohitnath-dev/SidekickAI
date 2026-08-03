@@ -221,32 +221,80 @@ class LLMClient:
         is_briefing = "briefing" in user_msg.lower() or "briefing" in system_msg.lower() or "executive summary" in user_msg.lower()
         if is_briefing:
             import json
+            import re
             from datetime import datetime
             today_str = datetime.utcnow().strftime("%Y-%m-%d")
+            
+            # Extract emails from user_msg (format: - [score/100] From: sender | Subject: subject | body...)
+            emails = []
+            email_lines = re.findall(r"-\s*\[(\d+)/100\]\s*From:\s*(.*?)\s*\|\s*Subject:\s*(.*?)\s*\|", user_msg)
+            for score_str, sender, subject in email_lines:
+                emails.append({
+                    "score": int(score_str),
+                    "sender": sender.strip(),
+                    "subject": subject.strip()
+                })
+            
+            if not emails:
+                return json.dumps({
+                    "date": today_str,
+                    "executive_summary": "Your daily executive briefing is ready. No new messages have been received in the last 24 hours.",
+                    "critical_items": [],
+                    "pending_work": [],
+                    "upcoming_deadlines": [],
+                    "recommended_priorities": [],
+                    "risks": [],
+                    "next_actions": ["No immediate action items. Your inbox is clear."]
+                })
+            
+            # Generate dynamic summary and items based on the actual emails
+            critical_items = []
+            risks = []
+            pending_work = []
+            recommended_priorities = []
+            next_actions = []
+            upcoming_deadlines = []
+            
+            for email in emails:
+                subject_lower = email["subject"].lower()
+                sender = email["sender"]
+                
+                # Check for critical/high priority subjects or scores
+                if "block" in subject_lower or "urgent" in subject_lower or "down" in subject_lower or "fail" in subject_lower or email["score"] >= 80:
+                    critical_items.append({
+                        "item": f"Critical block: {email['subject']}",
+                        "action": f"Coordinate with {sender} to resolve",
+                        "deadline": "Today"
+                    })
+                    risks.append(f"Potential service interruption from: {email['subject']}")
+                    next_actions.append(f"Investigate {sender}'s report on '{email['subject']}'")
+                    upcoming_deadlines.append({
+                        "what": f"Address block: {email['subject']}",
+                        "when": "Today"
+                    })
+                else:
+                    pending_work.append(f"Follow up on inquiry from {sender}: {email['subject']}")
+                    recommended_priorities.append(f"Review email '{email['subject']}' from {sender}")
+            
+            # Combine everything into an executive summary
+            msg_word = "message" if len(emails) == 1 else "messages"
+            critical_count = len(critical_items)
+            if critical_count > 0:
+                crit_word = "critical item" if critical_count == 1 else "critical items"
+                summary = f"Your daily executive briefing is ready. You have {len(emails)} new {msg_word} in the last 24 hours, including {critical_count} {crit_word} requiring immediate attention."
+            else:
+                summary = f"Your daily executive briefing is ready. You have {len(emails)} new {msg_word} in the last 24 hours. No critical issues have been detected."
+                next_actions.append("Keep monitoring incoming communication feeds.")
+                
             return json.dumps({
                 "date": today_str,
-                "executive_summary": "Your daily executive briefing is ready. You have 3 messages in the last 24 hours. Critical action required on the API migration block.",
-                "critical_items": [
-                    {"item": "Backend API migration blocked", "action": "Check staging server logs and grant server access", "deadline": "Tomorrow"}
-                ],
-                "pending_work": [
-                    "Resolve WhatsApp API staging credentials",
-                    "Update social integration settings"
-                ],
-                "upcoming_deadlines": [
-                    {"what": "Client delivery release deadline", "when": "Tomorrow at 17:00 UTC"}
-                ],
-                "recommended_priorities": [
-                    "Unblock staging backend migration",
-                    "Verify LinkedIn OAuth popup callback"
-                ],
-                "risks": [
-                    "Missed client delivery if staging server is down"
-                ],
-                "next_actions": [
-                    "Review staging uvicorn logs",
-                    "Discuss details with engineering team"
-                ]
+                "executive_summary": summary,
+                "critical_items": critical_items,
+                "pending_work": pending_work,
+                "upcoming_deadlines": upcoming_deadlines,
+                "recommended_priorities": recommended_priorities if recommended_priorities else [item["item"] for item in critical_items],
+                "risks": risks,
+                "next_actions": next_actions if next_actions else ["No immediate next actions required."]
             })
 
         is_priority = "priority and urgency" in user_msg.lower() or "priority_level" in user_msg.lower()
