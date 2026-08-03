@@ -108,6 +108,9 @@ export default function SettingsPage() {
   // Clean up polling interval and register message handler
   useEffect(() => {
     const handleMessage = (event: MessageEvent) => {
+      // Validate target origin for security
+      if (event.origin !== window.location.origin) return;
+
       if (event.data === 'gmail-connected') {
         setIsGoogleConnecting(false);
         if (pollingInterval.current) clearInterval(pollingInterval.current);
@@ -126,6 +129,10 @@ export default function SettingsPage() {
         }
         queryClient.invalidateQueries({ queryKey: ['preferences-settings'] });
         queryClient.invalidateQueries({ queryKey: ['preferences'] });
+      } else if (event.data && event.data.type === 'whatsapp-connection-error') {
+        setIsWhatsAppConnecting(false);
+        if (pollingInterval.current) clearInterval(pollingInterval.current);
+        alert(`WhatsApp Business Account connection failed:\n\n${event.data.message}\n\nPlease ensure you have a WhatsApp Business Account (WABA) with a registered business phone number.`);
       } else if (event.data === 'linkedin-connected') {
         setIsLinkedInConnecting(false);
         if (pollingInterval.current) clearInterval(pollingInterval.current);
@@ -636,8 +643,8 @@ export default function SettingsPage() {
                   <div className="space-y-3 pt-4 border-t border-zinc-900">
                     <div className="flex items-center justify-between">
                       <div>
-                        <h3 className="text-xs font-bold text-zinc-255">WhatsApp Cloud API</h3>
-                        <p className="text-[10px] text-zinc-500">Contact sync, Send messages</p>
+                        <h3 className="text-xs font-bold text-zinc-200">WhatsApp Business Account</h3>
+                        <p className="text-[10px] text-zinc-500">Business contacts, Customer messages</p>
                       </div>
                       <span className={`text-[10px] font-mono px-2 py-0.5 rounded ${
                         whatsappPref?.connected ? 'bg-emerald-950/20 text-emerald-400 border border-emerald-900/30' : 'bg-zinc-900 text-zinc-500'
@@ -653,23 +660,29 @@ export default function SettingsPage() {
                         Disconnect Service
                       </button>
                     ) : (
-                      <button
-                        onClick={handleConnectWhatsApp}
-                        disabled={isWhatsAppConnecting}
-                        className="w-full flex items-center justify-center gap-1.5 py-2 bg-zinc-900 hover:bg-zinc-800 rounded text-xs font-semibold text-zinc-550 border border-zinc-850 hover:border-zinc-700 transition-all cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
-                      >
-                        {isWhatsAppConnecting ? (
-                          <>
-                            <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                            Connecting popup...
-                          </>
-                        ) : (
-                          <>
-                            Authorize WhatsApp
-                            <ExternalLink className="w-3.5 h-3.5" />
-                          </>
-                        )}
-                      </button>
+                      <>
+                        <button
+                          onClick={handleConnectWhatsApp}
+                          disabled={isWhatsAppConnecting}
+                          className="w-full flex items-center justify-center gap-1.5 py-2 bg-zinc-900 hover:bg-zinc-800 rounded text-xs font-semibold text-zinc-50 border border-zinc-850 hover:border-zinc-700 transition-all cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+                        >
+                          {isWhatsAppConnecting ? (
+                            <>
+                              <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                              Connecting popup...
+                            </>
+                          ) : (
+                            <>
+                              Connect your WhatsApp Business Account
+                              <ExternalLink className="w-3.5 h-3.5" />
+                            </>
+                          )}
+                        </button>
+                        <div className="text-[10px] text-zinc-450 bg-zinc-900/40 border border-zinc-900/80 rounded-lg p-2.5 mt-2 leading-relaxed">
+                          <span className="text-amber-500 font-semibold block mb-0.5">Platform Requirement:</span>
+                          Requires an existing WhatsApp Business Account (WABA) with a registered business phone number. Personal WhatsApp numbers are not supported.
+                        </div>
+                      </>
                     )}
                   </div>
 
@@ -677,8 +690,8 @@ export default function SettingsPage() {
                   <div className="space-y-3 pt-4 border-t border-zinc-900">
                     <div className="flex items-center justify-between">
                       <div>
-                        <h3 className="text-xs font-bold text-zinc-255">LinkedIn Profile</h3>
-                        <p className="text-[10px] text-zinc-500">Profile sync, Post sharing</p>
+                        <h3 className="text-xs font-bold text-zinc-200">LinkedIn Integration</h3>
+                        <p className="text-[10px] text-zinc-500">Profile sync & auto-posting</p>
                       </div>
                       <span className={`text-[10px] font-mono px-2 py-0.5 rounded ${
                         linkedinPref?.connected ? 'bg-emerald-950/20 text-emerald-400 border border-emerald-900/30' : 'bg-zinc-900 text-zinc-500'
@@ -694,23 +707,29 @@ export default function SettingsPage() {
                         Disconnect Service
                       </button>
                     ) : (
-                      <button
-                        onClick={handleConnectLinkedIn}
-                        disabled={isLinkedInConnecting}
-                        className="w-full flex items-center justify-center gap-1.5 py-2 bg-zinc-900 hover:bg-zinc-800 rounded text-xs font-semibold text-zinc-50 border border-zinc-850 hover:border-zinc-700 transition-all cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
-                      >
-                        {isLinkedInConnecting ? (
-                          <>
-                            <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                            Connecting popup...
-                          </>
-                        ) : (
-                          <>
-                            Authorize LinkedIn
-                            <ExternalLink className="w-3.5 h-3.5" />
-                          </>
-                        )}
-                      </button>
+                      <>
+                        <button
+                          onClick={handleConnectLinkedIn}
+                          disabled={isLinkedInConnecting}
+                          className="w-full flex items-center justify-center gap-1.5 py-2 bg-zinc-900 hover:bg-zinc-800 rounded text-xs font-semibold text-zinc-50 border border-zinc-850 hover:border-zinc-700 transition-all cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+                        >
+                          {isLinkedInConnecting ? (
+                            <>
+                              <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                              Connecting popup...
+                            </>
+                          ) : (
+                            <>
+                              Authorize LinkedIn
+                              <ExternalLink className="w-3.5 h-3.5" />
+                            </>
+                          )}
+                        </button>
+                        <div className="text-[10px] text-zinc-450 bg-zinc-900/40 border border-zinc-900/80 rounded-lg p-2.5 mt-2 leading-relaxed">
+                          <span className="text-indigo-400 font-semibold block mb-0.5">Integration Access:</span>
+                          Allows profile sync and sharing auto-posts. Read access to personal DMs/inbox is not supported by the LinkedIn API.
+                        </div>
+                      </>
                     )}
                   </div>
                 </div>

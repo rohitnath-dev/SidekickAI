@@ -240,9 +240,101 @@ async def callback(
         await exchange_whatsapp_code_for_tokens(code=code, state=state, db=db, user_id=user_id)
     except Exception as exc:
         logger.error("WhatsApp OAuth exchange failed for user %s: %s", user_id, exc)
-        raise HTTPException(
-            status_code=status.HTTP_502_BAD_GATEWAY,
-            detail=f"Failed to exchange Meta authorization code: {exc}",
+        
+        detail = "Could not find a connected WhatsApp Business Account (WABA) ID. Make sure permissions are granted."
+        if isinstance(exc, HTTPException):
+            detail = exc.detail
+        elif hasattr(exc, "detail"):
+            detail = exc.detail
+        else:
+            detail = str(exc)
+            
+        return HTMLResponse(
+            status_code=400,
+            content=f"""
+            <html>
+                <head>
+                    <title>WhatsApp Connection Error</title>
+                    <script type="text/javascript">
+                        if (window.opener) {{
+                            window.opener.postMessage({{
+                                type: "whatsapp-connection-error", 
+                                message: {json.dumps(detail)}
+                            }}, window.location.origin);
+                        }}
+                    </script>
+                    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+                    <style>
+                        body {{
+                            font-family: 'Inter', sans-serif;
+                            background-color: #09090b;
+                            color: #e4e4e7;
+                            display: flex;
+                            align-items: center;
+                            justify-content: center;
+                            height: 100vh;
+                            margin: 0;
+                            padding: 0 20px;
+                        }}
+                        .card {{
+                            max-width: 450px;
+                            background-color: #18181b;
+                            border: 1px solid #27272a;
+                            border-radius: 12px;
+                            padding: 30px;
+                            text-align: center;
+                            box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1);
+                        }}
+                        h2 {{
+                            color: #f87171;
+                            margin-top: 0;
+                            font-size: 20px;
+                        }}
+                        p {{
+                            font-size: 14px;
+                            color: #a1a1aa;
+                            line-height: 1.5;
+                        }}
+                        .btn {{
+                            display: inline-block;
+                            margin-top: 20px;
+                            padding: 10px 20px;
+                            background-color: #3b82f6;
+                            color: white;
+                            text-decoration: none;
+                            border-radius: 6px;
+                            font-size: 14px;
+                            font-weight: 500;
+                            transition: background-color 0.2s;
+                        }}
+                        .btn:hover {{
+                            background-color: #2563eb;
+                        }}
+                        .btn-secondary {{
+                            background-color: transparent;
+                            border: 1px solid #27272a;
+                            color: #a1a1aa;
+                            margin-left: 10px;
+                        }}
+                        .btn-secondary:hover {{
+                            background-color: #27272a;
+                            color: white;
+                        }}
+                    </style>
+                </head>
+                <body>
+                    <div class="card">
+                        <h2>Connection Failed</h2>
+                        <p>{detail}</p>
+                        <p style="margin-top: 15px; font-size: 13px; color: #a1a1aa;">
+                            <strong>Note:</strong> A Meta WhatsApp Business Account (WABA) with a registered business phone number is required. Personal WhatsApp accounts cannot be connected.
+                        </p>
+                        <a href="https://developers.facebook.com/docs/whatsapp/overview" target="_blank" class="btn">Meta Documentation</a>
+                        <button onclick="window.close()" class="btn btn-secondary">Close Window</button>
+                    </div>
+                </body>
+            </html>
+            """
         )
     
     return HTMLResponse(
@@ -252,7 +344,7 @@ async def callback(
                 <title>WhatsApp Connected Successfully</title>
                 <script type="text/javascript">
                     if (window.opener) {
-                        window.opener.postMessage("whatsapp-connected", "*");
+                        window.opener.postMessage("whatsapp-connected", window.location.origin);
                     }
                     window.close();
                 </script>

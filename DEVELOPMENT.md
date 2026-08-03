@@ -128,3 +128,16 @@ routes/                 Thin FastAPI route handlers
 - No `time.sleep()` anywhere — use `asyncio.sleep()`
 - No secrets in code — always read from `settings.*`
 - Prompts live in `utils/prompts/` — never hardcoded in agents
+
+## Platform & API Limitations
+
+Ensure all feature work and integrations adhere to the following hard API constraints:
+
+### WhatsApp Integration (Meta Cloud API)
+- **Business Only**: The integration utilizes the official Meta WhatsApp Business Platform (Embedded Signup flow). It **only** supports registered WhatsApp Business Accounts (WABA) with dedicated business numbers.
+- **No Personal Accounts**: Personal WhatsApp numbers and accounts are not supported by Meta's API and cannot be synced or read.
+- **Message Types**: Supports template messages and customer session messages initiated by customers.
+
+### LinkedIn Integration (OAuth 2.0)
+- **Profile & Sharing Only**: Uses the `w_member_social` scope. It is strictly limited to syncing profile information and sharing posts.
+- **No DM/Inbox Access**: The LinkedIn API does not expose read/write access for personal messages or DMs to third-party applications.

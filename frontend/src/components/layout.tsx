@@ -188,8 +188,21 @@ export default function SidebarLayout({ children }: SidebarProps) {
         )}
 
         {/* Main Content Area */}
-        <main className="flex-1 overflow-y-auto bg-transparent focus:outline-none">
-          {children}
+        <main className="flex-1 overflow-y-auto bg-transparent focus:outline-none flex flex-col justify-between">
+          <div className="flex-1">
+            {children}
+          </div>
+          <footer className="w-full py-4 px-6 border-t border-zinc-900/40 bg-zinc-950/20 backdrop-blur-md flex flex-col sm:flex-row items-center justify-between text-[11px] text-zinc-500 gap-2 relative z-10">
+            <p>&copy; {new Date().getFullYear()} SidekickAI. All rights reserved.</p>
+            <div className="flex gap-4">
+              <Link href="/privacy" className="hover:text-zinc-300 transition-colors">
+                Privacy Policy
+              </Link>
+              <Link href="/terms" className="hover:text-zinc-300 transition-colors">
+                Terms of Service
+              </Link>
+            </div>
+          </footer>
         </main>
       </div>
     </div>

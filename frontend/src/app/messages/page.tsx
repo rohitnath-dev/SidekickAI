@@ -201,7 +201,7 @@ export default function MessagesPage() {
         <div className="border-b border-zinc-900 pb-6">
           <h1 className="text-2xl font-bold tracking-tight text-zinc-50">Direct Messaging Hub</h1>
           <p className="text-sm text-zinc-400 mt-1">
-            Automate conversation replies and manage direct integrations across WhatsApp and Twitter/X.
+            Automate conversation replies and manage direct integrations across WhatsApp Business and Twitter/X.
           </p>
         </div>
 
@@ -214,7 +214,7 @@ export default function MessagesPage() {
             }`}
           >
             <MessageCircle className="w-4 h-4" />
-            WhatsApp Portal
+            WhatsApp Business Portal
           </button>
           <button
             onClick={() => setActiveTab('twitter')}
@@ -235,7 +235,7 @@ export default function MessagesPage() {
               <div className="flex items-center justify-between border-b border-zinc-900 pb-3">
                 <div className="flex items-center gap-2">
                   <MessageCircle className="w-4 h-4 text-zinc-400" />
-                  <h2 className="text-sm font-semibold text-zinc-200 uppercase tracking-wider">Incoming Chats</h2>
+                  <h2 className="text-sm font-semibold text-zinc-200 uppercase tracking-wider">Incoming Customer Chats</h2>
                 </div>
                 <button
                   onClick={() => refetchWaMessages()}
@@ -304,7 +304,7 @@ export default function MessagesPage() {
                   </div>
                 ) : (
                   <div className="py-12 text-center text-zinc-500 italic text-xs">
-                    No WhatsApp messages found.
+                    No WhatsApp Business messages found.
                   </div>
                 )}
               </div>
@@ -353,7 +353,7 @@ export default function MessagesPage() {
                     Message Content
                   </label>
                   <textarea
-                    placeholder="Type your WhatsApp message..."
+                    placeholder="Type your WhatsApp Business message..."
                     value={waText}
                     onChange={(e) => setWaText(e.target.value)}
                     rows={4}
@@ -367,7 +367,7 @@ export default function MessagesPage() {
                   className="flex items-center justify-center gap-1.5 w-full py-2.5 rounded-lg bg-zinc-100 hover:bg-zinc-200 text-xs font-semibold text-zinc-950 transition-all cursor-pointer disabled:opacity-50"
                 >
                   {waSending ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Send className="w-3.5 h-3.5" />}
-                  Send WhatsApp Message
+                  Send WhatsApp Business Message
                 </button>
               </div>
             </div>
