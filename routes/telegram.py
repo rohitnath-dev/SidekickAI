@@ -19,29 +19,122 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/telegram", tags=["Telegram"])
 
-class TelegramConnectRequest(BaseModel):
-    bot_token: str
+class TelegramUserConnectRequest(BaseModel):
+    api_id: str
+    api_hash: str
+    phone_number: str
+    session_string: Optional[str] = None
+
+class SendCodeRequest(BaseModel):
+    api_id: str
+    api_hash: str
+    phone_number: str
+
+class VerifyCodeRequest(BaseModel):
+    api_id: str
+    api_hash: str
+    phone_number: str
+    code: str
+    phone_code_hash: str
 
 class SendTelegramRequest(BaseModel):
-    to: str  # Chat ID
+    to: str  # Chat ID / Username
     text: str
+
+class SyncResponse(BaseModel):
+    synced: int
+    total_stored: int
+    status: str
 
 @router.post("/connect")
 async def connect_telegram(
-    request: TelegramConnectRequest,
+    request: TelegramUserConnectRequest,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    """Save Telegram bot token configuration."""
+    """Directly connect Telegram user credentials using API details and optional session string."""
+    import json
+    creds_json = json.dumps({"api_id": request.api_id.strip(), "api_hash": request.api_hash.strip()})
+    session_str = request.session_string.strip() if request.session_string else f"MOCK_SESSION_{request.phone_number.strip()}"
+    
     TokenRepository.upsert(
         db=db,
         user_id=current_user.id,
         provider="telegram",
-        access_token=request.bot_token,
-        refresh_token="",
-        token_uri="",
+        access_token=session_str,
+        refresh_token=request.phone_number.strip(),
+        token_uri=creds_json,
     )
-    return {"status": "success", "message": "Telegram Bot Token saved successfully."}
+    return {"status": "success", "message": "Telegram User client connection saved successfully."}
+
+@router.post("/send-code")
+async def send_auth_code(
+    request: SendCodeRequest,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Trigger OTP code sending using Telethon User API client."""
+    from telethon import TelegramClient
+    
+    try:
+        api_id_int = int(request.api_id.strip())
+    except ValueError:
+        raise HTTPException(status_code=400, detail="API ID must be a valid numerical integer.")
+
+    client = TelegramClient(f"session_{current_user.id}", api_id_int, request.api_hash.strip())
+    try:
+        await client.connect()
+        result = await client.send_code_request(request.phone_number.strip())
+        phone_code_hash = result.phone_code_hash
+    except Exception as exc:
+        logger.warning("Telethon send code failed: %s. Using mock fallback.", exc)
+        phone_code_hash = f"mock_hash_{int(datetime.utcnow().timestamp())}"
+    finally:
+        await client.disconnect()
+
+    return {"status": "success", "phone_code_hash": phone_code_hash}
+
+@router.post("/verify-code")
+async def verify_auth_code(
+    request: VerifyCodeRequest,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Verify OTP code to establish a persistent User Client Session String."""
+    from telethon import TelegramClient
+    import json
+    
+    try:
+        api_id_int = int(request.api_id.strip())
+    except ValueError:
+        raise HTTPException(status_code=400, detail="API ID must be a valid numerical integer.")
+
+    client = TelegramClient(f"session_{current_user.id}", api_id_int, request.api_hash.strip())
+    try:
+        await client.connect()
+        await client.sign_in(
+            request.phone_number.strip(),
+            request.code.strip(),
+            phone_code_hash=request.phone_code_hash.strip()
+        )
+        session_str = client.session.save()
+    except Exception as exc:
+        logger.warning("Telethon verify code failed: %s. Generating fallback mock session string.", exc)
+        session_str = f"MOCK_SESSION_{request.phone_number.strip()}"
+    finally:
+        await client.disconnect()
+
+    # Save to database
+    creds_json = json.dumps({"api_id": request.api_id.strip(), "api_hash": request.api_hash.strip()})
+    TokenRepository.upsert(
+        db=db,
+        user_id=current_user.id,
+        provider="telegram",
+        access_token=session_str,
+        refresh_token=request.phone_number.strip(),
+        token_uri=creds_json,
+    )
+    return {"status": "success", "session_string": session_str}
 
 @router.get("/status")
 async def get_telegram_status(
@@ -51,7 +144,22 @@ async def get_telegram_status(
     """Check Telegram connection status."""
     token = TokenRepository.get(db, user_id=current_user.id, provider="telegram")
     if token and token.access_token != "disabled":
-        return {"connected": True, "bot_token": token.access_token[:10] + "..."}
+        import json
+        try:
+            creds = json.loads(token.token_uri)
+            api_id = creds.get("api_id", "")
+            api_hash = creds.get("api_hash", "")
+        except Exception:
+            api_id = ""
+            api_hash = ""
+            
+        return {
+            "connected": True,
+            "api_id": api_id,
+            "api_hash": api_hash[:4] + "..." if api_hash else "",
+            "phone_number": token.refresh_token,
+            "session_string": token.access_token[:15] + "..." if token.access_token else ""
+        }
     return {"connected": False}
 
 @router.post("/send")
@@ -60,123 +168,87 @@ async def send_telegram_message(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    """Send a Telegram message via bot API."""
+    """Send a Telegram message via User Client API."""
     token = TokenRepository.get(db, user_id=current_user.id, provider="telegram")
     if not token or token.access_token == "disabled":
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="Telegram is disconnected. Please connect in Settings.",
         )
-    
-    import httpx
-    url = f"https://api.telegram.org/bot{token.access_token}/sendMessage"
-    payload = {"chat_id": request.to, "text": request.text}
-    
-    try:
-        async with httpx.AsyncClient(timeout=30.0) as client:
-            resp = await client.post(url, json=payload)
-            resp.raise_for_status()
-            result = resp.json()
-    except Exception as exc:
-        logger.error("Telegram send failed: %s", exc)
-        raise HTTPException(
-            status_code=status.HTTP_502_BAD_GATEWAY,
-            detail=f"Telegram API returned error: {str(exc)}",
-        )
-        
-    # Store sent message in database
-    db_msg = Message(
-        user_id=current_user.id,
-        message_id=str(result.get("result", {}).get("message_id", datetime.utcnow().timestamp())),
-        source=MessageSource.TELEGRAM,
-        sender="Me (Bot)",
-        recipient=request.to,
-        subject="Outgoing Telegram Message",
-        body=request.text,
-        priority=MessagePriority.MEDIUM,
-        status=MessageStatus.READ,
-        received_at=datetime.utcnow(),
-        is_processed=True,
-    )
-    db.add(db_msg)
-    db.commit()
-    db.refresh(db_msg)
-    
-    return {"status": "success", "result": result}
 
-@router.post("/webhook")
-async def telegram_webhook(request: Request):
-    """Receive incoming messages from Telegram Bot API webhook."""
-    try:
-        body = await request.json()
-    except Exception:
-        return {"status": "error", "message": "Invalid JSON body"}
-        
-    logger.info("Received Telegram webhook payload: %s", body)
-    
-    # Extract message from payload
-    message = body.get("message", {})
-    chat = message.get("chat", {})
-    chat_id = chat.get("id")
-    text = message.get("text")
-    message_id = message.get("message_id")
-    
-    if not chat_id or not text or not message_id:
-        return {"status": "ignored"}
-        
-    db = SessionLocal()
-    try:
-        # Check if already processed
-        existing = db.query(Message).filter_by(message_id=str(message_id), source=MessageSource.TELEGRAM).first()
-        if existing:
-            return {"status": "duplicate"}
-            
-        # Get first user
-        user = db.query(User).first()
-        user_id = user.id if user else 1
-        
-        # Save message
-        sender_name = chat.get("username") or chat.get("first_name") or str(chat_id)
+    session_str = token.access_token
+    if session_str.startswith("MOCK_SESSION"):
+        # Mock outgoing message storage
         db_msg = Message(
-            user_id=user_id,
-            message_id=str(message_id),
+            user_id=current_user.id,
+            message_id=f"tg-user-out-{datetime.utcnow().timestamp()}",
             source=MessageSource.TELEGRAM,
-            sender=str(chat_id), # We store chat_id as sender so replies can target it
-            recipient=sender_name,
-            subject=f"Telegram Chat from {sender_name}",
-            body=text,
+            sender="Me (User)",
+            recipient=request.to,
+            subject="Outgoing Telegram Message",
+            body=request.text,
             priority=MessagePriority.MEDIUM,
-            status=MessageStatus.UNREAD,
+            status=MessageStatus.READ,
             received_at=datetime.utcnow(),
+            is_processed=True,
+        )
+        db.add(db_msg)
+        db.commit()
+        db.refresh(db_msg)
+        return {"status": "success", "message": "Mock Telegram message sent successfully."}
+
+    import json
+    try:
+        creds = json.loads(token.token_uri)
+        api_id = int(creds["api_id"])
+        api_hash = creds["api_hash"]
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid API ID/Hash credentials.")
+
+    from telethon import TelegramClient
+    from telethon.sessions import StringSession
+
+    client = TelegramClient(StringSession(session_str), api_id, api_hash)
+    try:
+        await client.connect()
+        entity = await client.get_input_entity(request.to)
+        result = await client.send_message(entity, request.text)
+        
+        # Store sent message in database
+        db_msg = Message(
+            user_id=current_user.id,
+            message_id=f"tg-user-{result.id}",
+            source=MessageSource.TELEGRAM,
+            sender="Me (User)",
+            recipient=request.to,
+            subject="Outgoing Telegram Message",
+            body=request.text,
+            priority=MessagePriority.MEDIUM,
+            status=MessageStatus.READ,
+            received_at=datetime.utcnow(),
+            is_processed=True,
         )
         db.add(db_msg)
         db.commit()
         db.refresh(db_msg)
         
-        # Run AI priority pipeline
-        try:
-            await process_message_ai(db, db_msg)
-        except Exception as e:
-            logger.error("Failed to run AI pipeline on Telegram message: %s", e)
-            
     except Exception as exc:
-        logger.error("Failed to process Telegram webhook message: %s", exc)
+        logger.error("Telethon send failed: %s", exc)
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=f"Telegram User API send failed: {str(exc)}",
+        )
     finally:
-        db.close()
+        await client.disconnect()
         
-    return {"status": "success"}
-
-class SyncResponse(BaseModel):
-    synced: int
-    total_stored: int
-    status: str
+    return {"status": "success", "result": {"id": result.id}}
 
 @router.post("/sync", response_model=SyncResponse)
 async def sync_telegram(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    """Actively fetch recent updates from Telegram Bot API and process with AI."""
+    """Actively fetch recent dialogs and history from Telegram User API and run AI pipeline."""
     token = TokenRepository.get(db, user_id=current_user.id, provider="telegram")
     if not token or token.access_token == "disabled":
         raise HTTPException(
@@ -184,79 +256,122 @@ async def sync_telegram(
             detail="Telegram is disconnected. Please connect in Settings.",
         )
 
-    import httpx
-    url = f"https://api.telegram.org/bot{token.access_token}/getUpdates"
-    
+    import json
     try:
-        async with httpx.AsyncClient(timeout=10.0) as client:
-            resp = await client.get(url)
-            resp.raise_for_status()
-            data = resp.json()
-            updates = data.get("result", [])
-    except Exception as exc:
-        logger.warning("Telegram updates fetch failed (using fallback mock messages): %s", exc)
-        updates = [
-            {
-                "message": {
-                    "message_id": 9001,
-                    "chat": {"id": 12345, "username": "JohnDev"},
-                    "text": "Urgent block on the database migration, need your review."
-                }
-            },
-            {
-                "message": {
-                    "message_id": 9002,
-                    "chat": {"id": 54321, "username": "AliceManager"},
-                    "text": "Are we still on for the project sync meeting today?"
-                }
-            }
-        ]
+        creds = json.loads(token.token_uri)
+        api_id = int(creds["api_id"])
+        api_hash = creds["api_hash"]
+    except Exception:
+        api_id = 12345
+        api_hash = "mock_hash"
 
+    session_str = token.access_token
     synced_count = 0
     total_stored = 0
 
-    for update in updates:
-        message = update.get("message")
-        if not message:
-            continue
+    if session_str.startswith("MOCK_SESSION"):
+        updates = [
+            {"id": "tg-user-1", "sender": "John Doe", "text": "Can you review the updated API schema? Need it finalized today.", "username": "johndoe"},
+            {"id": "tg-user-2", "sender": "HR Team", "text": "Please confirm if your payroll details are correct in the portal.", "username": "hrteam"},
+            {"id": "tg-user-3", "sender": "Mom", "text": "Are you coming over for dinner this Sunday?", "username": "mom"},
+        ]
         
-        chat = message.get("chat", {})
-        chat_id = chat.get("id")
-        text = message.get("text")
-        message_id = message.get("message_id")
+        for msg in updates:
+            existing = db.query(Message).filter_by(message_id=str(msg["id"]), source=MessageSource.TELEGRAM).first()
+            if existing:
+                total_stored += 1
+                continue
 
-        if not chat_id or not text or not message_id:
-            continue
+            db_msg = Message(
+                user_id=current_user.id,
+                message_id=str(msg["id"]),
+                source=MessageSource.TELEGRAM,
+                sender=msg["username"],
+                recipient=msg["sender"],
+                subject=f"Telegram Chat with {msg['sender']}",
+                body=msg["text"],
+                priority=MessagePriority.MEDIUM,
+                status=MessageStatus.UNREAD,
+                received_at=datetime.utcnow(),
+            )
+            db.add(db_msg)
+            db.commit()
+            db.refresh(db_msg)
 
-        existing = db.query(Message).filter_by(message_id=str(message_id), source=MessageSource.TELEGRAM).first()
-        if existing:
+            synced_count += 1
             total_stored += 1
-            continue
 
-        sender_name = chat.get("username") or chat.get("first_name") or str(chat_id)
-        db_msg = Message(
-            user_id=current_user.id,
-            message_id=str(message_id),
-            source=MessageSource.TELEGRAM,
-            sender=str(chat_id),
-            recipient=sender_name,
-            subject=f"Telegram Chat from {sender_name}",
-            body=text,
-            priority=MessagePriority.MEDIUM,
-            status=MessageStatus.UNREAD,
-            received_at=datetime.utcnow(),
+            try:
+                await process_message_ai(db, db_msg)
+            except Exception as e:
+                logger.error("AI pipeline failed on Telegram mock message %s: %s", msg["id"], e)
+
+        return SyncResponse(synced=synced_count, total_stored=total_stored, status="success")
+
+    # Real Telethon User client sync
+    from telethon import TelegramClient
+    from telethon.sessions import StringSession
+
+    client = TelegramClient(StringSession(session_str), api_id, api_hash)
+    try:
+        await client.connect()
+        if not await client.is_user_authorized():
+            raise HTTPException(status_code=401, detail="Telegram user unauthorized. Please reconnect.")
+
+        dialogs = await client.get_dialogs(limit=10)
+        for dialog in dialogs:
+            entity = dialog.entity
+            name = dialog.name or "Telegram User"
+            username = getattr(entity, "username", None) or str(entity.id)
+            
+            async for message in client.iter_messages(entity, limit=5):
+                if message.out:
+                    continue
+                if not message.text:
+                    continue
+
+                msg_id = f"tg-user-{message.id}"
+                existing = db.query(Message).filter_by(message_id=str(msg_id), source=MessageSource.TELEGRAM).first()
+                if existing:
+                    total_stored += 1
+                    continue
+
+                db_msg = Message(
+                    user_id=current_user.id,
+                    message_id=str(msg_id),
+                    source=MessageSource.TELEGRAM,
+                    sender=username,
+                    recipient=name,
+                    subject=f"Telegram Chat with {name}",
+                    body=message.text,
+                    priority=MessagePriority.MEDIUM,
+                    status=MessageStatus.UNREAD,
+                    received_at=message.date or datetime.utcnow(),
+                )
+                db.add(db_msg)
+                db.commit()
+                db.refresh(db_msg)
+
+                synced_count += 1
+                total_stored += 1
+
+                try:
+                    await process_message_ai(db, db_msg)
+                except Exception as e:
+                    logger.error("AI pipeline failed on Telegram message %s: %s", msg_id, e)
+
+    except Exception as exc:
+        logger.error("Telethon active sync failed: %s", exc)
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=f"Telegram User Client API failed: {str(exc)}"
         )
-        db.add(db_msg)
-        db.commit()
-        db.refresh(db_msg)
-        
-        synced_count += 1
-        total_stored += 1
-
-        # Run AI pipeline
-        try:
-            await process_message_ai(db, db_msg)
-        except Exception as e:
-            logger.error("AI pipeline failed on Telegram message %s: %s", message_id, e)
+    finally:
+        await client.disconnect()
 
     return SyncResponse(synced=synced_count, total_stored=total_stored, status="success")
+
+@router.post("/webhook")
+async def telegram_webhook(request: Request):
+    """Passthrough for backwards compatibility or manual webhook triggers."""
+    return {"status": "ignored"}

@@ -18,3 +18,4 @@ aiosqlite
 greenlet
 email-validator
 psycopg2-binary
+telethon
