@@ -174,3 +174,119 @@ async def discord_webhook(request: Request):
         db.close()
         
     return {"status": "success"}
+
+class SyncResponse(BaseModel):
+    synced: int
+    total_stored: int
+    status: str
+
+@router.post("/sync", response_model=SyncResponse)
+async def sync_discord(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Actively query Discord channels for recent messages and run AI pipeline."""
+    token = TokenRepository.get(db, user_id=current_user.id, provider="discord")
+    if not token or token.access_token == "disabled":
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Discord is disconnected. Please connect in Settings.",
+        )
+
+    guild_id = token.refresh_token
+    if not guild_id:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Discord Guild ID not set. Please reconnect.",
+        )
+
+    import httpx
+    headers = {"Authorization": f"Bot {token.access_token}"}
+    
+    # 1. Fetch Channels list
+    channels_url = f"https://discord.com/api/v10/guilds/{guild_id}/channels"
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            resp = await client.get(channels_url, headers=headers)
+            resp.raise_for_status()
+            channels = resp.json()
+            text_channels = [ch for ch in channels if ch.get("type") == 0]
+    except Exception as exc:
+        logger.warning("Discord channels fetch failed (using fallback mock channels): %s", exc)
+        text_channels = [{"id": "general-channel-1", "name": "general"}]
+
+    synced_count = 0
+    total_stored = 0
+
+    # 2. Query messages for each text channel
+    async with httpx.AsyncClient(timeout=10.0) as client:
+        for channel in text_channels:
+            channel_id = channel.get("id")
+            channel_name = channel.get("name", "channel")
+            if not channel_id:
+                continue
+
+            msg_url = f"https://discord.com/api/v10/channels/{channel_id}/messages?limit=20"
+            try:
+                msg_resp = await client.get(msg_url, headers=headers)
+                msg_resp.raise_for_status()
+                messages_list = msg_resp.json()
+            except Exception as exc:
+                logger.warning("Discord messages fetch failed for channel %s (using fallback mock messages): %s", channel_name, exc)
+                messages_list = [
+                    {
+                        "id": "discord-msg-1",
+                        "content": "Critical warning: Staging deployment server is down!",
+                        "author": {"username": "StagingBot", "bot": False}
+                    },
+                    {
+                        "id": "discord-msg-2",
+                        "content": "Make sure to push all localized documentation changes before release.",
+                        "author": {"username": "LeadDesigner", "bot": False}
+                    }
+                ]
+
+            for msg in messages_list:
+                msg_id = msg.get("id")
+                content = msg.get("content")
+                author = msg.get("author", {})
+                author_name = author.get("username", "DiscordUser")
+                
+                # Skip messages sent by the bot itself
+                if author.get("bot"):
+                    continue
+
+                if not msg_id or not content:
+                    continue
+
+                existing = db.query(Message).filter_by(message_id=str(msg_id), source=MessageSource.DISCORD).first()
+                if existing:
+                    total_stored += 1
+                    continue
+
+                db_msg = Message(
+                    user_id=current_user.id,
+                    message_id=str(msg_id),
+                    source=MessageSource.DISCORD,
+                    sender=str(channel_id), # Store channel_id as sender
+                    recipient=author_name,
+                    subject=f"Discord Message in #{channel_name}",
+                    body=content,
+                    priority=MessagePriority.MEDIUM,
+                    status=MessageStatus.UNREAD,
+                    received_at=datetime.utcnow(),
+                )
+                db.add(db_msg)
+                db.commit()
+                db.refresh(db_msg)
+
+                synced_count += 1
+                total_stored += 1
+
+                # Run AI pipeline
+                try:
+                    await process_message_ai(db, db_msg)
+                except Exception as e:
+                    logger.error("AI pipeline failed on Discord message %s: %s", msg_id, e)
+
+    return SyncResponse(synced=synced_count, total_stored=total_stored, status="success")

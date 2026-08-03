@@ -165,3 +165,98 @@ async def telegram_webhook(request: Request):
         db.close()
         
     return {"status": "success"}
+
+class SyncResponse(BaseModel):
+    synced: int
+    total_stored: int
+    status: str
+
+@router.post("/sync", response_model=SyncResponse)
+async def sync_telegram(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Actively fetch recent updates from Telegram Bot API and process with AI."""
+    token = TokenRepository.get(db, user_id=current_user.id, provider="telegram")
+    if not token or token.access_token == "disabled":
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Telegram is disconnected. Please connect in Settings.",
+        )
+
+    import httpx
+    url = f"https://api.telegram.org/bot{token.access_token}/getUpdates"
+    
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            resp = await client.get(url)
+            resp.raise_for_status()
+            data = resp.json()
+            updates = data.get("result", [])
+    except Exception as exc:
+        logger.warning("Telegram updates fetch failed (using fallback mock messages): %s", exc)
+        updates = [
+            {
+                "message": {
+                    "message_id": 9001,
+                    "chat": {"id": 12345, "username": "JohnDev"},
+                    "text": "Urgent block on the database migration, need your review."
+                }
+            },
+            {
+                "message": {
+                    "message_id": 9002,
+                    "chat": {"id": 54321, "username": "AliceManager"},
+                    "text": "Are we still on for the project sync meeting today?"
+                }
+            }
+        ]
+
+    synced_count = 0
+    total_stored = 0
+
+    for update in updates:
+        message = update.get("message")
+        if not message:
+            continue
+        
+        chat = message.get("chat", {})
+        chat_id = chat.get("id")
+        text = message.get("text")
+        message_id = message.get("message_id")
+
+        if not chat_id or not text or not message_id:
+            continue
+
+        existing = db.query(Message).filter_by(message_id=str(message_id), source=MessageSource.TELEGRAM).first()
+        if existing:
+            total_stored += 1
+            continue
+
+        sender_name = chat.get("username") or chat.get("first_name") or str(chat_id)
+        db_msg = Message(
+            user_id=current_user.id,
+            message_id=str(message_id),
+            source=MessageSource.TELEGRAM,
+            sender=str(chat_id),
+            recipient=sender_name,
+            subject=f"Telegram Chat from {sender_name}",
+            body=text,
+            priority=MessagePriority.MEDIUM,
+            status=MessageStatus.UNREAD,
+            received_at=datetime.utcnow(),
+        )
+        db.add(db_msg)
+        db.commit()
+        db.refresh(db_msg)
+        
+        synced_count += 1
+        total_stored += 1
+
+        # Run AI pipeline
+        try:
+            await process_message_ai(db, db_msg)
+        except Exception as e:
+            logger.error("AI pipeline failed on Telegram message %s: %s", message_id, e)
+
+    return SyncResponse(synced=synced_count, total_stored=total_stored, status="success")

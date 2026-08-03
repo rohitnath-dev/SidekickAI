@@ -131,15 +131,15 @@ function InboxContent() {
       }
       
       if (sourceFilter === 'telegram') {
-        setSyncStatus('Checking Telegram bot updates...');
-        await new Promise((resolve) => setTimeout(resolve, 800));
-        return { synced: 0, source: 'telegram' };
+        setSyncStatus('Syncing Telegram bot chats...');
+        const response = await apiClient.post('/telegram/sync');
+        return { ...response.data, source: 'telegram' };
       }
       
       if (sourceFilter === 'discord') {
-        setSyncStatus('Checking Discord bot logs...');
-        await new Promise((resolve) => setTimeout(resolve, 800));
-        return { synced: 0, source: 'discord' };
+        setSyncStatus('Syncing Discord channel logs...');
+        const response = await apiClient.post('/discord/sync');
+        return { ...response.data, source: 'discord' };
       }
       
       if (sourceFilter === 'twitter') {
@@ -159,9 +159,9 @@ function InboxContent() {
       if (data.source === 'whatsapp') {
         setSyncStatus({ message: 'WhatsApp chats refreshed (Meta webhook real-time sync active).', isError: false });
       } else if (data.source === 'telegram') {
-        setSyncStatus({ message: 'Bot connected. Send a message to your Telegram bot to sync inbox.', isError: false });
+        setSyncStatus({ message: `Synced ${data.synced} Telegram chat updates! (AI processing active)`, isError: false });
       } else if (data.source === 'discord') {
-        setSyncStatus({ message: 'Discord Bot connected. Send a message to your Discord channel to sync inbox.', isError: false });
+        setSyncStatus({ message: `Synced ${data.synced} Discord messages! (AI processing active)`, isError: false });
       } else if (data.source === 'twitter') {
         setSyncStatus({ message: `Synced ${data.synced} new Twitter mentions!`, isError: false });
       } else {
