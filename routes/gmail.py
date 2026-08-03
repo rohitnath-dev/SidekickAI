@@ -217,6 +217,29 @@ async def sync(
     )
 
 
+def get_active_providers(user_id: int, db: Session) -> set[str]:
+    from repositories.token_repo import TokenRepository
+    from config import settings
+    
+    tokens = TokenRepository.list_by_user(db, user_id)
+    connected = {t.provider for t in tokens if t.access_token != "disabled"}
+    
+    # Check system default fallbacks
+    if settings.TWITTER_BEARER_TOKEN and "twitter" not in connected:
+        # Check if user explicitly disabled it
+        disabled_token = next((t for t in tokens if t.provider == "twitter"), None)
+        if not (disabled_token and disabled_token.access_token == "disabled"):
+            connected.add("twitter")
+            
+    if settings.WHATSAPP_API_TOKEN and settings.WHATSAPP_PHONE_NUMBER_ID and "whatsapp" not in connected:
+        # Check if user explicitly disabled it
+        disabled_token = next((t for t in tokens if t.provider == "whatsapp"), None)
+        if not (disabled_token and disabled_token.access_token == "disabled"):
+            connected.add("whatsapp")
+            
+    return connected
+
+
 @router.get("/messages", response_model=list[MessageResponse])
 async def list_messages(
     limit: int = Query(default=20, ge=1, le=100),
@@ -228,6 +251,19 @@ async def list_messages(
     db: Session = Depends(get_db),
 ):
     """List stored messages for the current user."""
+    active_providers = get_active_providers(current_user.id, db)
+    
+    # If source is specified, check if that source's provider is active
+    if source:
+        provider_map = {"GMAIL": "google", "TWITTER": "twitter", "WHATSAPP": "whatsapp", "LINKEDIN": "linkedin"}
+        provider = provider_map.get(source.upper())
+        if not provider or provider not in active_providers:
+            return []
+            
+    # If no active providers exist at all, return empty list immediately
+    if not active_providers:
+        return []
+
     messages = MessageRepository.list_by_user(
         db,
         user_id=current_user.id,
@@ -237,7 +273,17 @@ async def list_messages(
         source=source,
         high_priority_only=high_priority_only,
     )
-    return [_msg_to_response(m) for m in messages]
+    
+    # Filter messages to only show those where source maps to an active provider
+    provider_map = {"GMAIL": "google", "TWITTER": "twitter", "WHATSAPP": "whatsapp", "LINKEDIN": "linkedin"}
+    filtered_messages = []
+    for m in messages:
+        m_source = m.source.value.upper() if hasattr(m.source, "value") else str(m.source).upper()
+        provider = provider_map.get(m_source)
+        if provider in active_providers:
+            filtered_messages.append(m)
+            
+    return [_msg_to_response(m) for m in filtered_messages]
 
 
 @router.get("/messages/{message_id}", response_model=MessageResponse)

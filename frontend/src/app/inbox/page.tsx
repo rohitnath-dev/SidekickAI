@@ -16,6 +16,7 @@ import {
   Calendar,
   Sparkles,
   AlertTriangle,
+  ShieldAlert,
   Smile,
   Globe,
   Loader2,
@@ -68,6 +69,18 @@ function InboxContent() {
     },
     refetchInterval: 30000,
   });
+
+  // Fetch user preferences settings to check connected integrations
+  const { data: preferences } = useQuery({
+    queryKey: ['preferences'],
+    queryFn: async () => {
+      const response = await apiClient.get('/settings/preferences');
+      return response.data;
+    }
+  });
+
+  const connectedServices = preferences?.connected_services || [];
+  const hasConnections = connectedServices.some((service: any) => service.connected);
 
   // Fetch active message detail
   const { data: selectedMessage, isLoading: isDetailLoading, refetch: refetchDetail } = useQuery({
@@ -459,6 +472,20 @@ function InboxContent() {
                   </div>
                 );
               })
+            ) : !hasConnections ? (
+              <div className="p-8 text-center text-zinc-400 text-xs flex flex-col items-center justify-center gap-3 py-16">
+                <ShieldAlert className="w-8 h-8 text-zinc-650 animate-pulse" />
+                <p className="font-semibold text-zinc-300">No accounts connected</p>
+                <p className="text-zinc-550 max-w-[200px] leading-relaxed mx-auto">
+                  Connect Google (Gmail) or other channels in Settings to start viewing and orchestrating messages.
+                </p>
+                <Link 
+                  href="/settings"
+                  className="mt-2 px-3 py-1.5 bg-zinc-900 border border-zinc-800 hover:border-zinc-700 text-[10px] font-semibold text-zinc-200 hover:text-zinc-50 rounded-lg transition-all cursor-pointer"
+                >
+                  Go to Settings
+                </Link>
+              </div>
             ) : (
               <div className="p-12 text-center text-zinc-600 italic text-xs">
                 No communications found matching the criteria.
