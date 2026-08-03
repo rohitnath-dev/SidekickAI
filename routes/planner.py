@@ -49,13 +49,15 @@ async def daily_briefing(
 
     today_date = datetime.utcnow().strftime("%Y-%m-%d")
 
-    # Google credentials are required to generate/display executive briefing
-    creds = get_credentials(current_user.id, db)
-    if creds is None:
+    from routes.gmail import get_active_providers
+    active_providers = get_active_providers(current_user.id, db)
+    if not active_providers:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="No connected Google Workspace account found. Connect Google in Settings.",
+            detail="No connected integration accounts found. Connect an integration in Settings.",
         )
+
+    creds = get_credentials(current_user.id, db)
 
     try:
         result = await PlannerAgent().generate_daily_briefing(

@@ -191,6 +191,13 @@ async def sync(
 
     creds = get_credentials(current_user.id, db)
     if creds is None:
+        active_providers = get_active_providers(current_user.id, db)
+        if active_providers:
+            return SyncResponse(
+                synced=0,
+                total_stored=0,
+                status="success",
+            )
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Google account not connected. Call /gmail/authorize first.",
