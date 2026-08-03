@@ -255,7 +255,7 @@ async def list_messages(
     
     # If source is specified, check if that source's provider is active
     if source:
-        provider_map = {"GMAIL": "google", "TWITTER": "twitter", "WHATSAPP": "whatsapp", "LINKEDIN": "linkedin"}
+        provider_map = {"GMAIL": "google", "TWITTER": "twitter", "WHATSAPP": "whatsapp", "LINKEDIN": "linkedin", "TELEGRAM": "telegram", "DISCORD": "discord"}
         provider = provider_map.get(source.upper())
         if not provider or provider not in active_providers:
             return []
@@ -275,7 +275,7 @@ async def list_messages(
     )
     
     # Filter messages to only show those where source maps to an active provider
-    provider_map = {"GMAIL": "google", "TWITTER": "twitter", "WHATSAPP": "whatsapp", "LINKEDIN": "linkedin"}
+    provider_map = {"GMAIL": "google", "TWITTER": "twitter", "WHATSAPP": "whatsapp", "LINKEDIN": "linkedin", "TELEGRAM": "telegram", "DISCORD": "discord"}
     filtered_messages = []
     for m in messages:
         m_source = m.source.value.upper() if hasattr(m.source, "value") else str(m.source).upper()

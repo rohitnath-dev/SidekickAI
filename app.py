@@ -30,6 +30,8 @@ from routes.twitter import router as twitter_router
 from routes.whatsapp import router as whatsapp_router
 from routes.settings import router as settings_router
 from routes.linkedin import router as linkedin_router
+from routes.telegram import router as telegram_router
+from routes.discord import router as discord_router
 
 # ---------------------------------------------------------------------------
 # Logging
@@ -120,6 +122,8 @@ app.include_router(twitter_router,  prefix=API_PREFIX)
 app.include_router(whatsapp_router, prefix=API_PREFIX)
 app.include_router(settings_router, prefix=API_PREFIX)
 app.include_router(linkedin_router, prefix=API_PREFIX)
+app.include_router(telegram_router, prefix=API_PREFIX)
+app.include_router(discord_router, prefix=API_PREFIX)
 
 
 # ---------------------------------------------------------------------------

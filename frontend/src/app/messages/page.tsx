@@ -24,9 +24,168 @@ const TwitterIcon = ({ className = "w-4 h-4" }: { className?: string }) => (
   </svg>
 );
 
+const TelegramIcon = ({ className = "w-4 h-4" }: { className?: string }) => (
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}>
+    <path d="m22 2-7 20-4-9-9-4Z" />
+    <path d="M22 2 11 13" />
+  </svg>
+);
+
+const DiscordIcon = ({ className = "w-4 h-4" }: { className?: string }) => (
+  <svg viewBox="0 0 127.14 96.36" fill="currentColor" className={className}>
+    <path d="M107.7,8.07A105.15,105.15,0,0,0,77.26,0a77.19,77.19,0,0,0-3.3,6.83A96.67,96.67,0,0,0,53.22,6.83,77.19,77.19,0,0,0,49.88,0,105.15,105.15,0,0,0,19.44,8.07C3.66,31.58-1.86,54.65,1,77.53A105.73,105.73,0,0,0,32,96.36a77.7,77.7,0,0,0,6.63-10.85,68.43,68.43,0,0,1-10.5-5,52.09,52.09,0,0,0-1.86-2.82,76.24,76.24,0,0,0,65.25,0,52.09,52.09,0,0,0,2.83,2.82,68.43,68.43,0,0,1-10.5,5,77.7,77.7,0,0,0,6.63,10.85,105.73,105.73,0,0,0,31-18.83C129,54.65,123.5,31.58,107.7,8.07ZM42.45,65.69C36.18,65.69,31,60,31,53S36.18,40.36,42.45,40.36,53.83,46,53.83,53,48.72,65.69,42.45,65.69Zm42.24,0C78.41,65.69,73.24,60,73.24,53S78.41,40.36,84.69,40.36,96.07,46,96.07,53,91,65.69,84.69,65.69Z"/>
+  </svg>
+);
+
 export default function MessagesPage() {
   const queryClient = useQueryClient();
-  const [activeTab, setActiveTab] = useState<'whatsapp' | 'twitter'>('whatsapp');
+  const [activeTab, setActiveTab] = useState<'whatsapp' | 'twitter' | 'telegram' | 'discord'>('whatsapp');
+
+  // ---------------------------------------------------------------------------
+  // Telegram States & API Mutators
+  // ---------------------------------------------------------------------------
+  const [tgTo, setTgTo] = useState('');
+  const [tgText, setTgText] = useState('');
+  const [tgMsgStatus, setTgMsgStatus] = useState<string | null>(null);
+  const [tgMsgError, setTgMsgError] = useState<string | null>(null);
+  const [tgSending, setTgSending] = useState(false);
+  const [selectedTgMsgId, setSelectedTgMsgId] = useState<number | null>(null);
+
+  // Telegram AI Assist States
+  const [tgAssistSender, setTgAssistSender] = useState('');
+  const [tgAssistContent, setTgAssistContent] = useState('');
+  const [tgAssistReply, setTgAssistReply] = useState('');
+  const [tgAssistLoading, setTgAssistLoading] = useState(false);
+
+  // Fetch Telegram Messages Query
+  const { data: tgMessages, isLoading: isTgLoading, refetch: refetchTgMessages } = useQuery({
+    queryKey: ['tg-messages'],
+    queryFn: async () => {
+      const response = await apiClient.get('/gmail/messages', { params: { source: 'TELEGRAM' } });
+      return response.data;
+    },
+    refetchInterval: 30000,
+  });
+
+  const sendTelegramMutation = useMutation({
+    mutationFn: async () => {
+      setTgSending(true);
+      setTgMsgStatus(null);
+      setTgMsgError(null);
+      const response = await apiClient.post('/telegram/send', {
+        to: tgTo,
+        text: tgText,
+      });
+      return response.data;
+    },
+    onSuccess: () => {
+      setTgMsgStatus('Telegram message successfully sent!');
+      setTgText('');
+      refetchTgMessages();
+    },
+    onError: (err: any) => {
+      console.error(err);
+      setTgMsgError(err.response?.data?.detail || 'Failed to send Telegram message. Check bot credentials.');
+    },
+    onSettled: () => {
+      setTgSending(false);
+    }
+  });
+
+  const generateTgReplyMutation = useMutation({
+    mutationFn: async () => {
+      setTgAssistLoading(true);
+      const response = await apiClient.post('/whatsapp/reply/generate', {
+        sender_name: tgAssistSender,
+        message_content: tgAssistContent,
+        to: tgTo,
+      });
+      return response.data;
+    },
+    onSuccess: (data) => {
+      setTgAssistReply(data.reply_text);
+    },
+    onError: (err: any) => {
+      console.error(err);
+      alert(err.response?.data?.detail || 'Failed to generate AI reply');
+    },
+    onSettled: () => {
+      setTgAssistLoading(false);
+    }
+  });
+
+  // ---------------------------------------------------------------------------
+  // Discord States & API Mutators
+  // ---------------------------------------------------------------------------
+  const [dcTo, setDcTo] = useState('');
+  const [dcText, setDcText] = useState('');
+  const [dcMsgStatus, setDcMsgStatus] = useState<string | null>(null);
+  const [dcMsgError, setDcMsgError] = useState<string | null>(null);
+  const [dcSending, setDcSending] = useState(false);
+  const [selectedDcMsgId, setSelectedDcMsgId] = useState<number | null>(null);
+
+  // Discord AI Assist States
+  const [dcAssistSender, setDcAssistSender] = useState('');
+  const [dcAssistContent, setDcAssistContent] = useState('');
+  const [dcAssistReply, setDcAssistReply] = useState('');
+  const [dcAssistLoading, setDcAssistLoading] = useState(false);
+
+  // Fetch Discord Messages Query
+  const { data: dcMessages, isLoading: isDcLoading, refetch: refetchDcMessages } = useQuery({
+    queryKey: ['dc-messages'],
+    queryFn: async () => {
+      const response = await apiClient.get('/gmail/messages', { params: { source: 'DISCORD' } });
+      return response.data;
+    },
+    refetchInterval: 30000,
+  });
+
+  const sendDiscordMutation = useMutation({
+    mutationFn: async () => {
+      setDcSending(true);
+      setDcMsgStatus(null);
+      setDcMsgError(null);
+      const response = await apiClient.post('/discord/send', {
+        to: dcTo,
+        text: dcText,
+      });
+      return response.data;
+    },
+    onSuccess: () => {
+      setDcMsgStatus('Discord message successfully sent!');
+      setDcText('');
+      refetchDcMessages();
+    },
+    onError: (err: any) => {
+      console.error(err);
+      setDcMsgError(err.response?.data?.detail || 'Failed to send Discord message. Check bot credentials.');
+    },
+    onSettled: () => {
+      setDcSending(false);
+    }
+  });
+
+  const generateDcReplyMutation = useMutation({
+    mutationFn: async () => {
+      setDcAssistLoading(true);
+      const response = await apiClient.post('/whatsapp/reply/generate', {
+        sender_name: dcAssistSender,
+        message_content: dcAssistContent,
+        to: dcTo,
+      });
+      return response.data;
+    },
+    onSuccess: (data) => {
+      setDcAssistReply(data.reply_text);
+    },
+    onError: (err: any) => {
+      console.error(err);
+      alert(err.response?.data?.detail || 'Failed to generate AI reply');
+    },
+    onSettled: () => {
+      setDcAssistLoading(false);
+    }
+  });
 
   // ---------------------------------------------------------------------------
   // WhatsApp States & API Mutators
@@ -215,6 +374,24 @@ export default function MessagesPage() {
           >
             <MessageCircle className="w-4 h-4" />
             WhatsApp Business Portal
+          </button>
+          <button
+            onClick={() => setActiveTab('telegram')}
+            className={`pb-3 transition-all cursor-pointer flex items-center gap-2 relative ${
+              activeTab === 'telegram' ? 'text-zinc-50 border-b-2 border-indigo-500' : 'text-zinc-450 hover:text-zinc-200'
+            }`}
+          >
+            <TelegramIcon className="w-4 h-4" />
+            Telegram Desk
+          </button>
+          <button
+            onClick={() => setActiveTab('discord')}
+            className={`pb-3 transition-all cursor-pointer flex items-center gap-2 relative ${
+              activeTab === 'discord' ? 'text-zinc-50 border-b-2 border-indigo-500' : 'text-zinc-450 hover:text-zinc-200'
+            }`}
+          >
+            <DiscordIcon className="w-4 h-4" />
+            Discord Desk
           </button>
           <button
             onClick={() => setActiveTab('twitter')}
@@ -439,6 +616,430 @@ export default function MessagesPage() {
                     </div>
                   </div>
                 )}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Tab 3: Telegram Desk */}
+        {activeTab === 'telegram' && (
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+            {/* Feed controls & listing */}
+            <div className="lg:col-span-2 space-y-6">
+              <div className="bg-zinc-900/20 border border-zinc-900 rounded-xl p-6 space-y-6">
+                <div className="flex items-center justify-between border-b border-zinc-900 pb-4">
+                  <div>
+                    <h2 className="text-sm font-semibold text-zinc-200 uppercase tracking-wider">Telegram Messaging Portal</h2>
+                    <p className="text-xs text-zinc-500 mt-1">Review chats received via Telegram bot webhook.</p>
+                  </div>
+                  <button
+                    onClick={() => refetchTgMessages()}
+                    disabled={isTgLoading}
+                    className="p-1.5 hover:bg-zinc-800 rounded-lg text-zinc-400 hover:text-zinc-50 transition-all cursor-pointer"
+                  >
+                    <RefreshCw className={`w-3.5 h-3.5 ${isTgLoading ? 'animate-spin' : ''}`} />
+                  </button>
+                </div>
+
+                <div className="space-y-3 max-h-[500px] overflow-y-auto pr-1">
+                  {isTgLoading ? (
+                    <div className="py-12 flex justify-center">
+                      <Loader2 className="w-6 h-6 animate-spin text-zinc-400" />
+                    </div>
+                  ) : tgMessages && tgMessages.length > 0 ? (
+                    <div className="divide-y divide-zinc-900">
+                      {tgMessages.map((msg: any) => {
+                        const isSelected = selectedTgMsgId === msg.id;
+                        return (
+                          <div
+                            key={msg.id}
+                            onClick={() => {
+                              setSelectedTgMsgId(msg.id);
+                              setTgTo(msg.sender);
+                              setTgAssistSender(msg.recipient || 'User');
+                              setTgAssistContent(msg.body);
+                              setTgAssistReply(msg.suggested_reply || '');
+                            }}
+                            className={`p-3.5 cursor-pointer hover:bg-zinc-900/40 border border-transparent rounded-xl transition-all flex flex-col gap-1.5 mt-1.5 ${
+                              isSelected ? 'bg-zinc-900/50 border-zinc-800 shadow-sm' : ''
+                            }`}
+                          >
+                            <div className="flex items-center justify-between gap-2">
+                              <span className="text-xs font-bold text-zinc-200 truncate max-w-[130px]">
+                                Chat: {msg.sender}
+                              </span>
+                              <span className="text-[9px] font-mono text-zinc-500 shrink-0">
+                                {msg.received_at ? new Date(msg.received_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : ''}
+                              </span>
+                            </div>
+                            
+                            <p className="text-xs text-zinc-400 line-clamp-2 leading-relaxed">
+                              {msg.body}
+                            </p>
+
+                            <div className="flex items-center gap-1.5 mt-1">
+                              {msg.priority && (
+                                <span className={`text-[8px] font-mono uppercase tracking-wider px-1.5 py-0.5 rounded border font-bold ${
+                                  msg.priority === 'critical' ? 'bg-rose-950/20 text-rose-455 border border-rose-900/20' :
+                                  msg.priority === 'high' ? 'bg-amber-950/20 text-amber-455 border border-amber-900/20' :
+                                  'bg-zinc-950 border border-zinc-850 text-zinc-500'
+                                }`}>
+                                  {msg.priority}
+                                </span>
+                              )}
+                              {msg.sentiment && (
+                                <span className="text-[8px] font-mono uppercase tracking-wider px-1.5 py-0.5 rounded bg-zinc-950 border border-zinc-850 text-zinc-400">
+                                  {msg.sentiment}
+                                </span>
+                              )}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  ) : (
+                    <div className="py-12 text-center text-zinc-500 text-xs">
+                      No Telegram communications received yet. Enable Webhooks to process incoming chats.
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+
+            {/* Telegram composer */}
+            <div className="space-y-6">
+              <div className="bg-zinc-900/20 border border-zinc-900 rounded-xl p-6 space-y-6">
+                <div className="flex items-center gap-2 border-b border-zinc-900 pb-3">
+                  <TelegramIcon className="w-4 h-4 text-zinc-450" />
+                  <h2 className="text-sm font-semibold text-zinc-200 uppercase tracking-wider">Send Telegram Message</h2>
+                </div>
+
+                {tgMsgStatus && (
+                  <div className="flex items-start gap-2.5 rounded-lg border border-emerald-900/30 bg-emerald-950/20 p-4 text-xs text-emerald-400">
+                    <CheckCircle2 className="h-4 w-4 shrink-0 text-emerald-500 mt-0.5" />
+                    <span>{tgMsgStatus}</span>
+                  </div>
+                )}
+
+                {tgMsgError && (
+                  <div className="flex items-start gap-2.5 rounded-lg border border-red-900/30 bg-red-950/20 p-4 text-xs text-red-400">
+                    <AlertTriangle className="h-4 w-4 shrink-0 text-red-500 mt-0.5" />
+                    <span>{tgMsgError}</span>
+                  </div>
+                )}
+
+                <div className="space-y-4">
+                  <div className="space-y-2">
+                    <label className="block text-xs font-semibold uppercase tracking-wider text-zinc-400">
+                      Telegram Chat ID
+                    </label>
+                    <div className="relative">
+                      <User className="absolute left-3 top-2.5 w-4 h-4 text-zinc-500" />
+                      <input
+                        type="text"
+                        placeholder="e.g. 123456789"
+                        value={tgTo}
+                        onChange={(e) => setTgTo(e.target.value)}
+                        className="w-full bg-zinc-950 border border-zinc-850 rounded-lg pl-10 pr-4 py-2 text-xs text-zinc-100 placeholder-zinc-500 outline-none focus:border-zinc-700 transition-all"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="space-y-2">
+                    <label className="block text-xs font-semibold uppercase tracking-wider text-zinc-400">
+                      Message Content
+                    </label>
+                    <textarea
+                      placeholder="Type your Telegram Bot message..."
+                      value={tgText}
+                      onChange={(e) => setTgText(e.target.value)}
+                      rows={4}
+                      className="w-full bg-zinc-950 border border-zinc-850 rounded-lg p-3 text-xs text-zinc-100 placeholder-zinc-500 outline-none focus:border-zinc-700 transition-all resize-none"
+                    />
+                  </div>
+
+                  <button
+                    onClick={() => sendTelegramMutation.mutate()}
+                    disabled={tgSending || !tgTo || !tgText}
+                    className="flex items-center justify-center gap-1.5 w-full py-2.5 rounded-lg bg-zinc-100 hover:bg-zinc-200 text-xs font-semibold text-zinc-950 transition-all cursor-pointer disabled:opacity-50"
+                  >
+                    {tgSending ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Send className="w-3.5 h-3.5" />}
+                    Send Telegram Message
+                  </button>
+                </div>
+              </div>
+
+              {/* AI Assistant Copilot */}
+              <div className="bg-zinc-900/20 border border-zinc-900 rounded-xl p-6 space-y-6">
+                <div className="flex items-center gap-2 border-b border-zinc-900 pb-3">
+                  <Sparkles className="w-4 h-4 text-zinc-400" />
+                  <h2 className="text-sm font-semibold text-zinc-200 uppercase tracking-wider">AI Copilot Reply Drafter</h2>
+                </div>
+
+                <div className="space-y-4">
+                  <div className="space-y-2">
+                    <label className="block text-xs font-semibold uppercase tracking-wider text-zinc-400">
+                      Sender Name / Chat ID
+                    </label>
+                    <div className="relative">
+                      <User className="absolute left-3 top-2.5 w-4 h-4 text-zinc-500" />
+                      <input
+                        type="text"
+                        placeholder="Jane"
+                        value={tgAssistSender}
+                        onChange={(e) => setTgAssistSender(e.target.value)}
+                        className="w-full bg-zinc-950 border border-zinc-850 rounded-lg pl-10 pr-4 py-2 text-xs text-zinc-100 placeholder-zinc-500 outline-none focus:border-zinc-700 transition-all"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="space-y-2">
+                    <label className="block text-xs font-semibold uppercase tracking-wider text-zinc-400">
+                      Received Message Content
+                    </label>
+                    <textarea
+                      placeholder="Paste or click a message to load content..."
+                      value={tgAssistContent}
+                      onChange={(e) => setTgAssistContent(e.target.value)}
+                      rows={3}
+                      className="w-full bg-zinc-950 border border-zinc-850 rounded-lg p-3 text-xs text-zinc-100 placeholder-zinc-500 outline-none focus:border-zinc-700 transition-all resize-none"
+                    />
+                  </div>
+
+                  <button
+                    onClick={() => generateTgReplyMutation.mutate()}
+                    disabled={tgAssistLoading || !tgAssistSender || !tgAssistContent}
+                    className="w-full flex items-center justify-center gap-1.5 py-2.5 rounded-lg bg-zinc-900 hover:bg-zinc-800 text-xs font-semibold text-zinc-300 border border-zinc-800 transition-all cursor-pointer disabled:opacity-50"
+                  >
+                    {tgAssistLoading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Sparkles className="w-3.5 h-3.5 text-zinc-500" />}
+                    Draft AI Reply
+                  </button>
+
+                  {tgAssistReply && (
+                    <div className="mt-4 p-3 bg-zinc-955 border border-zinc-800 rounded-lg space-y-2.5 relative">
+                      <p className="text-[10px] uppercase tracking-wider font-bold text-zinc-450">AI Reply Draft</p>
+                      <p className="text-xs text-zinc-200 leading-relaxed whitespace-pre-wrap">{tgAssistReply}</p>
+                      <button
+                        onClick={() => setTgText(tgAssistReply)}
+                        className="w-full py-1.5 bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 text-[10px] font-semibold text-zinc-300 rounded transition-all cursor-pointer"
+                      >
+                        Apply Draft to Composer
+                      </button>
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Tab 4: Discord Desk */}
+        {activeTab === 'discord' && (
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+            {/* Feed controls & listing */}
+            <div className="lg:col-span-2 space-y-6">
+              <div className="bg-zinc-900/20 border border-zinc-900 rounded-xl p-6 space-y-6">
+                <div className="flex items-center justify-between border-b border-zinc-900 pb-4">
+                  <div>
+                    <h2 className="text-sm font-semibold text-zinc-200 uppercase tracking-wider">Discord Messaging Portal</h2>
+                    <p className="text-xs text-zinc-500 mt-1">Review channel messages logged via Discord webhook.</p>
+                  </div>
+                  <button
+                    onClick={() => refetchDcMessages()}
+                    disabled={isDcLoading}
+                    className="p-1.5 hover:bg-zinc-800 rounded-lg text-zinc-400 hover:text-zinc-50 transition-all cursor-pointer"
+                  >
+                    <RefreshCw className={`w-3.5 h-3.5 ${isDcLoading ? 'animate-spin' : ''}`} />
+                  </button>
+                </div>
+
+                <div className="space-y-3 max-h-[500px] overflow-y-auto pr-1">
+                  {isDcLoading ? (
+                    <div className="py-12 flex justify-center">
+                      <Loader2 className="w-6 h-6 animate-spin text-zinc-400" />
+                    </div>
+                  ) : dcMessages && dcMessages.length > 0 ? (
+                    <div className="divide-y divide-zinc-900">
+                      {dcMessages.map((msg: any) => {
+                        const isSelected = selectedDcMsgId === msg.id;
+                        return (
+                          <div
+                            key={msg.id}
+                            onClick={() => {
+                              setSelectedDcMsgId(msg.id);
+                              setDcTo(msg.sender);
+                              setDcAssistSender(msg.recipient || 'DiscordUser');
+                              setDcAssistContent(msg.body);
+                              setDcAssistReply(msg.suggested_reply || '');
+                            }}
+                            className={`p-3.5 cursor-pointer hover:bg-zinc-900/40 border border-transparent rounded-xl transition-all flex flex-col gap-1.5 mt-1.5 ${
+                              isSelected ? 'bg-zinc-900/50 border-zinc-800 shadow-sm' : ''
+                            }`}
+                          >
+                            <div className="flex items-center justify-between gap-2">
+                              <span className="text-xs font-bold text-zinc-200 truncate max-w-[130px]">
+                                Channel: {msg.sender}
+                              </span>
+                              <span className="text-[9px] font-mono text-zinc-500 shrink-0">
+                                {msg.received_at ? new Date(msg.received_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : ''}
+                              </span>
+                            </div>
+                            
+                            <p className="text-xs text-zinc-400 line-clamp-2 leading-relaxed">
+                              {msg.body}
+                            </p>
+
+                            <div className="flex items-center gap-1.5 mt-1">
+                              {msg.priority && (
+                                <span className={`text-[8px] font-mono uppercase tracking-wider px-1.5 py-0.5 rounded border font-bold ${
+                                  msg.priority === 'critical' ? 'bg-rose-950/20 text-rose-455 border border-rose-900/20' :
+                                  msg.priority === 'high' ? 'bg-amber-950/20 text-amber-455 border border-amber-900/20' :
+                                  'bg-zinc-950 border border-zinc-850 text-zinc-500'
+                                }`}>
+                                  {msg.priority}
+                                </span>
+                              )}
+                              {msg.sentiment && (
+                                <span className="text-[8px] font-mono uppercase tracking-wider px-1.5 py-0.5 rounded bg-zinc-950 border border-zinc-850 text-zinc-400">
+                                  {msg.sentiment}
+                                </span>
+                              )}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  ) : (
+                    <div className="py-12 text-center text-zinc-500 text-xs">
+                      No Discord communications received yet. Use the Webhook to test incoming alerts.
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+
+            {/* Discord composer */}
+            <div className="space-y-6">
+              <div className="bg-zinc-900/20 border border-zinc-900 rounded-xl p-6 space-y-6">
+                <div className="flex items-center gap-2 border-b border-zinc-900 pb-3">
+                  <DiscordIcon className="w-4 h-4 text-zinc-450" />
+                  <h2 className="text-sm font-semibold text-zinc-200 uppercase tracking-wider">Send Discord Message</h2>
+                </div>
+
+                {dcMsgStatus && (
+                  <div className="flex items-start gap-2.5 rounded-lg border border-emerald-900/30 bg-emerald-950/20 p-4 text-xs text-emerald-400">
+                    <CheckCircle2 className="h-4 w-4 shrink-0 text-emerald-500 mt-0.5" />
+                    <span>{dcMsgStatus}</span>
+                  </div>
+                )}
+
+                {dcMsgError && (
+                  <div className="flex items-start gap-2.5 rounded-lg border border-red-900/30 bg-red-950/20 p-4 text-xs text-red-400">
+                    <AlertTriangle className="h-4 w-4 shrink-0 text-red-500 mt-0.5" />
+                    <span>{dcMsgError}</span>
+                  </div>
+                )}
+
+                <div className="space-y-4">
+                  <div className="space-y-2">
+                    <label className="block text-xs font-semibold uppercase tracking-wider text-zinc-400">
+                      Discord Channel ID
+                    </label>
+                    <div className="relative">
+                      <User className="absolute left-3 top-2.5 w-4 h-4 text-zinc-500" />
+                      <input
+                        type="text"
+                        placeholder="e.g. 987654321"
+                        value={dcTo}
+                        onChange={(e) => setDcTo(e.target.value)}
+                        className="w-full bg-zinc-950 border border-zinc-850 rounded-lg pl-10 pr-4 py-2 text-xs text-zinc-100 placeholder-zinc-500 outline-none focus:border-zinc-700 transition-all"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="space-y-2">
+                    <label className="block text-xs font-semibold uppercase tracking-wider text-zinc-400">
+                      Message Content
+                    </label>
+                    <textarea
+                      placeholder="Type your Discord Bot message..."
+                      value={dcText}
+                      onChange={(e) => setDcText(e.target.value)}
+                      rows={4}
+                      className="w-full bg-zinc-950 border border-zinc-850 rounded-lg p-3 text-xs text-zinc-100 placeholder-zinc-500 outline-none focus:border-zinc-700 transition-all resize-none"
+                    />
+                  </div>
+
+                  <button
+                    onClick={() => sendDiscordMutation.mutate()}
+                    disabled={dcSending || !dcTo || !dcText}
+                    className="flex items-center justify-center gap-1.5 w-full py-2.5 rounded-lg bg-zinc-100 hover:bg-zinc-200 text-xs font-semibold text-zinc-950 transition-all cursor-pointer disabled:opacity-50"
+                  >
+                    {dcSending ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Send className="w-3.5 h-3.5" />}
+                    Send Discord Message
+                  </button>
+                </div>
+              </div>
+
+              {/* AI Assistant Copilot */}
+              <div className="bg-zinc-900/20 border border-zinc-900 rounded-xl p-6 space-y-6">
+                <div className="flex items-center gap-2 border-b border-zinc-900 pb-3">
+                  <Sparkles className="w-4 h-4 text-zinc-450" />
+                  <h2 className="text-sm font-semibold text-zinc-200 uppercase tracking-wider">AI Copilot Reply Drafter</h2>
+                </div>
+
+                <div className="space-y-4">
+                  <div className="space-y-2">
+                    <label className="block text-xs font-semibold uppercase tracking-wider text-zinc-400">
+                      Sender / Author Name
+                    </label>
+                    <div className="relative">
+                      <User className="absolute left-3 top-2.5 w-4 h-4 text-zinc-500" />
+                      <input
+                        type="text"
+                        placeholder="DiscordUser"
+                        value={dcAssistSender}
+                        onChange={(e) => setDcAssistSender(e.target.value)}
+                        className="w-full bg-zinc-955 border border-zinc-850 rounded-lg pl-10 pr-4 py-2 text-xs text-zinc-100 placeholder-zinc-500 outline-none focus:border-zinc-700 transition-all"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="space-y-2">
+                    <label className="block text-xs font-semibold uppercase tracking-wider text-zinc-400">
+                      Received Message Content
+                    </label>
+                    <textarea
+                      placeholder="Paste or click a message to load content..."
+                      value={dcAssistContent}
+                      onChange={(e) => setDcAssistContent(e.target.value)}
+                      rows={3}
+                      className="w-full bg-zinc-955 border border-zinc-850 rounded-lg p-3 text-xs text-zinc-100 placeholder-zinc-500 outline-none focus:border-zinc-700 transition-all resize-none"
+                    />
+                  </div>
+
+                  <button
+                    onClick={() => generateDcReplyMutation.mutate()}
+                    disabled={dcAssistLoading || !dcAssistSender || !dcAssistContent}
+                    className="w-full flex items-center justify-center gap-1.5 py-2.5 rounded-lg bg-zinc-900 hover:bg-zinc-800 text-xs font-semibold text-zinc-300 border border-zinc-800 transition-all cursor-pointer disabled:opacity-50"
+                  >
+                    {dcAssistLoading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Sparkles className="w-3.5 h-3.5 text-zinc-500" />}
+                    Draft AI Reply
+                  </button>
+
+                  {dcAssistReply && (
+                    <div className="mt-4 p-3 bg-zinc-955 border border-zinc-880 rounded-lg space-y-2.5 relative">
+                      <p className="text-[10px] uppercase tracking-wider font-bold text-zinc-450">AI Reply Draft</p>
+                      <p className="text-xs text-zinc-200 leading-relaxed whitespace-pre-wrap">{dcAssistReply}</p>
+                      <button
+                        onClick={() => setDcText(dcAssistReply)}
+                        className="w-full py-1.5 bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 text-[10px] font-semibold text-zinc-300 rounded transition-all cursor-pointer"
+                      >
+                        Apply Draft to Composer
+                      </button>
+                    </div>
+                  )}
+                </div>
               </div>
             </div>
           </div>

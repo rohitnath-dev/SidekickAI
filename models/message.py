@@ -25,6 +25,8 @@ class MessageSource(str, Enum):
     TWITTER = "twitter"
     SLACK = "slack"
     CALENDAR = "calendar"
+    TELEGRAM = "telegram"
+    DISCORD = "discord"
     OTHER = "other"
 
 

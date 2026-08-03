@@ -214,6 +214,36 @@ async def approve_reply(
                 text=request.reply_text,
             )
 
+        elif msg.source == MessageSource.TELEGRAM:
+            from agents.telegram_agent import TelegramAgent
+            from repositories.token_repo import TokenRepository
+            token = TokenRepository.get(db, user_id=current_user.id, provider="telegram")
+            if not token or token.access_token == "disabled":
+                raise HTTPException(
+                    status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                    detail="Telegram is disconnected. Please connect in Settings.",
+                )
+            result = await TelegramAgent().send_message(
+                bot_token=token.access_token,
+                chat_id=msg.sender,
+                text=request.reply_text,
+            )
+
+        elif msg.source == MessageSource.DISCORD:
+            from agents.discord_agent import DiscordAgent
+            from repositories.token_repo import TokenRepository
+            token = TokenRepository.get(db, user_id=current_user.id, provider="discord")
+            if not token or token.access_token == "disabled":
+                raise HTTPException(
+                    status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                    detail="Discord is disconnected. Please connect in Settings.",
+                )
+            result = await DiscordAgent().send_message(
+                bot_token=token.access_token,
+                channel_id=msg.sender,
+                text=request.reply_text,
+            )
+
         elif msg.source == MessageSource.TWITTER:
             from agents.twitter_agent import TwitterAgent
             

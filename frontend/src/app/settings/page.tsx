@@ -80,6 +80,13 @@ export default function SettingsPage() {
   const twitterPref = connectedServices.find((s: any) => s.provider === 'twitter');
   const whatsappPref = connectedServices.find((s: any) => s.provider === 'whatsapp');
   const linkedinPref = connectedServices.find((s: any) => s.provider === 'linkedin');
+  const telegramPref = connectedServices.find((s: any) => s.provider === 'telegram');
+  const discordPref = connectedServices.find((s: any) => s.provider === 'discord');
+
+  const [telegramToken, setTelegramToken] = useState('');
+  const [discordToken, setDiscordToken] = useState('');
+  const [discordClientId, setDiscordClientId] = useState('');
+  const [discordGuildId, setDiscordGuildId] = useState('');
 
   const {
     register: registerProfile,
@@ -228,6 +235,42 @@ export default function SettingsPage() {
     },
     onError: (err: any) => {
       alert(err.response?.data?.detail || 'Failed to clear application data.');
+    }
+  });
+
+  // Connect Telegram mutation
+  const connectTelegramMutation = useMutation({
+    mutationFn: async (data: { bot_token: string }) => {
+      const response = await apiClient.post('/telegram/connect', data);
+      return response.data;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['preferences-settings'] });
+      queryClient.invalidateQueries({ queryKey: ['preferences'] });
+      alert('Telegram integrated successfully!');
+      setTelegramToken('');
+    },
+    onError: (err: any) => {
+      alert(err.response?.data?.detail || 'Failed to connect Telegram.');
+    }
+  });
+
+  // Connect Discord mutation
+  const connectDiscordMutation = useMutation({
+    mutationFn: async (data: { bot_token: string; client_id: string; guild_id: string }) => {
+      const response = await apiClient.post('/discord/connect', data);
+      return response.data;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['preferences-settings'] });
+      queryClient.invalidateQueries({ queryKey: ['preferences'] });
+      alert('Discord integrated successfully!');
+      setDiscordToken('');
+      setDiscordClientId('');
+      setDiscordGuildId('');
+    },
+    onError: (err: any) => {
+      alert(err.response?.data?.detail || 'Failed to connect Discord.');
     }
   });
 
@@ -778,6 +821,120 @@ export default function SettingsPage() {
                           Allows profile sync and sharing auto-posts. Read access to personal DMs/inbox is not supported by the LinkedIn API.
                         </div>
                       </>
+                    )}
+                  </div>
+
+                  {/* Telegram Card */}
+                  <div className="space-y-3 pt-4 border-t border-zinc-900">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <h3 className="text-xs font-bold text-zinc-200">Telegram Bot Integration</h3>
+                        <p className="text-[10px] text-zinc-500">Orchestrate messages using Telegram bot webhooks</p>
+                      </div>
+                      <span className={`text-[10px] font-mono px-2 py-0.5 rounded ${
+                        telegramPref?.connected ? 'bg-emerald-950/20 text-emerald-400 border border-emerald-900/30' : 'bg-zinc-900 text-zinc-500'
+                      }`}>
+                        {telegramPref?.connected ? 'Active' : 'Offline'}
+                      </span>
+                    </div>
+                    {telegramPref?.connected ? (
+                      <button
+                        onClick={() => disconnectMutation.mutate('telegram')}
+                        className="w-full text-center py-2 bg-zinc-950 hover:bg-red-950/20 hover:text-red-400 rounded text-xs font-semibold text-zinc-400 border border-zinc-850 hover:border-red-900/20 transition-all cursor-pointer"
+                      >
+                        Disconnect Bot
+                      </button>
+                    ) : (
+                      <div className="space-y-2 mt-2">
+                        <input
+                          type="password"
+                          placeholder="Telegram Bot Token"
+                          value={telegramToken}
+                          onChange={(e) => setTelegramToken(e.target.value)}
+                          className="w-full bg-zinc-950 border border-zinc-850 rounded px-2.5 py-1.5 text-xs text-zinc-100 placeholder-zinc-500 outline-none focus:border-zinc-700 transition-all"
+                        />
+                        <button
+                          onClick={() => {
+                            if (!telegramToken) {
+                              alert('Please provide your Telegram Bot Token.');
+                              return;
+                            }
+                            connectTelegramMutation.mutate({ bot_token: telegramToken });
+                          }}
+                          disabled={connectTelegramMutation.isPending}
+                          className="w-full py-2 bg-zinc-900 hover:bg-zinc-850 rounded text-xs font-semibold text-zinc-50 border border-zinc-850 hover:border-zinc-700 transition-all cursor-pointer disabled:opacity-50"
+                        >
+                          {connectTelegramMutation.isPending ? 'Connecting...' : 'Connect Telegram Bot'}
+                        </button>
+                        <div className="text-[10px] text-zinc-450 bg-zinc-900/40 border border-zinc-900/80 rounded-lg p-2.5 mt-2 leading-relaxed">
+                          <span className="text-indigo-400 font-semibold block mb-0.5">Webhook Configuration:</span>
+                          Set telegram bot webhook to: <code className="text-zinc-300 font-mono text-[9px]">https://[your-domain]/api/v1/telegram/webhook</code>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Discord Card */}
+                  <div className="space-y-3 pt-4 border-t border-zinc-900">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <h3 className="text-xs font-bold text-zinc-200">Discord Bot Integration</h3>
+                        <p className="text-[10px] text-zinc-500">Monitor and respond to Discord server channels</p>
+                      </div>
+                      <span className={`text-[10px] font-mono px-2 py-0.5 rounded ${
+                        discordPref?.connected ? 'bg-emerald-950/20 text-emerald-400 border border-emerald-900/30' : 'bg-zinc-900 text-zinc-500'
+                      }`}>
+                        {discordPref?.connected ? 'Active' : 'Offline'}
+                      </span>
+                    </div>
+                    {discordPref?.connected ? (
+                      <button
+                        onClick={() => disconnectMutation.mutate('discord')}
+                        className="w-full text-center py-2 bg-zinc-950 hover:bg-red-950/20 hover:text-red-400 rounded text-xs font-semibold text-zinc-400 border border-zinc-850 hover:border-red-900/20 transition-all cursor-pointer"
+                      >
+                        Disconnect Bot
+                      </button>
+                    ) : (
+                      <div className="space-y-2 mt-2">
+                        <input
+                          type="password"
+                          placeholder="Discord Bot Token"
+                          value={discordToken}
+                          onChange={(e) => setDiscordToken(e.target.value)}
+                          className="w-full bg-zinc-950 border border-zinc-850 rounded px-2.5 py-1.5 text-xs text-zinc-100 placeholder-zinc-500 outline-none focus:border-zinc-700 transition-all"
+                        />
+                        <input
+                          type="text"
+                          placeholder="Discord Bot Client ID"
+                          value={discordClientId}
+                          onChange={(e) => setDiscordClientId(e.target.value)}
+                          className="w-full bg-zinc-950 border border-zinc-850 rounded px-2.5 py-1.5 text-xs text-zinc-100 placeholder-zinc-500 outline-none focus:border-zinc-700 transition-all"
+                        />
+                        <input
+                          type="text"
+                          placeholder="Discord Guild (Server) ID"
+                          value={discordGuildId}
+                          onChange={(e) => setDiscordGuildId(e.target.value)}
+                          className="w-full bg-zinc-950 border border-zinc-850 rounded px-2.5 py-1.5 text-xs text-zinc-100 placeholder-zinc-500 outline-none focus:border-zinc-700 transition-all"
+                        />
+                        <button
+                          onClick={() => {
+                            if (!discordToken || !discordClientId || !discordGuildId) {
+                              alert('Please provide Discord Bot Token, Client ID, and Guild ID.');
+                              return;
+                            }
+                            connectDiscordMutation.mutate({
+                              bot_token: discordToken,
+                              client_id: discordClientId,
+                              guild_id: discordGuildId
+                            });
+                          }}
+                          disabled={connectDiscordMutation.isPending}
+                          className="w-full py-2 bg-zinc-900 hover:bg-zinc-850 rounded text-xs font-semibold text-zinc-50 border border-zinc-850 hover:border-zinc-700 transition-all cursor-pointer disabled:opacity-50"
+                        >
+                          {connectDiscordMutation.isPending ? 'Connecting...' : 'Connect Discord Bot'}
+                        </button>
+                      </div>
                     )}
                   </div>
                 </div>

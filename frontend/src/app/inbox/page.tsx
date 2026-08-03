@@ -391,6 +391,8 @@ function InboxContent() {
                 <option value="gmail">Gmail</option>
                 <option value="whatsapp">WhatsApp</option>
                 <option value="twitter">Twitter</option>
+                <option value="telegram">Telegram</option>
+                <option value="discord">Discord</option>
               </select>
               <button 
                 onClick={() => setUnreadOnly(!unreadOnly)}
@@ -436,7 +438,13 @@ function InboxContent() {
                     </div>
 
                     <p className="text-xs font-bold text-zinc-200 truncate">
-                      {msg.subject || (msg.source === 'whatsapp' ? 'WhatsApp Direct Message' : msg.source === 'twitter' ? 'Twitter Mention' : '(no subject)')}
+                      {msg.subject || (
+                        msg.source === 'whatsapp' ? 'WhatsApp Direct Message' :
+                        msg.source === 'twitter' ? 'Twitter Mention' :
+                        msg.source === 'telegram' ? 'Telegram Message' :
+                        msg.source === 'discord' ? 'Discord Message' :
+                        '(no subject)'
+                      )}
                     </p>
 
                     <p className="text-xs text-zinc-405 line-clamp-2">
@@ -448,6 +456,8 @@ function InboxContent() {
                         msg.source === 'gmail' ? 'bg-red-950/20 text-red-400 border border-red-900/20' :
                         msg.source === 'whatsapp' ? 'bg-green-950/20 text-green-400 border border-green-900/20' :
                         msg.source === 'twitter' ? 'bg-zinc-900 border border-zinc-800 text-zinc-300' :
+                        msg.source === 'telegram' ? 'bg-sky-950/20 text-sky-400 border border-sky-900/20' :
+                        msg.source === 'discord' ? 'bg-indigo-950/20 text-indigo-400 border border-indigo-900/20' :
                         'bg-zinc-900 border border-zinc-800 text-zinc-400'
                       }`}>
                         {msg.source}
