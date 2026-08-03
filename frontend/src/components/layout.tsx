@@ -139,8 +139,8 @@ export default function SidebarLayout({ children }: SidebarProps) {
       </aside>
 
       {/* Mobile Header & Overlay Menu */}
-      <div className="flex flex-col flex-1 h-full overflow-hidden z-10 bg-transparent">
-        <header className="flex items-center justify-between px-6 py-4 md:hidden border-b border-zinc-900/60 bg-zinc-950/40 backdrop-blur-md z-20">
+      <div className="flex flex-col flex-1 h-full overflow-hidden bg-transparent">
+        <header className="flex items-center justify-between px-6 py-4 md:hidden border-b border-zinc-900/60 bg-zinc-950/40 backdrop-blur-md z-50">
           <Link href="/">
             <Logo size={24} />
           </Link>
@@ -154,7 +154,7 @@ export default function SidebarLayout({ children }: SidebarProps) {
 
         {/* Mobile Navigation Drawer */}
         {isMobileMenuOpen && (
-          <div className="fixed inset-0 bg-zinc-950/90 backdrop-blur-xl z-10 flex flex-col p-6 pt-20 justify-between md:hidden">
+          <div className="fixed inset-0 bg-zinc-950/98 backdrop-blur-2xl z-40 flex flex-col p-6 pt-24 justify-between md:hidden">
             <nav className="flex flex-col gap-2">
               {navItems.map((item) => {
                 const Icon = item.icon;

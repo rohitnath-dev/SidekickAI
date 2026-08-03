@@ -18,7 +18,8 @@ import {
   Loader2,
   Power,
   ShieldAlert,
-  Disc
+  Disc,
+  Trash2
 } from 'lucide-react';
 import SidebarLayout from '@/components/layout';
 import { apiClient } from '@/lib/api-client';
@@ -212,6 +213,21 @@ export default function SettingsPage() {
     },
     onError: (err: any) => {
       alert(err.response?.data?.detail || 'Failed to disconnect service.');
+    }
+  });
+
+  // Clear application data mutation
+  const clearDataMutation = useMutation({
+    mutationFn: async () => {
+      const response = await apiClient.post('/settings/clear-data');
+      return response.data;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['messages'] });
+      alert('Application data cleared successfully! Your dashboard is now clean.');
+    },
+    onError: (err: any) => {
+      alert(err.response?.data?.detail || 'Failed to clear application data.');
     }
   });
 
@@ -529,6 +545,38 @@ export default function SettingsPage() {
                   Change Password
                 </button>
               </form>
+            </div>
+
+            {/* Clear/Reset Application Data */}
+            <div className="bg-zinc-900/20 border border-zinc-900 rounded-xl p-6 space-y-4">
+              <div className="flex items-center gap-2 border-b border-zinc-900 pb-3">
+                <Trash2 className="w-4 h-4 text-amber-500" />
+                <h2 className="text-sm font-semibold text-zinc-200 uppercase tracking-wider">Reset Application Data</h2>
+              </div>
+              <p className="text-xs text-zinc-400 leading-relaxed">
+                Clearing application data resets your inbox state by deleting all synced messages, direct chats, and AI briefings. This allows you to start with a clean slate. Discovered integrations and user settings will not be affected.
+              </p>
+              <button
+                onClick={() => {
+                  if (confirm('Are you sure you want to clear all synced messages and memory logs? This action is irreversible.')) {
+                    clearDataMutation.mutate();
+                  }
+                }}
+                disabled={clearDataMutation.isPending}
+                className="flex items-center justify-center gap-1.5 px-4 py-2.5 rounded-lg bg-zinc-950 hover:bg-amber-950/20 hover:text-amber-400 border border-zinc-850 hover:border-amber-900/20 text-xs font-semibold text-zinc-400 transition-all cursor-pointer disabled:opacity-50"
+              >
+                {clearDataMutation.isPending ? (
+                  <>
+                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                    Clearing data...
+                  </>
+                ) : (
+                  <>
+                    <Trash2 className="w-3.5 h-3.5" />
+                    Clear All Test Messages & Logs
+                  </>
+                )}
+              </button>
             </div>
 
             {/* Danger Zone */}

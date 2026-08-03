@@ -154,3 +154,26 @@ async def disconnect_service(
         TokenRepository.delete(db, user_id=current_user.id, provider=provider)
 
     return {"status": "disconnected", "provider": provider}
+
+
+@router.post("/clear-data")
+async def clear_data(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Clear all messages and memory logs for the authenticated user."""
+    from models.message import Message
+    from models.memory_item import MemoryItem
+    try:
+        db.query(Message).filter_by(user_id=current_user.id).delete()
+        db.query(MemoryItem).filter_by(user_id=current_user.id).delete()
+        db.commit()
+        logger.info("Cleared all messages and memory logs for user_id=%d", current_user.id)
+        return {"status": "success", "message": "All messages and memory items have been cleared."}
+    except Exception as exc:
+        db.rollback()
+        logger.error("Failed to clear data for user_id=%d: %s", current_user.id, exc)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to clear database logs: {str(exc)}"
+        )
