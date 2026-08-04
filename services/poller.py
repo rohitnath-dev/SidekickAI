@@ -119,11 +119,9 @@ async def start_polling() -> None:
                                 if await client.is_user_authorized():
                                     dialogs = await client.get_dialogs(limit=5)
                                     for dialog in dialogs:
-                                        entity = dialog.entity
                                         name = dialog.name or "Telegram User"
-                                        username = getattr(entity, "username", None) or str(entity.id)
                                         
-                                        async for message in client.iter_messages(entity, limit=5):
+                                        async for message in client.iter_messages(dialog.entity, limit=5):
                                             if message.out or not message.text:
                                                 continue
                                             
@@ -133,13 +131,21 @@ async def start_polling() -> None:
                                                 continue
                                             
                                             logger.info("Background Poller: New Telegram message found (ID: %s)", msg_id)
+                                            sender_entity = await message.get_sender()
+                                            sender_name = "Telegram User"
+                                            if sender_entity:
+                                                first_name = getattr(sender_entity, "first_name", "") or ""
+                                                last_name = getattr(sender_entity, "last_name", "") or ""
+                                                sender_name = f"{first_name} {last_name}".strip() or getattr(sender_entity, "username", None) or str(message.sender_id)
+
                                             db_msg = Message(
                                                 user_id=user.id,
                                                 message_id=str(msg_id),
+                                                thread_id=str(dialog.id),
                                                 source=MessageSource.TELEGRAM,
-                                                sender=username,
-                                                recipient=name,
-                                                subject=f"Telegram Chat with {name}",
+                                                sender=name,
+                                                recipient=sender_name,
+                                                subject=f"Telegram Chat with {name}" if name == sender_name else f"Telegram Message from {sender_name} in {name}",
                                                 body=message.text,
                                                 priority=MessagePriority.MEDIUM,
                                                 status=MessageStatus.UNREAD,

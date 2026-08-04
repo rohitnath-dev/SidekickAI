@@ -440,14 +440,11 @@ async def sync_telegram(
         await client.connect()
         if not await client.is_user_authorized():
             raise HTTPException(status_code=401, detail="Telegram user unauthorized. Please reconnect.")
-
         dialogs = await client.get_dialogs(limit=10)
         for dialog in dialogs:
-            entity = dialog.entity
             name = dialog.name or "Telegram User"
-            username = getattr(entity, "username", None) or str(entity.id)
             
-            async for message in client.iter_messages(entity, limit=5):
+            async for message in client.iter_messages(dialog.entity, limit=5):
                 if message.out:
                     continue
                 if not message.text:
@@ -459,13 +456,21 @@ async def sync_telegram(
                     total_stored += 1
                     continue
 
+                sender_entity = await message.get_sender()
+                sender_name = "Telegram User"
+                if sender_entity:
+                    first_name = getattr(sender_entity, "first_name", "") or ""
+                    last_name = getattr(sender_entity, "last_name", "") or ""
+                    sender_name = f"{first_name} {last_name}".strip() or getattr(sender_entity, "username", None) or str(message.sender_id)
+
                 db_msg = Message(
                     user_id=current_user.id,
                     message_id=str(msg_id),
+                    thread_id=str(dialog.id),
                     source=MessageSource.TELEGRAM,
-                    sender=username,
-                    recipient=name,
-                    subject=f"Telegram Chat with {name}",
+                    sender=name,
+                    recipient=sender_name,
+                    subject=f"Telegram Chat with {name}" if name == sender_name else f"Telegram Message from {sender_name} in {name}",
                     body=message.text,
                     priority=MessagePriority.MEDIUM,
                     status=MessageStatus.UNREAD,
@@ -474,7 +479,6 @@ async def sync_telegram(
                 db.add(db_msg)
                 db.commit()
                 db.refresh(db_msg)
-
                 synced_count += 1
                 total_stored += 1
 

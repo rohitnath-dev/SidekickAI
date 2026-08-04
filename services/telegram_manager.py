@@ -90,15 +90,22 @@ class TelegramManager:
 
         db = SessionLocal()
         try:
+            chat = await event.get_chat()
+            chat_name = "Telegram Chat"
+            if chat:
+                if hasattr(chat, "title"):
+                    chat_name = chat.title
+                else:
+                    first_name = getattr(chat, "first_name", "") or ""
+                    last_name = getattr(chat, "last_name", "") or ""
+                    chat_name = f"{first_name} {last_name}".strip() or "Telegram User"
+
             sender_entity = await event.get_sender()
             sender_name = "Telegram User"
-            username = str(event.sender_id)
-            
             if sender_entity:
-                username = getattr(sender_entity, "username", None) or str(event.sender_id)
                 first_name = getattr(sender_entity, "first_name", "") or ""
                 last_name = getattr(sender_entity, "last_name", "") or ""
-                sender_name = f"{first_name} {last_name}".strip() or "Telegram User"
+                sender_name = f"{first_name} {last_name}".strip() or getattr(sender_entity, "username", None) or str(event.sender_id)
 
             msg_id = f"tg-user-{event.id}"
             
@@ -110,10 +117,11 @@ class TelegramManager:
             db_msg = Message(
                 user_id=user_id,
                 message_id=str(msg_id),
+                thread_id=str(event.chat_id),
                 source=MessageSource.TELEGRAM,
-                sender=username,
+                sender=chat_name,
                 recipient=sender_name,
-                subject=f"Telegram Chat with {sender_name}",
+                subject=f"Telegram Chat with {chat_name}" if chat_name == sender_name else f"Telegram Message from {sender_name} in {chat_name}",
                 body=event.text,
                 priority=MessagePriority.MEDIUM,
                 status=MessageStatus.UNREAD,

@@ -372,7 +372,43 @@ class LLMClient:
         if is_reply:
             return "Hi, thank you for your message. We have received it and will follow up shortly."
         if is_summary:
-            return '{"summary": "Brief summary of message contents.", "sentiment": "neutral", "category": "inbox", "key_points": [], "action_items": [], "deadlines": [], "mentioned_people": [], "reply_required": false, "confidence_score": 50}'
+            import re
+            import json
+            # Extract content after typical prompts like 'body:' or 'message:'
+            body_match = re.search(r"(?:body|content|email|message):\s*(.*)", user_msg, re.DOTALL | re.IGNORECASE)
+            body_text = body_match.group(1).strip() if body_match else user_msg.strip()
+            
+            # Clean template characters or limit text size
+            if len(body_text) > 400:
+                body_text = body_text[:400]
+                
+            # Grab the first sentence for summary description
+            sentences = [s.strip() for s in re.split(r'[.!?\n]', body_text) if s.strip()]
+            summary_desc = sentences[0] if sentences else "Brief summary of message contents."
+            if len(summary_desc) > 120:
+                summary_desc = summary_desc[:117] + "..."
+            
+            # Determine category dynamically based on keywords
+            category_val = "inbox"
+            body_lower = body_text.lower()
+            if any(w in body_lower for w in ["bug", "issue", "error", "fail", "broken", "broken layout", "outage"]):
+                category_val = "bug_report"
+            elif any(w in body_lower for w in ["meet", "schedule", "calendar", "call"]):
+                category_val = "meeting_request"
+            elif any(w in body_lower for w in ["thank", "great", "awesome", "fantastic", "shoutout"]):
+                category_val = "feedback"
+                
+            return json.dumps({
+                "summary": summary_desc,
+                "sentiment": "neutral",
+                "category": category_val,
+                "key_points": [summary_desc[:50] + "..." if len(summary_desc) > 50 else summary_desc],
+                "action_items": [],
+                "deadlines": [],
+                "mentioned_people": [],
+                "reply_required": False,
+                "confidence_score": 50
+            })
         
         return "Local fallback response."
 

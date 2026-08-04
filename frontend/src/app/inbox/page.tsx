@@ -404,6 +404,39 @@ function InboxContent() {
     return matchQuery;
   }) || [];
 
+  // Group messages by thread_id (only for messages that have a thread_id)
+  const groupedMessages = React.useMemo(() => {
+    const threadsMap = new Map<string, any>();
+    const result: any[] = [];
+
+    for (const msg of filteredMessages) {
+      if (msg.thread_id) {
+        if (!threadsMap.has(msg.thread_id)) {
+          threadsMap.set(msg.thread_id, msg);
+          result.push(msg);
+        } else {
+          const existing = threadsMap.get(msg.thread_id);
+          if (new Date(msg.received_at) > new Date(existing.received_at)) {
+            const idx = result.indexOf(existing);
+            if (idx !== -1) {
+              result[idx] = msg;
+            }
+            threadsMap.set(msg.thread_id, msg);
+          }
+        }
+      } else {
+        result.push(msg);
+      }
+    }
+    return result;
+  }, [filteredMessages]);
+
+  const threadMessages = React.useMemo(() => {
+    if (!selectedMessage?.thread_id || !messages) return [];
+    return messages
+      .filter((m: any) => m.thread_id === selectedMessage.thread_id)
+      .sort((a: any, b: any) => new Date(a.received_at).getTime() - new Date(b.received_at).getTime());
+  }, [selectedMessage, messages]);
   // Parse action items string if present (represented as array in text)
   const parseActionItems = (actionItemsStr: string | null) => {
     if (!actionItemsStr) return [];
@@ -513,8 +546,8 @@ function InboxContent() {
               <div className="py-16 flex justify-center text-zinc-500">
                 <Loader2 className="w-6 h-6 animate-spin text-indigo-500" />
               </div>
-            ) : filteredMessages.length > 0 ? (
-              filteredMessages.map((msg: any) => {
+            ) : groupedMessages.length > 0 ? (
+              groupedMessages.map((msg: any) => {
                 const isSelected = selectedId === msg.id;
                 return (
                   <div
@@ -676,7 +709,9 @@ function InboxContent() {
                       <div className="pt-3.5 border-t border-zinc-900/60">
                         <span className="text-[10px] font-mono uppercase tracking-widest text-zinc-550">Integration Channel</span>
                         <h3 className="text-sm font-semibold text-indigo-400 mt-1">
-                          {selectedMessage.source === 'whatsapp' ? 'WhatsApp Direct Message' : 'Twitter Mention'}
+                          {selectedMessage.source === 'whatsapp' ? 'WhatsApp Direct Message' :
+                           selectedMessage.source === 'telegram' ? 'Telegram' :
+                           selectedMessage.source === 'discord' ? 'Discord' : 'Twitter Mention'}
                         </h3>
                       </div>
                     )}
@@ -751,12 +786,42 @@ function InboxContent() {
                     </div>
                   )}
 
-                  {/* Raw Message Body */}
+                  {/* Raw Message Body or Thread Conversation */}
                   <div className="space-y-2">
-                    <h4 className="text-xs font-semibold text-zinc-550 uppercase tracking-widest">Original Correspondence</h4>
-                    <div className="glass-panel rounded-xl p-5 text-sm text-zinc-300 font-normal leading-relaxed whitespace-pre-wrap font-sans overflow-x-auto">
-                      {selectedMessage.body}
-                    </div>
+                    <h4 className="text-xs font-semibold text-zinc-500 uppercase tracking-widest">
+                      {selectedMessage.thread_id ? "Conversation History" : "Original Correspondence"}
+                    </h4>
+                    {selectedMessage.thread_id && threadMessages.length > 0 ? (
+                      <div className="glass-panel rounded-xl p-5 space-y-4 max-h-[500px] overflow-y-auto flex flex-col gap-3">
+                        {threadMessages.map((tmsg: any) => {
+                          const isCurrent = tmsg.id === selectedMessage.id;
+                          return (
+                            <div 
+                              key={tmsg.id} 
+                              className={`flex flex-col max-w-[85%] rounded-2xl p-4 space-y-1.5 self-start ${
+                                isCurrent
+                                  ? 'bg-indigo-500/10 border border-indigo-500/30 shadow-sm shadow-indigo-500/5'
+                                  : 'bg-zinc-900/30 border border-zinc-800/40'
+                              }`}
+                            >
+                              <div className="flex items-center justify-between gap-6 text-[10px] font-semibold text-zinc-400">
+                                <span className="truncate max-w-[150px]">{tmsg.recipient || tmsg.sender}</span>
+                                <span className="font-mono text-zinc-500">
+                                  {tmsg.received_at ? new Date(tmsg.received_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : ''}
+                                </span>
+                              </div>
+                              <p className="text-xs text-zinc-200 leading-relaxed whitespace-pre-wrap break-words">
+                                {tmsg.body}
+                              </p>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    ) : (
+                      <div className="glass-panel rounded-xl p-5 text-sm text-zinc-300 font-normal leading-relaxed whitespace-pre-wrap font-sans overflow-x-auto">
+                        {selectedMessage.body}
+                      </div>
+                    )}
                   </div>
 
                   {/* Suggested Smart Reply Module */}
