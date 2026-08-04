@@ -3,6 +3,7 @@ Twitter / X Agent
 
 Twitter API v2 integration via async httpx.
 OAuth 1.0a for write operations is implemented using stdlib (hmac, hashlib, base64, urllib).
+OAuth 2.0 for user-specific replies using Bearer tokens.
 """
 
 from __future__ import annotations
@@ -49,7 +50,12 @@ class TwitterAgent(BaseAgent):
             List of tweet dicts.
         """
         url = f"{TWITTER_API_BASE}/users/{user_id}/mentions"
-        params = {"max_results": min(max_results, 100)}
+        params = {
+            "max_results": min(max_results, 100),
+            "expansions": "author_id",
+            "tweet.fields": "created_at,public_metrics,author_id",
+            "user.fields": "id,name,username"
+        }
         headers = {"Authorization": f"Bearer {bearer_token}"}
 
         try:
@@ -57,9 +63,18 @@ class TwitterAgent(BaseAgent):
                 response = await client.get(url, headers=headers, params=params)
                 response.raise_for_status()
                 data = response.json()
-                return data.get("data", [])
+                
+                # Map user expansions to tweets
+                tweets = data.get("data", [])
+                users_map = {u["id"]: u for u in data.get("includes", {}).get("users", [])}
+                
+                for tweet in tweets:
+                    if "author_id" in tweet and tweet["author_id"] in users_map:
+                        tweet["author"] = users_map[tweet["author_id"]]
+                
+                return tweets
         except httpx.HTTPStatusError as exc:
-            self.logger.error("TwitterAgent.get_mentions HTTP error: %s", exc)
+            self.logger.error("TwitterAgent.get_mentions HTTP error: %s — %s", exc, exc.response.text)
             return []
         except Exception as exc:
             self.logger.error("TwitterAgent.get_mentions failed: %s", exc)
@@ -78,7 +93,12 @@ class TwitterAgent(BaseAgent):
             List of tweet dicts.
         """
         url = f"{TWITTER_API_BASE}/users/{user_id}/tweets"
-        params = {"max_results": min(max_results, 100)}
+        params = {
+            "max_results": min(max_results, 100),
+            "expansions": "author_id",
+            "tweet.fields": "created_at,public_metrics,author_id",
+            "user.fields": "id,name,username"
+        }
         headers = {"Authorization": f"Bearer {bearer_token}"}
 
         try:
@@ -86,16 +106,77 @@ class TwitterAgent(BaseAgent):
                 response = await client.get(url, headers=headers, params=params)
                 response.raise_for_status()
                 data = response.json()
-                return data.get("data", [])
+                
+                tweets = data.get("data", [])
+                users_map = {u["id"]: u for u in data.get("includes", {}).get("users", [])}
+                
+                for tweet in tweets:
+                    if "author_id" in tweet and tweet["author_id"] in users_map:
+                        tweet["author"] = users_map[tweet["author_id"]]
+                
+                return tweets
         except httpx.HTTPStatusError as exc:
-            self.logger.error("TwitterAgent.get_timeline HTTP error: %s", exc)
+            self.logger.error("TwitterAgent.get_timeline HTTP error: %s — %s", exc, exc.response.text)
             return []
         except Exception as exc:
             self.logger.error("TwitterAgent.get_timeline failed: %s", exc)
             return []
 
     # ------------------------------------------------------------------
-    # Write endpoints (OAuth 1.0a)
+    # Write endpoints (OAuth 2.0 — User Bearer Token)
+    # ------------------------------------------------------------------
+
+    async def post_reply_oauth2(
+        self,
+        access_token: str,
+        tweet_id: str,
+        text: str,
+    ) -> dict:
+        """
+        Post a reply to a tweet using OAuth 2.0 (user's personal access token).
+        
+        This is the NEW method for per-user replies.
+        Uses the user's own Twitter bearer token (not app-level token).
+
+        Args:
+            access_token: User's OAuth 2.0 access token from Twitter
+            tweet_id: ID of tweet to reply to
+            text: Reply text (max 280 chars)
+
+        Returns:
+            API response dict or {} on failure.
+        """
+        url = f"{TWITTER_API_BASE}/tweets"
+        payload = {
+            "text": text,
+            "reply": {"in_reply_to_tweet_id": tweet_id},
+        }
+
+        headers = {
+            "Authorization": f"Bearer {access_token}",
+            "Content-Type": "application/json",
+        }
+
+        try:
+            async with httpx.AsyncClient(timeout=30.0) as client:
+                response = await client.post(url, headers=headers, json=payload)
+                response.raise_for_status()
+                result = response.json()
+                self.logger.info("Posted reply via OAuth2: tweet_id=%s, reply_id=%s", tweet_id, result.get("data", {}).get("id"))
+                return result
+        except httpx.HTTPStatusError as exc:
+            self.logger.error(
+                "TwitterAgent.post_reply_oauth2 HTTP error: %s — %s",
+                exc,
+                exc.response.text,
+            )
+            return {}
+        except Exception as exc:
+            self.logger.error("TwitterAgent.post_reply_oauth2 failed: %s", exc)
+            return {}
+
+    # ------------------------------------------------------------------
+    # Write endpoints (OAuth 1.0a — Legacy)
     # ------------------------------------------------------------------
 
     async def post_reply(
@@ -108,7 +189,7 @@ class TwitterAgent(BaseAgent):
         text: str,
     ) -> dict:
         """
-        Post a reply to a tweet using OAuth 1.0a.
+        Post a reply to a tweet using OAuth 1.0a (legacy, app-level credentials).
 
         Returns:
             API response dict or {} on failure.
