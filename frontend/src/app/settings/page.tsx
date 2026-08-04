@@ -94,14 +94,7 @@ export default function SettingsPage() {
   const [telegramAuthState, setTelegramAuthState] = useState<'idle' | 'code_sent' | 'requires_password'>('idle');
   const [telegramOtpLoading, setTelegramOtpLoading] = useState(false);
   const [telegramOtpError, setTelegramOtpError] = useState<string | null>(null);
-  const [isDevMode, setIsDevMode] = useState(false);
 
-  useEffect(() => {
-    if (typeof window !== 'undefined') {
-      const params = new URLSearchParams(window.location.search);
-      setIsDevMode(params.get('dev') === 'true');
-    }
-  }, []);
 
   const [discordToken, setDiscordToken] = useState('');
   const [discordClientId, setDiscordClientId] = useState('');
@@ -950,7 +943,7 @@ export default function SettingsPage() {
                             <span className="text-zinc-500">Phone Number:</span>
                             <span className="text-zinc-300 font-mono">{telegramPref?.phone_number || 'Configured'}</span>
                           </div>
-                          {isDevMode && (
+                          {user?.is_admin && (
                             <div className="flex justify-between">
                               <span className="text-zinc-500">Session String:</span>
                               <span className="text-zinc-300 font-mono">{telegramPref?.session_string || 'Configured'}</span>
@@ -1005,7 +998,7 @@ export default function SettingsPage() {
                               Request OTP Login Code
                             </button>
 
-                            {isDevMode && (
+                            {user?.is_admin && (
                               <>
                                 <div className="relative flex py-1 items-center">
                                   <div className="flex-grow border-t border-zinc-900"></div>
