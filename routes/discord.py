@@ -93,16 +93,20 @@ async def discord_login(
     current_user: User = Depends(get_current_user),
 ):
     """Generate Discord OAuth2 authorization URL with state containing user ID."""
-    if not settings.DISCORD_CLIENT_ID or not settings.DISCORD_REDIRECT_URI:
+    import os
+    client_id = os.environ.get("DISCORD_CLIENT_ID") or settings.DISCORD_CLIENT_ID
+    redirect_uri = os.environ.get("DISCORD_REDIRECT_URI") or settings.DISCORD_REDIRECT_URI
+    
+    if not client_id or not redirect_uri:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="Discord OAuth2 is not configured on the backend. Please check your .env settings.",
+            detail="Discord OAuth2 is not configured on the backend. Please check your environment settings.",
         )
     
     scopes = "identify guilds bot"
     params = {
-        "client_id": settings.DISCORD_CLIENT_ID,
-        "redirect_uri": settings.DISCORD_REDIRECT_URI,
+        "client_id": client_id,
+        "redirect_uri": redirect_uri,
         "response_type": "code",
         "scope": scopes,
         "permissions": "8", # Administrator permissions for bot
@@ -118,8 +122,9 @@ async def discord_callback(
     state: str = Query(default=""),
     db: Session = Depends(get_db),
 ):
-    """Handle Discord OAuth2 callback, exchange code for user access token, and save connection credentials."""
+    """Handle Discord OAuth2 callback, exchange code for user access token, and save credentials."""
     import httpx
+    import os
     
     user_id = None
     if state:
@@ -132,16 +137,20 @@ async def discord_callback(
         user = db.query(User).first()
         user_id = user.id if user else 1
 
-    # Exchange authorization code for user access token (optional verification step)
+    # Exchange authorization code for user access token
     resolved_guild_id = guild_id
-    if settings.DISCORD_CLIENT_ID and settings.DISCORD_CLIENT_SECRET:
+    client_id = os.environ.get("DISCORD_CLIENT_ID") or settings.DISCORD_CLIENT_ID
+    client_secret = os.environ.get("DISCORD_CLIENT_SECRET") or settings.DISCORD_CLIENT_SECRET
+    redirect_uri = os.environ.get("DISCORD_REDIRECT_URI") or settings.DISCORD_REDIRECT_URI
+    
+    if client_id and client_secret:
         token_url = "https://discord.com/api/oauth2/token"
         payload = {
-            "client_id": settings.DISCORD_CLIENT_ID,
-            "client_secret": settings.DISCORD_CLIENT_SECRET,
+            "client_id": client_id,
+            "client_secret": client_secret,
             "grant_type": "authorization_code",
             "code": code,
-            "redirect_uri": settings.DISCORD_REDIRECT_URI,
+            "redirect_uri": redirect_uri,
         }
         headers = {"Content-Type": "application/x-www-form-urlencoded"}
         try:
@@ -166,9 +175,10 @@ async def discord_callback(
         )
 
     # Securely check if the Bot has access to the guild
-    if settings.DISCORD_BOT_TOKEN:
+    bot_token = os.environ.get("DISCORD_BOT_TOKEN") or settings.DISCORD_BOT_TOKEN
+    if bot_token:
         guild_url = f"https://discord.com/api/v10/guilds/{resolved_guild_id}"
-        bot_headers = {"Authorization": f"Bot {settings.DISCORD_BOT_TOKEN}"}
+        bot_headers = {"Authorization": f"Bot {bot_token}"}
         try:
             async with httpx.AsyncClient(timeout=10.0) as client:
                 g_resp = await client.get(guild_url, headers=bot_headers)
@@ -188,12 +198,11 @@ async def discord_callback(
         db=db,
         user_id=user_id,
         provider="discord",
-        access_token=settings.DISCORD_BOT_TOKEN or "mock_bot_token",
+        access_token=bot_token or "mock_bot_token",
         refresh_token=resolved_guild_id,
-        token_uri=settings.DISCORD_CLIENT_ID or "mock_client_id",
+        token_uri=client_id or "mock_client_id",
     )
 
-    # Return popup-closing HTML
     return HTMLResponse(
         content="""
         <html>
