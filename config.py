@@ -45,7 +45,7 @@ class Settings(BaseSettings):
     # ------------------------------------------------------------------ #
     OPENROUTER_API_KEY: str
     OPENROUTER_BASE_URL: str = "https://openrouter.ai/api/v1"
-    OPENROUTER_MODEL: str = "openai/gpt-4.1-mini"
+    OPENROUTER_MODEL: str = "openrouter/free"
     OPENROUTER_TIMEOUT: float = 60.0
     OPENROUTER_TEMPERATURE: float = 0.4
     OPENROUTER_MAX_TOKENS: int = 2048
