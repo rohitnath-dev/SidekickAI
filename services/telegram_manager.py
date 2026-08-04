@@ -90,7 +90,14 @@ class TelegramManager:
 
         db = SessionLocal()
         try:
-            chat = await event.get_chat()
+            chat = None
+            try:
+                chat = getattr(event, "chat", None) or await event.get_chat()
+                if not chat and hasattr(event, "client"):
+                    chat = await event.client.get_entity(event.chat_id)
+            except Exception:
+                pass
+
             chat_name = "Telegram Chat"
             if chat:
                 if hasattr(chat, "title"):
@@ -98,14 +105,23 @@ class TelegramManager:
                 else:
                     first_name = getattr(chat, "first_name", "") or ""
                     last_name = getattr(chat, "last_name", "") or ""
-                    chat_name = f"{first_name} {last_name}".strip() or "Telegram User"
+                    chat_name = f"{first_name} {last_name}".strip() or getattr(chat, "username", None) or str(event.chat_id)
+            else:
+                chat_name = str(event.chat_id)
 
-            sender_entity = await event.get_sender()
+            sender_entity = None
+            try:
+                sender_entity = getattr(event, "sender", None) or await event.get_sender()
+            except Exception:
+                pass
+
             sender_name = "Telegram User"
             if sender_entity:
                 first_name = getattr(sender_entity, "first_name", "") or ""
                 last_name = getattr(sender_entity, "last_name", "") or ""
                 sender_name = f"{first_name} {last_name}".strip() or getattr(sender_entity, "username", None) or str(event.sender_id)
+            else:
+                sender_name = str(event.sender_id)
 
             msg_id = f"tg-user-{event.id}"
             
