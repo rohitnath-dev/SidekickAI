@@ -67,7 +67,15 @@ class Settings(BaseSettings):
     LINKEDIN_REDIRECT_URI: str = "http://localhost:8000/api/v1/linkedin/callback"
 
     # ------------------------------------------------------------------ #
-    # Twitter / X                                                           #
+    # Twitter / X OAuth 2.0 (Per-User Authentication)                      #
+    # ------------------------------------------------------------------ #
+    TWITTER_CLIENT_ID: str = ""
+    TWITTER_CLIENT_SECRET: str = ""
+    TWITTER_REDIRECT_URI: str = "http://localhost:8000/api/v1/twitter/callback"
+    TWITTER_APP_SECRET: str = ""  # For webhook signature verification
+
+    # ------------------------------------------------------------------ #
+    # Twitter / X (Legacy - App-Level, for reading public timeline)        #
     # ------------------------------------------------------------------ #
     TWITTER_API_KEY: str = ""
     TWITTER_API_SECRET: str = ""
