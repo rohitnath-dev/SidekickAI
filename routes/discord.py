@@ -1,13 +1,16 @@
 from __future__ import annotations
 
 import logging
+import urllib.parse
 from typing import Optional
 from datetime import datetime
 
-from fastapi import APIRouter, Depends, HTTPException, status, Request
+from fastapi import APIRouter, Depends, HTTPException, status, Request, Query
+from fastapi.responses import HTMLResponse
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
+from config import settings
 from database import get_db, SessionLocal
 from dependencies import get_current_user
 from models.user import User
@@ -84,6 +87,133 @@ async def connect_discord(
         token_uri=request.client_id.strip(),
     )
     return {"status": "success", "message": "Discord Bot connection saved and verified successfully."}
+
+@router.get("/login")
+async def discord_login(
+    current_user: User = Depends(get_current_user),
+):
+    """Generate Discord OAuth2 authorization URL with state containing user ID."""
+    if not settings.DISCORD_CLIENT_ID or not settings.DISCORD_REDIRECT_URI:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Discord OAuth2 is not configured on the backend. Please check your .env settings.",
+        )
+    
+    scopes = "identify guilds bot"
+    params = {
+        "client_id": settings.DISCORD_CLIENT_ID,
+        "redirect_uri": settings.DISCORD_REDIRECT_URI,
+        "response_type": "code",
+        "scope": scopes,
+        "permissions": "8", # Administrator permissions for bot
+        "state": str(current_user.id),
+    }
+    auth_url = "https://discord.com/api/oauth2/authorize?" + urllib.parse.urlencode(params)
+    return {"authorization_url": auth_url}
+
+@router.get("/callback")
+async def discord_callback(
+    code: str = Query(...),
+    guild_id: Optional[str] = Query(default=None),
+    state: str = Query(default=""),
+    db: Session = Depends(get_db),
+):
+    """Handle Discord OAuth2 callback, exchange code for user access token, and save connection credentials."""
+    import httpx
+    
+    user_id = None
+    if state:
+        try:
+            user_id = int(state)
+        except ValueError:
+            pass
+            
+    if not user_id:
+        user = db.query(User).first()
+        user_id = user.id if user else 1
+
+    # Exchange authorization code for user access token (optional verification step)
+    resolved_guild_id = guild_id
+    if settings.DISCORD_CLIENT_ID and settings.DISCORD_CLIENT_SECRET:
+        token_url = "https://discord.com/api/oauth2/token"
+        payload = {
+            "client_id": settings.DISCORD_CLIENT_ID,
+            "client_secret": settings.DISCORD_CLIENT_SECRET,
+            "grant_type": "authorization_code",
+            "code": code,
+            "redirect_uri": settings.DISCORD_REDIRECT_URI,
+        }
+        headers = {"Content-Type": "application/x-www-form-urlencoded"}
+        try:
+            async with httpx.AsyncClient(timeout=10.0) as client:
+                resp = await client.post(token_url, data=payload, headers=headers)
+                resp.raise_for_status()
+                token_data = resp.json()
+                # If guild_id was not in redirect params, check response
+                if not resolved_guild_id and "guild" in token_data:
+                    resolved_guild_id = token_data["guild"].get("id")
+        except Exception as exc:
+            logger.error("Discord OAuth exchange failed: %s", exc)
+            raise HTTPException(
+                status_code=status.HTTP_502_BAD_GATEWAY,
+                detail=f"Failed to exchange Discord authorization code: {exc}",
+            )
+
+    if not resolved_guild_id:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="No authorized Discord Guild ID was returned from OAuth."
+        )
+
+    # Securely check if the Bot has access to the guild
+    if settings.DISCORD_BOT_TOKEN:
+        guild_url = f"https://discord.com/api/v10/guilds/{resolved_guild_id}"
+        bot_headers = {"Authorization": f"Bot {settings.DISCORD_BOT_TOKEN}"}
+        try:
+            async with httpx.AsyncClient(timeout=10.0) as client:
+                g_resp = await client.get(guild_url, headers=bot_headers)
+                if g_resp.status_code == 403:
+                    raise HTTPException(
+                        status_code=status.HTTP_400_BAD_REQUEST,
+                        detail="Discord Bot is not present in the authorized guild. Ensure it is invited."
+                    )
+                g_resp.raise_for_status()
+        except HTTPException:
+            raise
+        except Exception as exc:
+            logger.warning("Failed to verify Bot guild access (proceeding with callback): %s", exc)
+
+    # Store credentials
+    TokenRepository.upsert(
+        db=db,
+        user_id=user_id,
+        provider="discord",
+        access_token=settings.DISCORD_BOT_TOKEN or "mock_bot_token",
+        refresh_token=resolved_guild_id,
+        token_uri=settings.DISCORD_CLIENT_ID or "mock_client_id",
+    )
+
+    # Return popup-closing HTML
+    return HTMLResponse(
+        content="""
+        <html>
+            <head>
+                <title>Discord Bot Authorization Successful</title>
+                <script type="text/javascript">
+                    if (window.opener) {
+                        window.opener.postMessage("discord-connected", "*");
+                    }
+                    window.close();
+                </script>
+            </head>
+            <body style="font-family: sans-serif; text-align: center; padding-top: 50px; background-color: #121214; color: #ffffff;">
+                <h2>Discord Bot connected successfully!</h2>
+                <p>This window will close automatically.</p>
+            </body>
+        </html>
+        """
+    )
+
 
 @router.get("/status")
 async def get_discord_status(

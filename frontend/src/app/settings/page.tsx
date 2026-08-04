@@ -94,12 +94,7 @@ export default function SettingsPage() {
   const [telegramAuthState, setTelegramAuthState] = useState<'idle' | 'code_sent' | 'requires_password'>('idle');
   const [telegramOtpLoading, setTelegramOtpLoading] = useState(false);
   const [telegramOtpError, setTelegramOtpError] = useState<string | null>(null);
-
-
-  const [discordToken, setDiscordToken] = useState('');
-  const [discordClientId, setDiscordClientId] = useState('');
-  const [discordGuildId, setDiscordGuildId] = useState('');
-
+  const [isDiscordConnecting, setIsDiscordConnecting] = useState(false);
   const {
     register: registerProfile,
     handleSubmit: handleSubmitProfile,
@@ -353,24 +348,6 @@ export default function SettingsPage() {
     }
   });
 
-  // Connect Discord mutation
-  const connectDiscordMutation = useMutation({
-    mutationFn: async (data: { bot_token: string; client_id: string; guild_id: string }) => {
-      const response = await apiClient.post('/discord/connect', data);
-      return response.data;
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['preferences-settings'] });
-      queryClient.invalidateQueries({ queryKey: ['preferences'] });
-      alert('Discord integrated successfully!');
-      setDiscordToken('');
-      setDiscordClientId('');
-      setDiscordGuildId('');
-    },
-    onError: (err: any) => {
-      alert(err.response?.data?.detail || 'Failed to connect Discord.');
-    }
-  });
 
   // Google OAuth flow initiator
   const handleConnectGoogle = async () => {
@@ -515,6 +492,53 @@ export default function SettingsPage() {
       console.error(err);
       alert(err.response?.data?.detail || 'Failed to initialize LinkedIn authorization.');
       setIsLinkedInConnecting(false);
+    }
+  };
+
+  const handleConnectDiscord = async () => {
+    setIsDiscordConnecting(true);
+    try {
+      const response = await apiClient.get('/discord/login');
+      const { authorization_url } = response.data;
+      
+      const token = Cookies.get('access_token');
+      if (token) {
+        Cookies.set('access_token', token, { expires: 1, sameSite: 'lax' });
+      }
+
+      const width = 500;
+      const height = 650;
+      const left = window.screenX + (window.innerWidth - width) / 2;
+      const top = window.screenY + (window.innerHeight - height) / 2;
+      const popup = window.open(
+        authorization_url,
+        'Discord Authorization',
+        `width=${width},height=${height},left=${left},top=${top}`
+      );
+      activePopup.current = popup;
+
+      if (pollingInterval.current) clearInterval(pollingInterval.current);
+      pollingInterval.current = setInterval(async () => {
+        try {
+          const prefCheck = await apiClient.get('/settings/preferences');
+          const discordStatus = prefCheck.data.connected_services.find((s: any) => s.provider === 'discord')?.connected;
+          
+          if (discordStatus) {
+            clearInterval(pollingInterval.current);
+            setIsDiscordConnecting(false);
+            if (popup) popup.close();
+            queryClient.invalidateQueries({ queryKey: ['preferences-settings'] });
+            queryClient.invalidateQueries({ queryKey: ['preferences'] });
+          }
+        } catch (e) {
+          console.error(e);
+        }
+      }, 2500);
+
+    } catch (err: any) {
+      console.error(err);
+      alert(err.response?.data?.detail || 'Failed to initialize Discord authorization.');
+      setIsDiscordConnecting(false);
     }
   };
 
@@ -1125,7 +1149,6 @@ export default function SettingsPage() {
                       </div>
                     )}
                   </div>
-
                   {/* Discord Card */}
                   <div className="space-y-3 pt-4 border-t border-zinc-900">
                     <div className="flex items-center justify-between">
@@ -1147,46 +1170,22 @@ export default function SettingsPage() {
                         Disconnect Bot
                       </button>
                     ) : (
-                      <div className="space-y-2 mt-2">
-                        <input
-                          type="password"
-                          placeholder="Discord Bot Token"
-                          value={discordToken}
-                          onChange={(e) => setDiscordToken(e.target.value)}
-                          className="w-full bg-zinc-950 border border-zinc-850 rounded px-2.5 py-1.5 text-xs text-zinc-100 placeholder-zinc-500 outline-none focus:border-zinc-700 transition-all"
-                        />
-                        <input
-                          type="text"
-                          placeholder="Discord Bot Client ID"
-                          value={discordClientId}
-                          onChange={(e) => setDiscordClientId(e.target.value)}
-                          className="w-full bg-zinc-950 border border-zinc-850 rounded px-2.5 py-1.5 text-xs text-zinc-100 placeholder-zinc-500 outline-none focus:border-zinc-700 transition-all"
-                        />
-                        <input
-                          type="text"
-                          placeholder="Discord Guild (Server) ID"
-                          value={discordGuildId}
-                          onChange={(e) => setDiscordGuildId(e.target.value)}
-                          className="w-full bg-zinc-950 border border-zinc-850 rounded px-2.5 py-1.5 text-xs text-zinc-100 placeholder-zinc-500 outline-none focus:border-zinc-700 transition-all"
-                        />
-                        <button
-                          onClick={() => {
-                            if (!discordToken || !discordClientId || !discordGuildId) {
-                              alert('Please provide Discord Bot Token, Client ID, and Guild ID.');
-                              return;
-                            }
-                            connectDiscordMutation.mutate({
-                              bot_token: discordToken,
-                              client_id: discordClientId,
-                              guild_id: discordGuildId
-                            });
-                          }}
-                          disabled={connectDiscordMutation.isPending}
-                          className="w-full py-2 bg-zinc-900 hover:bg-zinc-850 rounded text-xs font-semibold text-zinc-50 border border-zinc-850 hover:border-zinc-700 transition-all cursor-pointer disabled:opacity-50"
-                        >
-                          {connectDiscordMutation.isPending ? 'Connecting...' : 'Connect Discord Bot'}
-                        </button>
-                      </div>
+                      <button
+                        onClick={handleConnectDiscord}
+                        disabled={isDiscordConnecting}
+                        className="w-full py-2 bg-indigo-600 hover:bg-indigo-500 text-xs font-bold text-white rounded-lg flex items-center justify-center gap-2 border border-indigo-500 hover:border-indigo-400 transition-all cursor-pointer disabled:opacity-50"
+                      >
+                        {isDiscordConnecting ? (
+                          <>
+                            <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                            Connecting Discord...
+                          </>
+                        ) : (
+                          <>
+                            Connect with Discord
+                          </>
+                        )}
+                      </button>
                     )}
                   </div>
                 </div>
