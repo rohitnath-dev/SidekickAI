@@ -94,6 +94,7 @@ class Settings(BaseSettings):
     # ------------------------------------------------------------------ #
     TELEGRAM_API_ID: int = 123456
     TELEGRAM_API_HASH: str = "mock_api_hash_value"
+    TELEGRAM_SESSION_ENCRYPTION_KEY: str = ""
 
     # ------------------------------------------------------------------ #
     # CORS                                                                  #

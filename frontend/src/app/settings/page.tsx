@@ -83,15 +83,26 @@ export default function SettingsPage() {
   const telegramPref = connectedServices.find((s: any) => s.provider === 'telegram');
   const discordPref = connectedServices.find((s: any) => s.provider === 'discord');
 
+
   const [telegramApiId, setTelegramApiId] = useState('');
   const [telegramApiHash, setTelegramApiHash] = useState('');
   const [telegramPhoneNumber, setTelegramPhoneNumber] = useState('');
   const [telegramSessionString, setTelegramSessionString] = useState('');
   const [telegramOtpCode, setTelegramOtpCode] = useState('');
+  const [telegramPassword, setTelegramPassword] = useState('');
   const [telegramPhoneCodeHash, setTelegramPhoneCodeHash] = useState('');
-  const [telegramAuthState, setTelegramAuthState] = useState<'idle' | 'code_sent'>('idle');
+  const [telegramAuthState, setTelegramAuthState] = useState<'idle' | 'code_sent' | 'requires_password'>('idle');
   const [telegramOtpLoading, setTelegramOtpLoading] = useState(false);
   const [telegramOtpError, setTelegramOtpError] = useState<string | null>(null);
+  const [isDevMode, setIsDevMode] = useState(false);
+
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      const params = new URLSearchParams(window.location.search);
+      setIsDevMode(params.get('dev') === 'true');
+    }
+  }, []);
+
   const [discordToken, setDiscordToken] = useState('');
   const [discordClientId, setDiscordClientId] = useState('');
   const [discordGuildId, setDiscordGuildId] = useState('');
@@ -207,7 +218,6 @@ export default function SettingsPage() {
       setPasswordError(err.response?.data?.detail || 'Failed to update password.');
     }
   });
-
   // Disconnect service mutation
   const disconnectMutation = useMutation({
     mutationFn: async (provider: string) => {
@@ -216,6 +226,9 @@ export default function SettingsPage() {
         return response.data;
       } else if (provider === 'linkedin') {
         const response = await apiClient.delete('/linkedin/disconnect');
+        return response.data;
+      } else if (provider === 'telegram') {
+        const response = await apiClient.delete('/telegram/disconnect');
         return response.data;
       } else {
         const response = await apiClient.post(`/settings/disconnect/${provider}`);
@@ -288,6 +301,8 @@ export default function SettingsPage() {
     }
   });
 
+
+
   // Verify Telegram OTP code mutation
   const verifyTelegramCodeMutation = useMutation({
     mutationFn: async (data: { phone_number: string; code: string; phone_code_hash: string }) => {
@@ -296,17 +311,49 @@ export default function SettingsPage() {
       const response = await apiClient.post('/telegram/verify-code', data);
       return response.data;
     },
+    onSuccess: (data) => {
+      if (data.status === 'requires_password') {
+        setTelegramAuthState('requires_password');
+        setTelegramPhoneCodeHash(data.phone_code_hash);
+        alert('Two-Step Verification (2FA) is enabled on your Telegram account. Please enter your account password.');
+      } else {
+        queryClient.invalidateQueries({ queryKey: ['preferences-settings'] });
+        queryClient.invalidateQueries({ queryKey: ['preferences'] });
+        alert('Telegram User API client authenticated successfully!');
+        setTelegramPhoneNumber('');
+        setTelegramOtpCode('');
+        setTelegramPhoneCodeHash('');
+        setTelegramAuthState('idle');
+      }
+    },
+    onError: (err: any) => {
+      setTelegramOtpError(err.response?.data?.detail || 'OTP verification failed.');
+    },
+    onSettled: () => {
+      setTelegramOtpLoading(false);
+    }
+  });
+
+  // Verify Telegram 2FA Password mutation
+  const verifyTelegramPasswordMutation = useMutation({
+    mutationFn: async (data: { phone_number: string; password: string }) => {
+      setTelegramOtpLoading(true);
+      setTelegramOtpError(null);
+      const response = await apiClient.post('/telegram/verify-password', data);
+      return response.data;
+    },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['preferences-settings'] });
       queryClient.invalidateQueries({ queryKey: ['preferences'] });
-      alert('Telegram User API client authenticated successfully!');
+      alert('Telegram 2FA authenticated successfully!');
       setTelegramPhoneNumber('');
+      setTelegramPassword('');
       setTelegramOtpCode('');
       setTelegramPhoneCodeHash('');
       setTelegramAuthState('idle');
     },
     onError: (err: any) => {
-      setTelegramOtpError(err.response?.data?.detail || 'OTP verification failed.');
+      setTelegramOtpError(err.response?.data?.detail || 'Invalid Two-step password.');
     },
     onSettled: () => {
       setTelegramOtpLoading(false);
@@ -903,10 +950,12 @@ export default function SettingsPage() {
                             <span className="text-zinc-500">Phone Number:</span>
                             <span className="text-zinc-300 font-mono">{telegramPref?.phone_number || 'Configured'}</span>
                           </div>
-                          <div className="flex justify-between">
-                            <span className="text-zinc-500">Session String:</span>
-                            <span className="text-zinc-300 font-mono">{telegramPref?.session_string || 'Configured'}</span>
-                          </div>
+                          {isDevMode && (
+                            <div className="flex justify-between">
+                              <span className="text-zinc-500">Session String:</span>
+                              <span className="text-zinc-300 font-mono">{telegramPref?.session_string || 'Configured'}</span>
+                            </div>
+                          )}
                         </div>
                         <button
                           onClick={() => disconnectMutation.mutate('telegram')}
@@ -926,7 +975,7 @@ export default function SettingsPage() {
                             placeholder="e.g. +1234567890"
                             value={telegramPhoneNumber}
                             onChange={(e) => setTelegramPhoneNumber(e.target.value)}
-                            disabled={telegramAuthState === 'code_sent'}
+                            disabled={telegramAuthState !== 'idle'}
                             className="w-full bg-zinc-955 border border-zinc-850 rounded px-2.5 py-1.5 text-xs text-zinc-100 placeholder-zinc-500 outline-none focus:border-zinc-700 transition-all"
                           />
                         </div>
@@ -937,7 +986,7 @@ export default function SettingsPage() {
                           </div>
                         )}
 
-                        {telegramAuthState === 'idle' ? (
+                        {telegramAuthState === 'idle' && (
                           <div className="space-y-3">
                             <button
                               onClick={() => {
@@ -950,45 +999,51 @@ export default function SettingsPage() {
                                 });
                               }}
                               disabled={telegramOtpLoading}
-                              className="w-full flex items-center justify-center gap-1.5 py-2 bg-zinc-900 hover:bg-zinc-850 rounded text-xs font-semibold text-zinc-50 border border-zinc-850 hover:border-zinc-700 transition-all cursor-pointer disabled:opacity-50"
+                              className="w-full flex items-center justify-center gap-1.5 py-2 bg-zinc-900 hover:bg-zinc-855 rounded text-xs font-semibold text-zinc-50 border border-zinc-850 hover:border-zinc-700 transition-all cursor-pointer disabled:opacity-50"
                             >
                               {telegramOtpLoading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : null}
                               Request OTP Login Code
                             </button>
 
-                            <div className="relative flex py-1 items-center">
-                              <div className="flex-grow border-t border-zinc-900"></div>
-                              <span className="flex-shrink mx-3 text-[10px] text-zinc-500 uppercase tracking-widest font-semibold">Or Connect directly</span>
-                              <div className="flex-grow border-t border-zinc-900"></div>
-                            </div>
+                            {isDevMode && (
+                              <>
+                                <div className="relative flex py-1 items-center">
+                                  <div className="flex-grow border-t border-zinc-900"></div>
+                                  <span className="flex-shrink mx-3 text-[10px] text-zinc-500 uppercase tracking-widest font-semibold">Dev Session Direct Connect</span>
+                                  <div className="flex-grow border-t border-zinc-900"></div>
+                                </div>
 
-                            <div className="space-y-2">
-                              <textarea
-                                placeholder="Paste String Session (StringSession)"
-                                value={telegramSessionString}
-                                onChange={(e) => setTelegramSessionString(e.target.value)}
-                                rows={2}
-                                className="w-full bg-zinc-955 border border-zinc-850 rounded p-2 text-xs text-zinc-100 placeholder-zinc-500 outline-none focus:border-zinc-700 transition-all resize-none"
-                              />
-                              <button
-                                onClick={() => {
-                                  if (!telegramPhoneNumber || !telegramSessionString) {
-                                    alert('Please supply both Phone Number and Session String.');
-                                    return;
-                                  }
-                                  connectTelegramMutation.mutate({
-                                    phone_number: telegramPhoneNumber,
-                                    session_string: telegramSessionString
-                                  });
-                                }}
-                                disabled={connectTelegramMutation.isPending}
-                                className="w-full py-2 bg-zinc-900 hover:bg-zinc-855 border border-zinc-850 text-zinc-300 rounded text-xs font-semibold hover:text-zinc-50 transition-all cursor-pointer disabled:opacity-50"
-                              >
-                                {connectTelegramMutation.isPending ? 'Connecting...' : 'Connect with Session String'}
-                              </button>
-                            </div>
+                                <div className="space-y-2">
+                                  <textarea
+                                    placeholder="Paste String Session (StringSession) - DEV MODE ONLY"
+                                    value={telegramSessionString}
+                                    onChange={(e) => setTelegramSessionString(e.target.value)}
+                                    rows={2}
+                                    className="w-full bg-zinc-955 border border-zinc-855 rounded p-2 text-xs text-zinc-100 placeholder-zinc-500 outline-none focus:border-zinc-700 transition-all resize-none"
+                                  />
+                                  <button
+                                    onClick={() => {
+                                      if (!telegramPhoneNumber || !telegramSessionString) {
+                                        alert('Please supply both Phone Number and Session String.');
+                                        return;
+                                      }
+                                      connectTelegramMutation.mutate({
+                                        phone_number: telegramPhoneNumber,
+                                        session_string: telegramSessionString
+                                      });
+                                    }}
+                                    disabled={connectTelegramMutation.isPending}
+                                    className="w-full py-2 bg-zinc-900 hover:bg-zinc-855 border border-zinc-850 text-zinc-300 rounded text-xs font-semibold hover:text-zinc-50 transition-all cursor-pointer disabled:opacity-50"
+                                  >
+                                    {connectTelegramMutation.isPending ? 'Connecting...' : 'Connect with Session String'}
+                                  </button>
+                                </div>
+                              </>
+                            )}
                           </div>
-                        ) : (
+                        )}
+
+                        {telegramAuthState === 'code_sent' && (
                           <div className="space-y-2.5">
                             <div className="text-[10px] text-amber-400 bg-amber-955/20 border border-amber-900/30 rounded p-2">
                               OTP code has been sent to your Telegram app. Enter it below to sign in.
@@ -998,7 +1053,7 @@ export default function SettingsPage() {
                               placeholder="Enter Telegram OTP Code"
                               value={telegramOtpCode}
                               onChange={(e) => setTelegramOtpCode(e.target.value)}
-                              className="w-full bg-zinc-955 border border-zinc-850 rounded px-2.5 py-1.5 text-xs text-zinc-100 placeholder-zinc-500 outline-none focus:border-zinc-700 transition-all text-center tracking-widest font-bold"
+                              className="w-full bg-zinc-955 border border-zinc-855 rounded px-2.5 py-1.5 text-xs text-zinc-100 placeholder-zinc-500 outline-none focus:border-zinc-700 transition-all text-center tracking-widest font-bold"
                             />
                             <div className="flex gap-2">
                               <button
@@ -1014,22 +1069,65 @@ export default function SettingsPage() {
                                   });
                                 }}
                                 disabled={telegramOtpLoading}
-                                className="flex-1 py-2 bg-zinc-100 hover:bg-zinc-200 text-zinc-950 rounded text-xs font-semibold transition-all cursor-pointer disabled:opacity-50"
+                                className="flex-1 py-2 bg-zinc-100 hover:bg-zinc-200 text-zinc-955 rounded text-xs font-semibold transition-all cursor-pointer disabled:opacity-50"
                               >
                                 {telegramOtpLoading ? 'Verifying...' : 'Verify OTP Code'}
                               </button>
                               <button
                                 onClick={() => setTelegramAuthState('idle')}
-                                className="px-3 py-2 bg-zinc-950 hover:bg-zinc-900 text-zinc-400 border border-zinc-850 rounded text-xs transition-all cursor-pointer"
+                                className="px-3 py-2 bg-zinc-955 hover:bg-zinc-900 text-zinc-400 border border-zinc-850 rounded text-xs transition-all cursor-pointer"
                               >
-                                Edit Credentials
+                                Cancel
                               </button>
                             </div>
                           </div>
                         )}
+
+                        {telegramAuthState === 'requires_password' && (
+                          <div className="space-y-2.5">
+                            <div className="text-[10px] text-amber-400 bg-amber-955/20 border border-amber-900/30 rounded p-2">
+                              Two-Step Verification Password Required. Enter your Telegram cloud password:
+                            </div>
+                            <input
+                              type="password"
+                              placeholder="Enter your 2FA Password"
+                              value={telegramPassword}
+                              onChange={(e) => setTelegramPassword(e.target.value)}
+                              className="w-full bg-zinc-955 border border-zinc-850 rounded px-2.5 py-1.5 text-xs text-zinc-100 placeholder-zinc-500 outline-none focus:border-zinc-700 transition-all text-center"
+                            />
+                            <div className="flex gap-2">
+                              <button
+                                onClick={() => {
+                                  if (!telegramPassword) {
+                                    alert('Please enter your 2FA password.');
+                                    return;
+                                  }
+                                  verifyTelegramPasswordMutation.mutate({
+                                    phone_number: telegramPhoneNumber,
+                                    password: telegramPassword
+                                  });
+                                }}
+                                disabled={telegramOtpLoading}
+                                className="flex-1 py-2 bg-zinc-100 hover:bg-zinc-200 text-zinc-955 rounded text-xs font-semibold transition-all cursor-pointer disabled:opacity-50"
+                              >
+                                {telegramOtpLoading ? 'Verifying...' : 'Submit Password'}
+                              </button>
+                              <button
+                                onClick={() => {
+                                  setTelegramAuthState('idle');
+                                  setTelegramPassword('');
+                                }}
+                                className="px-3 py-2 bg-zinc-955 hover:bg-zinc-900 text-zinc-400 border border-zinc-850 rounded text-xs transition-all cursor-pointer"
+                              >
+                                Cancel
+                              </button>
+                            </div>
+                          </div>
+                        )}
+
                         <div className="text-[9px] text-zinc-500 bg-zinc-900/20 border border-zinc-900/80 rounded-lg p-2.5 leading-relaxed">
                           <span className="text-zinc-300 font-semibold block mb-0.5">Easy MTProto Setup:</span>
-                          Using pre-configured developer keys. Simply verify your phone number or provide an existing Telegram StringSession string directly.
+                          Using pre-configured developer keys. Simply verify your phone number to authorize your personal Telegram client.
                         </div>
                       </div>
                     )}
