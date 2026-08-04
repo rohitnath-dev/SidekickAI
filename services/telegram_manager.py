@@ -63,20 +63,16 @@ class TelegramManager:
             @client.on(events.NewMessage(incoming=True))
             async def handler(event):
                 await self._handle_new_message(event, user_id)
-
             await client.connect()
             if await client.is_user_authorized():
-                # Store client session reference
                 self._clients[user_id] = client
-                # Tell Telethon loop to listen to updates
                 asyncio.create_task(client.run_until_disconnected())
-                logger.info("TelegramManager: Persistent client successfully connected and authorized for user_id=%d", user_id)
+                logger.info("Telegram client connected for user_id=%d", user_id)
             else:
                 logger.warning("TelegramManager: Client connected but unauthorized for user_id=%d", user_id)
                 await client.disconnect()
-        except Exception as e:
-            logger.error("TelegramManager: Failed to start client for user_id=%d: %s", user_id, e)
-
+        except Exception:
+            logger.error("TelegramManager: Failed to start client for user_id=%d", user_id, exc_info=True)
     async def stop_client(self, user_id: int) -> None:
         """Stop and disconnect a persistent Telethon client."""
         client = self._clients.pop(user_id, None)
