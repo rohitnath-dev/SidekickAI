@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 import json
 import logging
+import asyncio
 from typing import Optional
 from datetime import datetime
 
@@ -106,6 +107,8 @@ async def connect_telegram(
         refresh_token=request.phone_number.strip(),
         token_uri=creds_json,
     )
+    from services.telegram_manager import telegram_manager
+    asyncio.create_task(telegram_manager.start_client(current_user.id, encrypted_session, creds_json))
     return {"status": "success", "message": "Telegram User client connection saved successfully."}
 
 @router.post("/send-code")
@@ -169,6 +172,8 @@ async def verify_auth_code(
         refresh_token=request.phone_number.strip(),
         token_uri=creds_json,
     )
+    from services.telegram_manager import telegram_manager
+    asyncio.create_task(telegram_manager.start_client(current_user.id, encrypted_session, creds_json))
     return {"status": "success", "session_string": session_str}
 
 @router.post("/verify-password")
@@ -210,6 +215,8 @@ async def verify_auth_password(
         refresh_token=request.phone_number.strip(),
         token_uri=creds_json,
     )
+    from services.telegram_manager import telegram_manager
+    asyncio.create_task(telegram_manager.start_client(current_user.id, encrypted_session, creds_json))
     return {"status": "success", "session_string": session_str}
 
 @router.get("/status")
@@ -263,6 +270,8 @@ async def disconnect_telegram(
             logger.warning("Telegram client logout failed during disconnect: %s", exc)
             
     TokenRepository.delete(db, user_id=current_user.id, provider="telegram")
+    from services.telegram_manager import telegram_manager
+    asyncio.create_task(telegram_manager.stop_client(current_user.id))
     return {"status": "success", "message": "Telegram User client disconnected and session revoked."}
 
 @router.post("/send")

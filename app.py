@@ -69,6 +69,10 @@ async def lifespan(app: FastAPI):
     from services.poller import start_polling
     polling_task = asyncio.create_task(start_polling())
 
+    # Start persistent Telegram client tasks
+    from services.telegram_manager import telegram_manager
+    asyncio.create_task(telegram_manager.start_all_clients())
+
     logger.info("Sidekick AI backend is ready.")
     yield
 
@@ -79,12 +83,15 @@ async def lifespan(app: FastAPI):
     except asyncio.CancelledError:
         logger.info("Background poller task stopped.")
 
+    # Stop persistent Telegram client connections
+    for user_id in list(telegram_manager._clients.keys()):
+        await telegram_manager.stop_client(user_id)
+    logger.info("Persistent Telegram clients stopped.")
+
     # Shutdown — close the LLM async client
     from services.llm import llm
     await llm.close()
     logger.info("Sidekick AI backend shut down.")
-
-
 # ---------------------------------------------------------------------------
 # Application
 # ---------------------------------------------------------------------------
