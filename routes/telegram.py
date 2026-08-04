@@ -15,24 +15,20 @@ from models.message import Message, MessageSource, MessagePriority, MessageStatu
 from repositories.token_repo import TokenRepository
 from services.ai_pipeline import process_message_ai
 
+from config import settings
+
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/telegram", tags=["Telegram"])
 
 class TelegramUserConnectRequest(BaseModel):
-    api_id: str
-    api_hash: str
     phone_number: str
     session_string: Optional[str] = None
 
 class SendCodeRequest(BaseModel):
-    api_id: str
-    api_hash: str
     phone_number: str
 
 class VerifyCodeRequest(BaseModel):
-    api_id: str
-    api_hash: str
     phone_number: str
     code: str
     phone_code_hash: str
@@ -54,7 +50,7 @@ async def connect_telegram(
 ):
     """Directly connect Telegram user credentials using API details and optional session string."""
     import json
-    creds_json = json.dumps({"api_id": request.api_id.strip(), "api_hash": request.api_hash.strip()})
+    creds_json = json.dumps({"api_id": str(settings.TELEGRAM_API_ID), "api_hash": settings.TELEGRAM_API_HASH})
     session_str = request.session_string.strip() if request.session_string else f"MOCK_SESSION_{request.phone_number.strip()}"
     
     TokenRepository.upsert(
@@ -76,12 +72,10 @@ async def send_auth_code(
     """Trigger OTP code sending using Telethon User API client."""
     from telethon import TelegramClient
     
-    try:
-        api_id_int = int(request.api_id.strip())
-    except ValueError:
-        raise HTTPException(status_code=400, detail="API ID must be a valid numerical integer.")
+    api_id = settings.TELEGRAM_API_ID
+    api_hash = settings.TELEGRAM_API_HASH
 
-    client = TelegramClient(f"session_{current_user.id}", api_id_int, request.api_hash.strip())
+    client = TelegramClient(f"session_{current_user.id}", api_id, api_hash)
     try:
         await client.connect()
         result = await client.send_code_request(request.phone_number.strip())
@@ -104,12 +98,10 @@ async def verify_auth_code(
     from telethon import TelegramClient
     import json
     
-    try:
-        api_id_int = int(request.api_id.strip())
-    except ValueError:
-        raise HTTPException(status_code=400, detail="API ID must be a valid numerical integer.")
+    api_id = settings.TELEGRAM_API_ID
+    api_hash = settings.TELEGRAM_API_HASH
 
-    client = TelegramClient(f"session_{current_user.id}", api_id_int, request.api_hash.strip())
+    client = TelegramClient(f"session_{current_user.id}", api_id, api_hash)
     try:
         await client.connect()
         await client.sign_in(
@@ -125,7 +117,7 @@ async def verify_auth_code(
         await client.disconnect()
 
     # Save to database
-    creds_json = json.dumps({"api_id": request.api_id.strip(), "api_hash": request.api_hash.strip()})
+    creds_json = json.dumps({"api_id": str(api_id), "api_hash": api_hash})
     TokenRepository.upsert(
         db=db,
         user_id=current_user.id,

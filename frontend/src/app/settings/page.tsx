@@ -246,9 +246,11 @@ export default function SettingsPage() {
     }
   });
 
-  // Connect Telegram mutation (direct API hash/id setup or session string setup)
+
+
+  // Connect Telegram mutation (direct phone setup or session string setup)
   const connectTelegramMutation = useMutation({
-    mutationFn: async (data: { api_id: string; api_hash: string; phone_number: string; session_string?: string }) => {
+    mutationFn: async (data: { phone_number: string; session_string?: string }) => {
       const response = await apiClient.post('/telegram/connect', data);
       return response.data;
     },
@@ -256,8 +258,6 @@ export default function SettingsPage() {
       queryClient.invalidateQueries({ queryKey: ['preferences-settings'] });
       queryClient.invalidateQueries({ queryKey: ['preferences'] });
       alert('Telegram integrated successfully!');
-      setTelegramApiId('');
-      setTelegramApiHash('');
       setTelegramPhoneNumber('');
       setTelegramSessionString('');
       setTelegramAuthState('idle');
@@ -269,7 +269,7 @@ export default function SettingsPage() {
 
   // Request Telegram login OTP
   const sendTelegramCodeMutation = useMutation({
-    mutationFn: async (data: { api_id: string; api_hash: string; phone_number: string }) => {
+    mutationFn: async (data: { phone_number: string }) => {
       setTelegramOtpLoading(true);
       setTelegramOtpError(null);
       const response = await apiClient.post('/telegram/send-code', data);
@@ -290,7 +290,7 @@ export default function SettingsPage() {
 
   // Verify Telegram OTP code mutation
   const verifyTelegramCodeMutation = useMutation({
-    mutationFn: async (data: { api_id: string; api_hash: string; phone_number: string; code: string; phone_code_hash: string }) => {
+    mutationFn: async (data: { phone_number: string; code: string; phone_code_hash: string }) => {
       setTelegramOtpLoading(true);
       setTelegramOtpError(null);
       const response = await apiClient.post('/telegram/verify-code', data);
@@ -300,8 +300,6 @@ export default function SettingsPage() {
       queryClient.invalidateQueries({ queryKey: ['preferences-settings'] });
       queryClient.invalidateQueries({ queryKey: ['preferences'] });
       alert('Telegram User API client authenticated successfully!');
-      setTelegramApiId('');
-      setTelegramApiHash('');
       setTelegramPhoneNumber('');
       setTelegramOtpCode('');
       setTelegramPhoneCodeHash('');
@@ -902,10 +900,6 @@ export default function SettingsPage() {
                       <div className="space-y-3">
                         <div className="bg-zinc-950/60 border border-zinc-900/80 rounded-xl p-3.5 space-y-2 text-xs">
                           <div className="flex justify-between">
-                            <span className="text-zinc-500">API ID:</span>
-                            <span className="text-zinc-300 font-mono">{telegramPref?.api_id || 'Configured'}</span>
-                          </div>
-                          <div className="flex justify-between">
                             <span className="text-zinc-500">Phone Number:</span>
                             <span className="text-zinc-300 font-mono">{telegramPref?.phone_number || 'Configured'}</span>
                           </div>
@@ -924,25 +918,12 @@ export default function SettingsPage() {
                     ) : (
                       <div className="space-y-4">
                         <div className="space-y-2">
+                          <label className="block text-[10px] uppercase tracking-wider font-semibold text-zinc-400">
+                            Phone Number
+                          </label>
                           <input
                             type="text"
-                            placeholder="Telegram API ID (numerical)"
-                            value={telegramApiId}
-                            onChange={(e) => setTelegramApiId(e.target.value)}
-                            disabled={telegramAuthState === 'code_sent'}
-                            className="w-full bg-zinc-955 border border-zinc-850 rounded px-2.5 py-1.5 text-xs text-zinc-100 placeholder-zinc-500 outline-none focus:border-zinc-700 transition-all"
-                          />
-                          <input
-                            type="password"
-                            placeholder="Telegram API Hash"
-                            value={telegramApiHash}
-                            onChange={(e) => setTelegramApiHash(e.target.value)}
-                            disabled={telegramAuthState === 'code_sent'}
-                            className="w-full bg-zinc-955 border border-zinc-850 rounded px-2.5 py-1.5 text-xs text-zinc-100 placeholder-zinc-500 outline-none focus:border-zinc-700 transition-all"
-                          />
-                          <input
-                            type="text"
-                            placeholder="Phone Number (e.g. +1234567890)"
+                            placeholder="e.g. +1234567890"
                             value={telegramPhoneNumber}
                             onChange={(e) => setTelegramPhoneNumber(e.target.value)}
                             disabled={telegramAuthState === 'code_sent'}
@@ -960,13 +941,11 @@ export default function SettingsPage() {
                           <div className="space-y-3">
                             <button
                               onClick={() => {
-                                if (!telegramApiId || !telegramApiHash || !telegramPhoneNumber) {
-                                  alert('Please provide API ID, API Hash, and Phone Number.');
+                                if (!telegramPhoneNumber) {
+                                  alert('Please enter your Telegram Phone Number.');
                                   return;
                                 }
                                 sendTelegramCodeMutation.mutate({
-                                  api_id: telegramApiId,
-                                  api_hash: telegramApiHash,
                                   phone_number: telegramPhoneNumber
                                 });
                               }}
@@ -993,19 +972,17 @@ export default function SettingsPage() {
                               />
                               <button
                                 onClick={() => {
-                                  if (!telegramApiId || !telegramApiHash || !telegramPhoneNumber || !telegramSessionString) {
-                                    alert('Please supply API ID, API Hash, Phone, and Session String.');
+                                  if (!telegramPhoneNumber || !telegramSessionString) {
+                                    alert('Please supply both Phone Number and Session String.');
                                     return;
                                   }
                                   connectTelegramMutation.mutate({
-                                    api_id: telegramApiId,
-                                    api_hash: telegramApiHash,
                                     phone_number: telegramPhoneNumber,
                                     session_string: telegramSessionString
                                   });
                                 }}
                                 disabled={connectTelegramMutation.isPending}
-                                className="w-full py-2 bg-zinc-900 hover:bg-zinc-850 border border-zinc-850 text-zinc-300 rounded text-xs font-semibold hover:text-zinc-50 transition-all cursor-pointer disabled:opacity-50"
+                                className="w-full py-2 bg-zinc-900 hover:bg-zinc-855 border border-zinc-850 text-zinc-300 rounded text-xs font-semibold hover:text-zinc-50 transition-all cursor-pointer disabled:opacity-50"
                               >
                                 {connectTelegramMutation.isPending ? 'Connecting...' : 'Connect with Session String'}
                               </button>
@@ -1013,7 +990,7 @@ export default function SettingsPage() {
                           </div>
                         ) : (
                           <div className="space-y-2.5">
-                            <div className="text-[10px] text-amber-400 bg-amber-950/20 border border-amber-900/30 rounded p-2">
+                            <div className="text-[10px] text-amber-400 bg-amber-955/20 border border-amber-900/30 rounded p-2">
                               OTP code has been sent to your Telegram app. Enter it below to sign in.
                             </div>
                             <input
@@ -1031,8 +1008,6 @@ export default function SettingsPage() {
                                     return;
                                   }
                                   verifyTelegramCodeMutation.mutate({
-                                    api_id: telegramApiId,
-                                    api_hash: telegramApiHash,
                                     phone_number: telegramPhoneNumber,
                                     code: telegramOtpCode,
                                     phone_code_hash: telegramPhoneCodeHash
@@ -1053,8 +1028,8 @@ export default function SettingsPage() {
                           </div>
                         )}
                         <div className="text-[9px] text-zinc-500 bg-zinc-900/20 border border-zinc-900/80 rounded-lg p-2.5 leading-relaxed">
-                          <span className="text-zinc-300 font-semibold block mb-0.5">MTProto User API setup:</span>
-                          Get your API ID and Hash from <a href="https://my.telegram.org" target="_blank" rel="noreferrer" className="text-indigo-400 hover:underline">my.telegram.org</a>. SidekickAI authenticates user sessions locally and securely.
+                          <span className="text-zinc-300 font-semibold block mb-0.5">Easy MTProto Setup:</span>
+                          Using pre-configured developer keys. Simply verify your phone number or provide an existing Telegram StringSession string directly.
                         </div>
                       </div>
                     )}

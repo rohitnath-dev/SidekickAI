@@ -90,6 +90,12 @@ class Settings(BaseSettings):
     WHATSAPP_REDIRECT_URI: str = "http://localhost:8000/api/v1/whatsapp/callback"
 
     # ------------------------------------------------------------------ #
+    # Telegram                                                              #
+    # ------------------------------------------------------------------ #
+    TELEGRAM_API_ID: int = 123456
+    TELEGRAM_API_HASH: str = "mock_api_hash_value"
+
+    # ------------------------------------------------------------------ #
     # CORS                                                                  #
     # ------------------------------------------------------------------ #
     ALLOWED_ORIGINS: list[str] = ["*"]
