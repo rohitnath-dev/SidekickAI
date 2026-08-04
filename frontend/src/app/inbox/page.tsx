@@ -119,11 +119,18 @@ function InboxContent() {
     }
   }, [messages]);
 
-  // Sync Gmail messages
+
+  // Sync messages
   const syncMutation = useMutation({
     mutationFn: async () => {
       setSyncLoading(true);
       
+      const isTelegramConnected = connectedServices.some((s: any) => s.provider === 'telegram' && s.connected);
+      const isGoogleConnected = connectedServices.some((s: any) => s.provider === 'google' && s.connected);
+      const isDiscordConnected = connectedServices.some((s: any) => s.provider === 'discord' && s.connected);
+      const isTwitterConnected = connectedServices.some((s: any) => s.provider === 'twitter' && s.connected);
+      const isWhatsappConnected = connectedServices.some((s: any) => s.provider === 'whatsapp' && s.connected);
+
       if (sourceFilter === 'whatsapp') {
         setSyncStatus('Refreshing WhatsApp chats...');
         await new Promise((resolve) => setTimeout(resolve, 800));
@@ -131,29 +138,102 @@ function InboxContent() {
       }
       
       if (sourceFilter === 'telegram') {
-        setSyncStatus('Syncing Telegram bot chats...');
+        if (!isTelegramConnected) {
+          throw new Error('Telegram is not connected. Connect it in Settings.');
+        }
+        setSyncStatus('Syncing Telegram updates...');
         const response = await apiClient.post('/telegram/sync');
         return { ...response.data, source: 'telegram' };
       }
       
       if (sourceFilter === 'discord') {
+        if (!isDiscordConnected) {
+          throw new Error('Discord is not connected. Connect it in Settings.');
+        }
         setSyncStatus('Syncing Discord channel logs...');
         const response = await apiClient.post('/discord/sync');
         return { ...response.data, source: 'discord' };
       }
       
       if (sourceFilter === 'twitter') {
+        if (!isTwitterConnected) {
+          throw new Error('Twitter is not connected. Connect it in Settings.');
+        }
         setSyncStatus('Fetching Twitter mentions...');
         const response = await apiClient.post('/twitter/sync');
         return { ...response.data, source: 'twitter' };
       }
 
-      setSyncStatus('Fetching emails...');
-      const response = await apiClient.post('/gmail/sync', {
-        max_results: 20,
-        unread_only: false
-      });
-      return { ...response.data, source: 'gmail' };
+      if (sourceFilter === 'gmail') {
+        if (!isGoogleConnected) {
+          throw new Error('Gmail is not connected. Connect it in Settings.');
+        }
+        setSyncStatus('Fetching emails...');
+        const response = await apiClient.post('/gmail/sync', { max_results: 20, unread_only: false });
+        return { ...response.data, source: 'gmail' };
+      }
+      
+      if (sourceFilter === 'all') {
+        const syncPromises = [];
+        const activeSources: string[] = [];
+        
+        if (isGoogleConnected) {
+          activeSources.push('gmail');
+          syncPromises.push(
+            apiClient.post('/gmail/sync', { max_results: 15, unread_only: false })
+              .then(res => ({ source: 'gmail', synced: res.data.synced || 0 }))
+              .catch(err => ({ source: 'gmail', error: err }))
+          );
+        }
+        if (isTelegramConnected) {
+          activeSources.push('telegram');
+          syncPromises.push(
+            apiClient.post('/telegram/sync')
+              .then(res => ({ source: 'telegram', synced: res.data.synced || 0 }))
+              .catch(err => ({ source: 'telegram', error: err }))
+          );
+        }
+        if (isDiscordConnected) {
+          activeSources.push('discord');
+          syncPromises.push(
+            apiClient.post('/discord/sync')
+              .then(res => ({ source: 'discord', synced: res.data.synced || 0 }))
+              .catch(err => ({ source: 'discord', error: err }))
+          );
+        }
+        if (isTwitterConnected) {
+          activeSources.push('twitter');
+          syncPromises.push(
+            apiClient.post('/twitter/sync')
+              .then(res => ({ source: 'twitter', synced: res.data.synced || 0 }))
+              .catch(err => ({ source: 'twitter', error: err }))
+          );
+        }
+        
+        if (syncPromises.length === 0) {
+          setSyncStatus('No active integrations to sync.');
+          await new Promise((resolve) => setTimeout(resolve, 800));
+          return { synced: 0, source: 'none' };
+        }
+        
+        setSyncStatus(`Syncing active services (${activeSources.join(', ')})...`);
+        const results = await Promise.all(syncPromises);
+        
+        let totalSynced = 0;
+        const succeeded: string[] = [];
+        for (const res of results) {
+          if ('error' in res) {
+            console.error(`Sync error for ${res.source}:`, res.error);
+          } else {
+            totalSynced += res.synced;
+            succeeded.push(res.source);
+          }
+        }
+        
+        return { synced: totalSynced, source: 'all', succeeded };
+      }
+
+      return { synced: 0, source: 'none' };
     },
     onSuccess: (data) => {
       if (data.source === 'whatsapp') {
@@ -164,8 +244,12 @@ function InboxContent() {
         setSyncStatus({ message: `Synced ${data.synced} Discord messages! (AI processing active)`, isError: false });
       } else if (data.source === 'twitter') {
         setSyncStatus({ message: `Synced ${data.synced} new Twitter mentions!`, isError: false });
-      } else {
+      } else if (data.source === 'gmail') {
         setSyncStatus({ message: `Synced ${data.synced} new emails!`, isError: false });
+      } else if (data.source === 'all') {
+        setSyncStatus({ message: `Consolidated sync complete! Fetched ${data.synced} updates across connected platforms.`, isError: false });
+      } else {
+        setSyncStatus({ message: 'Sync completed.', isError: false });
       }
       queryClient.invalidateQueries({ queryKey: ['messages'] });
       setTimeout(() => setSyncStatus(null), 4000);

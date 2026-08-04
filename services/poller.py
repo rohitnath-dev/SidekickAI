@@ -88,6 +88,77 @@ async def start_polling() -> None:
                     except Exception as e:
                         logger.error("Background Poller: Twitter sync failed: %s", e)
 
+                # 3. Telegram Ingestion Polling
+                from repositories.token_repo import TokenRepository
+                token = TokenRepository.get(db, user_id=user.id, provider="telegram")
+                if token and token.access_token != "disabled":
+                    try:
+                        from routes.telegram import decrypt_session, sync_telegram
+                        session_str = decrypt_session(token.access_token)
+                        
+                        import json
+                        try:
+                            creds = json.loads(token.token_uri)
+                            api_id = int(creds["api_id"])
+                            api_hash = creds["api_hash"]
+                        except Exception:
+                            api_id = 12345
+                            api_hash = "mock_hash"
+
+                        if session_str.startswith("MOCK_SESSION"):
+                            logger.info("Background Poller: Syncing Telegram (MOCK) for user_id=%d", user.id)
+                            await sync_telegram(current_user=user, db=db)
+                        else:
+                            logger.info("Background Poller: Syncing Telegram (MTProto) for user_id=%d", user.id)
+                            from telethon import TelegramClient
+                            from telethon.sessions import StringSession
+                            
+                            client = TelegramClient(StringSession(session_str), api_id, api_hash)
+                            await client.connect()
+                            try:
+                                if await client.is_user_authorized():
+                                    dialogs = await client.get_dialogs(limit=5)
+                                    for dialog in dialogs:
+                                        entity = dialog.entity
+                                        name = dialog.name or "Telegram User"
+                                        username = getattr(entity, "username", None) or str(entity.id)
+                                        
+                                        async for message in client.iter_messages(entity, limit=5):
+                                            if message.out or not message.text:
+                                                continue
+                                            
+                                            msg_id = f"tg-user-{message.id}"
+                                            existing = db.query(Message).filter_by(message_id=str(msg_id), source=MessageSource.TELEGRAM).first()
+                                            if existing:
+                                                continue
+                                            
+                                            logger.info("Background Poller: New Telegram message found (ID: %s)", msg_id)
+                                            db_msg = Message(
+                                                user_id=user.id,
+                                                message_id=str(msg_id),
+                                                source=MessageSource.TELEGRAM,
+                                                sender=username,
+                                                recipient=name,
+                                                subject=f"Telegram Chat with {name}",
+                                                body=message.text,
+                                                priority=MessagePriority.MEDIUM,
+                                                status=MessageStatus.UNREAD,
+                                                received_at=message.date or datetime.utcnow(),
+                                            )
+                                            db.add(db_msg)
+                                            db.commit()
+                                            db.refresh(db_msg)
+                                            
+                                            try:
+                                                from services.ai_pipeline import process_message_ai
+                                                await process_message_ai(db, db_msg)
+                                            except Exception as e:
+                                                logger.error("Background Poller: Telegram AI pipeline failed: %s", e)
+                            finally:
+                                await client.disconnect()
+                    except Exception as e:
+                        logger.error("Background Poller: Telegram sync failed: %s", e)
+
         except Exception as e:
             logger.error("Background Poller loop encountered an error: %s", e)
         finally:
