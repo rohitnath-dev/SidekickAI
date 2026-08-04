@@ -23,7 +23,6 @@ class DiscordConnectRequest(BaseModel):
     bot_token: str
     client_id: str
     guild_id: str
-
 class SendDiscordRequest(BaseModel):
     to: str  # Channel ID
     text: str
@@ -34,16 +33,57 @@ async def connect_discord(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    """Save Discord bot token configuration."""
+    """Save and validate Discord bot token configuration."""
+    import httpx
+    # Validate bot token and guild access
+    guild_url = f"https://discord.com/api/v10/guilds/{request.guild_id.strip()}"
+    headers = {
+        "Authorization": f"Bot {request.bot_token.strip()}"
+    }
+    
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            resp = await client.get(guild_url, headers=headers)
+            if resp.status_code == 401:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="Invalid Discord Bot Token."
+                )
+            elif resp.status_code == 403:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="Discord Bot does not have access to the specified Guild (Server). Ensure it is invited."
+                )
+            elif resp.status_code == 404:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="Specified Guild (Server) ID not found or Bot is not member of it."
+                )
+            resp.raise_for_status()
+    except httpx.HTTPStatusError as exc:
+        logger.error("Discord bot token validation failed with status: %s", exc)
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Discord Bot Token or Server validation failed: {exc.response.text}"
+        )
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.error("Discord bot validation connection failed: %s", exc)
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=f"Unable to connect to Discord API for validation: {str(exc)}"
+        )
+
     TokenRepository.upsert(
         db=db,
         user_id=current_user.id,
         provider="discord",
-        access_token=request.bot_token,
-        refresh_token=request.guild_id,
-        token_uri=request.client_id,
+        access_token=request.bot_token.strip(),
+        refresh_token=request.guild_id.strip(),
+        token_uri=request.client_id.strip(),
     )
-    return {"status": "success", "message": "Discord Bot connection saved successfully."}
+    return {"status": "success", "message": "Discord Bot connection saved and verified successfully."}
 
 @router.get("/status")
 async def get_discord_status(
@@ -95,14 +135,25 @@ async def send_discord_message(
             detail=f"Discord API returned error: {str(exc)}",
         )
         
+    # Resolve channel name dynamically
+    channel_name = str(request.to)
+    try:
+        async with httpx.AsyncClient(timeout=3.0) as client:
+            ch_resp = await client.get(f"https://discord.com/api/v10/channels/{request.to}", headers=headers)
+            if ch_resp.status_code == 200:
+                channel_name = ch_resp.json().get("name", str(request.to))
+    except Exception:
+        pass
+
     # Store sent message in database
     db_msg = Message(
         user_id=current_user.id,
         message_id=str(result.get("id", datetime.utcnow().timestamp())),
+        thread_id=str(request.to),
         source=MessageSource.DISCORD,
-        sender="Me (Bot)",
-        recipient=request.to,
-        subject="Outgoing Discord Message",
+        sender=f"#{channel_name}",
+        recipient="Me (Bot)",
+        subject=f"Discord Message in #{channel_name}",
         body=request.text,
         priority=MessagePriority.MEDIUM,
         status=MessageStatus.READ,
@@ -112,7 +163,6 @@ async def send_discord_message(
     db.add(db_msg)
     db.commit()
     db.refresh(db_msg)
-    
     return {"status": "success", "result": result}
 
 @router.post("/webhook")
@@ -145,14 +195,30 @@ async def discord_webhook(request: Request):
         user = db.query(User).first()
         user_id = user.id if user else 1
         
+        # Resolve channel name dynamically
+        import httpx
+        from models.token import OAuthToken
+        channel_name = str(channel_id)
+        try:
+            token = db.query(OAuthToken).filter_by(provider="discord").first()
+            if token and token.access_token != "disabled":
+                headers = {"Authorization": f"Bot {token.access_token}"}
+                async with httpx.AsyncClient(timeout=3.0) as client:
+                    ch_resp = await client.get(f"https://discord.com/api/v10/channels/{channel_id}", headers=headers)
+                    if ch_resp.status_code == 200:
+                        channel_name = ch_resp.json().get("name", str(channel_id))
+        except Exception:
+            pass
+
         # Save message
         db_msg = Message(
             user_id=user_id,
             message_id=str(message_id),
+            thread_id=str(channel_id),
             source=MessageSource.DISCORD,
-            sender=str(channel_id), # We store channel_id as sender so replies can target it
+            sender=f"#{channel_name}", # We store channel_name as sender so replies can target it
             recipient=author,
-            subject=f"Discord Message in #{channel_id}",
+            subject=f"Discord Message in #{channel_name}",
             body=content,
             priority=MessagePriority.MEDIUM,
             status=MessageStatus.UNREAD,
@@ -267,8 +333,9 @@ async def sync_discord(
                 db_msg = Message(
                     user_id=current_user.id,
                     message_id=str(msg_id),
+                    thread_id=str(channel_id),
                     source=MessageSource.DISCORD,
-                    sender=str(channel_id), # Store channel_id as sender
+                    sender=f"#{channel_name}",
                     recipient=author_name,
                     subject=f"Discord Message in #{channel_name}",
                     body=content,
