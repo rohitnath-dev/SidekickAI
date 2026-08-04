@@ -139,6 +139,7 @@ app.include_router(settings_router, prefix=API_PREFIX)
 app.include_router(linkedin_router, prefix=API_PREFIX)
 app.include_router(telegram_router, prefix=API_PREFIX)
 app.include_router(discord_router, prefix=API_PREFIX)
+app.include_router(discord_router, prefix="/api")
 
 
 # ---------------------------------------------------------------------------
