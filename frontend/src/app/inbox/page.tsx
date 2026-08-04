@@ -686,12 +686,15 @@ function InboxContent() {
                   <div className="glass-panel rounded-xl p-5 space-y-4">
                     <div className="flex justify-between items-start gap-4">
                       <div>
-                        <span className="text-[10px] font-mono uppercase tracking-widest text-zinc-550">Sender</span>
-                        <h2 className="text-sm font-semibold text-zinc-200 mt-1">{selectedMessage.sender}</h2>
-                        {selectedMessage.recipient && (
-                          <p className="text-[10px] text-zinc-500 mt-1">To: {selectedMessage.recipient}</p>
-                        )}
-                      </div>
+                        <span className="text-[10px] font-mono uppercase tracking-widest text-zinc-550">
+                          {selectedMessage.thread_id ? "Chat / Group Title" : "Sender"}
+                        </span>
+                        <h2 className="text-base font-bold text-zinc-100 mt-1">{selectedMessage.sender}</h2>
+                        {selectedMessage.recipient && selectedMessage.recipient !== selectedMessage.sender && (
+                          <p className="text-[10px] text-zinc-500 mt-1">
+                            {selectedMessage.source === 'telegram' ? 'Sender' : 'To'}: {selectedMessage.recipient}
+                          </p>
+                        )}                      </div>
                       <div className="text-right">
                         <span className="text-[10px] font-mono uppercase tracking-widest text-zinc-555">Received</span>
                         <p className="text-xs text-zinc-400 mt-1">
@@ -723,7 +726,7 @@ function InboxContent() {
                       {/* Summary */}
                       <div className="md:col-span-2 bg-gradient-to-b from-indigo-500/5 to-transparent border border-zinc-900/60 backdrop-blur-md rounded-xl p-5 space-y-2">
                         <h4 className="text-xs font-semibold text-indigo-400 uppercase tracking-widest flex items-center gap-1.5">
-                          <Sparkles className="w-3.5 h-3.5 text-indigo-400" /> AI Executive Summary
+                          <Sparkles className="w-3.5 h-3.5 text-indigo-400" /> AI Summary {selectedMessage.thread_id ? "(Selected Message)" : "Executive Summary"}
                         </h4>
                         <p className="text-xs text-zinc-300 leading-relaxed font-normal">
                           {selectedMessage.summary}
@@ -732,7 +735,7 @@ function InboxContent() {
 
                       {/* Sentiment & Metadata */}
                       <div className="glass-panel rounded-xl p-5 space-y-4">
-                        <h4 className="text-xs font-semibold text-zinc-400 uppercase tracking-widest">Metadata Tags</h4>
+                        <h4 className="text-xs font-semibold text-zinc-400 uppercase tracking-widest">Metadata Tags {selectedMessage.thread_id ? "(Selected)" : ""}</h4>
                         
                         <div>
                           <p className="text-[10px] font-mono text-zinc-550">Sentiment</p>
@@ -792,37 +795,44 @@ function InboxContent() {
                       {selectedMessage.thread_id ? "Conversation History" : "Original Correspondence"}
                     </h4>
                     {selectedMessage.thread_id && threadMessages.length > 0 ? (
-                      <div className="glass-panel rounded-xl p-5 space-y-4 max-h-[500px] overflow-y-auto flex flex-col gap-3">
-                        {threadMessages.map((tmsg: any) => {
-                          const isCurrent = tmsg.id === selectedMessage.id;
-                          return (
-                            <div 
-                              key={tmsg.id} 
-                              className={`flex flex-col max-w-[85%] rounded-2xl p-4 space-y-1.5 self-start ${
-                                isCurrent
-                                  ? 'bg-indigo-500/10 border border-indigo-500/30 shadow-sm shadow-indigo-500/5'
-                                  : 'bg-zinc-900/30 border border-zinc-800/40'
-                              }`}
-                            >
-                              <div className="flex items-center justify-between gap-6 text-[10px] font-semibold text-zinc-400">
-                                <span className="truncate max-w-[150px]">{tmsg.recipient || tmsg.sender}</span>
-                                <span className="font-mono text-zinc-500">
-                                  {tmsg.received_at ? new Date(tmsg.received_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : ''}
-                                </span>
+                      <div className="space-y-2">
+                        {threadMessages.length > 1 && (
+                          <p className="text-[10px] text-zinc-500 italic px-1">
+                            💡 Tip: Click any message bubble below to select it for AI analysis and smart replies.
+                          </p>
+                        )}
+                        <div className="glass-panel rounded-xl p-5 space-y-4 max-h-[500px] overflow-y-auto flex flex-col gap-3">
+                          {threadMessages.map((tmsg: any) => {
+                            const isCurrent = tmsg.id === selectedMessage.id;
+                            return (
+                              <div 
+                                key={tmsg.id} 
+                                onClick={() => handleSelectMessage(tmsg.id)}
+                                className={`flex flex-col max-w-[85%] rounded-2xl p-4 space-y-1.5 self-start transition-all duration-300 ${
+                                  isCurrent
+                                    ? 'bg-indigo-500/10 border border-indigo-500/35 shadow-sm shadow-indigo-500/5'
+                                    : 'bg-zinc-900/30 border border-zinc-800/40 hover:bg-zinc-900/50 hover:border-zinc-700/60 cursor-pointer shadow-sm hover:shadow-indigo-500/2'
+                                }`}
+                              >
+                                <div className="flex items-center justify-between gap-6 text-[10px] font-semibold text-zinc-400">
+                                  <span className="truncate max-w-[150px]">{tmsg.recipient || tmsg.sender}</span>
+                                  <span className="font-mono text-zinc-500">
+                                    {tmsg.received_at ? new Date(tmsg.received_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : ''}
+                                  </span>
+                                </div>
+                                <p className="text-xs text-zinc-205 leading-relaxed whitespace-pre-wrap break-words font-sans font-normal">
+                                  {tmsg.body}
+                                </p>
                               </div>
-                              <p className="text-xs text-zinc-200 leading-relaxed whitespace-pre-wrap break-words">
-                                {tmsg.body}
-                              </p>
-                            </div>
-                          );
-                        })}
+                            );
+                          })}
+                        </div>
                       </div>
                     ) : (
                       <div className="glass-panel rounded-xl p-5 text-sm text-zinc-300 font-normal leading-relaxed whitespace-pre-wrap font-sans overflow-x-auto">
                         {selectedMessage.body}
                       </div>
-                    )}
-                  </div>
+                    )}                  </div>
 
                   {/* Suggested Smart Reply Module */}
                   <div className="glass-panel rounded-xl p-5 space-y-4 relative overflow-hidden group/reply hover:border-indigo-500/20 transition-all duration-500">
