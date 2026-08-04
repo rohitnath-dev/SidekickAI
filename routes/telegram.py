@@ -121,6 +121,14 @@ async def send_auth_code(
     api_id = settings.TELEGRAM_API_ID
     api_hash = settings.TELEGRAM_API_HASH
 
+    session_file = f"session_{current_user.id}.session"
+    if os.path.exists(session_file):
+        try:
+            os.remove(session_file)
+            logger.info("Deleted legacy session file: %s", session_file)
+        except Exception as e:
+            logger.warning("Failed to delete legacy session file: %s", e)
+
     client = TelegramClient(f"session_{current_user.id}", api_id, api_hash)
     try:
         await client.connect()
@@ -152,11 +160,12 @@ async def verify_auth_code(
             request.code.strip(),
             phone_code_hash=request.phone_code_hash.strip()
         )
-        session_str = client.session.save()
+        session_str = StringSession.save(client.session)
     except SessionPasswordNeededError:
+        logger.info("Telegram /verify-code: 2FA required for user_id=%d", current_user.id)
         return {"status": "requires_password", "phone_code_hash": request.phone_code_hash}
     except Exception as exc:
-        logger.warning("Telethon verify code failed: %s. Generating fallback mock session string.", exc)
+        logger.error("Telegram /verify-code failed for user_id=%d: %s. Generating mock session.", current_user.id, exc, exc_info=True)
         session_str = f"MOCK_SESSION_{request.phone_number.strip()}"
     finally:
         await client.disconnect()
@@ -174,6 +183,7 @@ async def verify_auth_code(
     )
     from services.telegram_manager import telegram_manager
     asyncio.create_task(telegram_manager.start_client(current_user.id, encrypted_session, creds_json))
+    logger.info("Telegram /verify-code completed successfully and session saved for user_id=%d", current_user.id)
     return {"status": "success", "session_string": session_str}
 
 @router.post("/verify-password")
@@ -192,14 +202,15 @@ async def verify_auth_password(
         await client.sign_in(
             password=request.password.strip()
         )
-        session_str = client.session.save()
-    except PasswordHashInvalidError:
+        session_str = StringSession.save(client.session)
+    except PasswordHashInvalidError as exc:
+        logger.error("Telegram /verify-password: Invalid 2FA password for user_id=%d", current_user.id, exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Invalid Two-Step Verification password.",
         )
     except Exception as exc:
-        logger.warning("Telethon 2FA verify password failed: %s. Generating fallback mock session string.", exc)
+        logger.error("Telegram /verify-password failed for user_id=%d: %s. Generating mock session.", current_user.id, exc, exc_info=True)
         session_str = f"MOCK_SESSION_{request.phone_number.strip()}"
     finally:
         await client.disconnect()
@@ -217,6 +228,7 @@ async def verify_auth_password(
     )
     from services.telegram_manager import telegram_manager
     asyncio.create_task(telegram_manager.start_client(current_user.id, encrypted_session, creds_json))
+    logger.info("Telegram /verify-password completed successfully and session saved for user_id=%d", current_user.id)
     return {"status": "success", "session_string": session_str}
 
 @router.get("/status")
@@ -272,6 +284,16 @@ async def disconnect_telegram(
     TokenRepository.delete(db, user_id=current_user.id, provider="telegram")
     from services.telegram_manager import telegram_manager
     asyncio.create_task(telegram_manager.stop_client(current_user.id))
+
+    # Clean up local session file
+    session_file = f"session_{current_user.id}.session"
+    if os.path.exists(session_file):
+        try:
+            os.remove(session_file)
+            logger.info("Deleted local session file during disconnect: %s", session_file)
+        except Exception as e:
+            logger.warning("Failed to delete local session file during disconnect: %s", e)
+
     return {"status": "success", "message": "Telegram User client disconnected and session revoked."}
 
 @router.post("/send")
