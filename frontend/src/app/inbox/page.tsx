@@ -35,10 +35,12 @@ function InboxContent() {
     selectedIdParam ? parseInt(selectedIdParam, 10) : null
   );
 
-  const [searchQuery, setSearchQuery] = useState('');
-  const [sourceFilter, setSourceFilter] = useState<string>('all');
-  const [unreadOnly, setUnreadOnly] = useState(false);
 
+
+  const [searchQuery, setSearchQuery] = useState('');
+  const [sourceFilter, setSourceFilter] = useState('all');
+  const [discordTypeFilter, setDiscordTypeFilter] = useState('all');
+  const [unreadOnly, setUnreadOnly] = useState(false);
   const [syncLoading, setSyncLoading] = useState(false);
   const [syncStatus, setSyncStatus] = useState<string | { message: string, isError: boolean, action?: string, actionUrl?: string } | null>(null);
 
@@ -393,7 +395,6 @@ function InboxContent() {
       analyzeMutation.mutate(selectedId);
     }
   };
-
   // Filter messages
   const filteredMessages = messages?.filter((msg: any) => {
     const query = searchQuery.toLowerCase();
@@ -401,10 +402,19 @@ function InboxContent() {
       (msg.sender?.toLowerCase() || '').includes(query) ||
       (msg.subject?.toLowerCase() || '').includes(query) ||
       (msg.body?.toLowerCase() || '').includes(query);
-    return matchQuery;
+    if (!matchQuery) return false;
+
+    if (sourceFilter === 'discord' && discordTypeFilter !== 'all') {
+      if (discordTypeFilter === 'dm') {
+        return msg.subject === 'Personal DM';
+      }
+      if (discordTypeFilter === 'server') {
+        return msg.subject?.startsWith('Server:');
+      }
+    }
+    return true;
   }) || [];
 
-  // Group messages by thread_id (only for messages that have a thread_id)
   const groupedMessages = React.useMemo(() => {
     const threadsMap = new Map<string, any>();
     const result: any[] = [];
@@ -527,6 +537,17 @@ function InboxContent() {
                 <option value="telegram">Telegram</option>
                 <option value="discord">Discord</option>
               </select>
+              {sourceFilter === 'discord' && (
+                <select
+                  value={discordTypeFilter}
+                  onChange={(e) => setDiscordTypeFilter(e.target.value)}
+                  className="bg-zinc-900/40 border border-zinc-800 rounded-lg px-2.5 py-1 text-zinc-400 focus:text-zinc-100 outline-none cursor-pointer hover:border-zinc-700/80 transition-colors"
+                >
+                  <option value="all">All Discord</option>
+                  <option value="dm">Personal DMs</option>
+                  <option value="server">Server Messages</option>
+                </select>
+              )}
               <button 
                 onClick={() => setUnreadOnly(!unreadOnly)}
                 className={`px-2.5 py-1 rounded-lg border transition-all duration-300 cursor-pointer ${
@@ -596,6 +617,12 @@ function InboxContent() {
                         {msg.source}
                       </span>
                       
+                      {msg.source === 'discord' && msg.subject && (
+                        <span className="text-[9px] font-mono uppercase tracking-wider px-2 py-0.5 rounded border border-indigo-900/20 bg-indigo-950/20 text-indigo-400 font-semibold">
+                          {msg.subject.startsWith('Server:') ? 'Server Message' : 'Personal DM'}
+                        </span>
+                      )}
+
                       {msg.priority && (
                         <span className={`text-[9px] font-mono uppercase tracking-wider px-2 py-0.5 rounded border font-semibold ${
                           msg.priority === 'critical' ? 'bg-rose-950/20 text-rose-450 border border-rose-900/20' :

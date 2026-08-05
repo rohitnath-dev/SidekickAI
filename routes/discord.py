@@ -111,7 +111,8 @@ async def discord_login(
             detail="Discord OAuth2 is not configured on the backend. Please check your environment settings.",
         )
 
-    scopes = "identify guilds"
+
+    scopes = "identify email guilds dm_channels.read"
     params = {
         "client_id": client_id,
         "redirect_uri": redirect_uri,
@@ -407,7 +408,6 @@ async def discord_webhook(request: Request):
         db.close()
         
     return {"status": "success"}
-
 class SyncResponse(BaseModel):
     synced: int
     total_stored: int
@@ -418,7 +418,12 @@ async def sync_discord(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    """Actively query Discord channels for recent messages and run AI pipeline."""
+    """Actively sync user DMs and Server messages from Discord."""
+    import httpx
+    import os
+    import json
+    from datetime import datetime
+
     token = TokenRepository.get(db, user_id=current_user.id, provider="discord")
     if not token or token.access_token == "disabled":
         raise HTTPException(
@@ -426,101 +431,198 @@ async def sync_discord(
             detail="Discord is disconnected. Please connect in Settings.",
         )
 
-    guild_id = token.refresh_token
-    if not guild_id:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Discord Guild ID not set. Please reconnect.",
-        )
-
-    import httpx
-    headers = {"Authorization": f"Bot {token.access_token}"}
+    user_oauth_token = token.access_token
+    bot_token = os.environ.get("DISCORD_BOT_TOKEN") or settings.DISCORD_BOT_TOKEN
     
-    # 1. Fetch Channels list
-    channels_url = f"https://discord.com/api/v10/guilds/{guild_id}/channels"
-    try:
-        async with httpx.AsyncClient(timeout=10.0) as client:
-            resp = await client.get(channels_url, headers=headers)
-            resp.raise_for_status()
-            channels = resp.json()
-            text_channels = [ch for ch in channels if ch.get("type") == 0]
-    except Exception as exc:
-        logger.warning("Discord channels fetch failed (using fallback mock channels): %s", exc)
-        text_channels = [{"id": "general-channel-1", "name": "general"}]
-
     synced_count = 0
     total_stored = 0
 
-    # 2. Query messages for each text channel
-    async with httpx.AsyncClient(timeout=10.0) as client:
-        for channel in text_channels:
-            channel_id = channel.get("id")
-            channel_name = channel.get("name", "channel")
-            if not channel_id:
-                continue
+    # 0. Fetch user's profile to get username
+    user_username = "Me"
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            p_resp = await client.get(
+                "https://discord.com/api/v10/users/@me",
+                headers={"Authorization": f"Bearer {user_oauth_token}"}
+            )
+            if p_resp.status_code == 200:
+                user_username = p_resp.json().get("username", "Me")
+    except Exception as exc:
+        logger.warning("Failed to fetch user username for recipient field: %s", exc)
 
-            msg_url = f"https://discord.com/api/v10/channels/{channel_id}/messages?limit=20"
-            try:
-                msg_resp = await client.get(msg_url, headers=headers)
-                msg_resp.raise_for_status()
-                messages_list = msg_resp.json()
-            except Exception as exc:
-                logger.warning("Discord messages fetch failed for channel %s (using fallback mock messages): %s", channel_name, exc)
-                messages_list = [
-                    {
-                        "id": "discord-msg-1",
-                        "content": "Critical warning: Staging deployment server is down!",
-                        "author": {"username": "StagingBot", "bot": False}
-                    },
-                    {
-                        "id": "discord-msg-2",
-                        "content": "Make sure to push all localized documentation changes before release.",
-                        "author": {"username": "LeadDesigner", "bot": False}
-                    }
-                ]
+    # 1. Fetch User DMs & messages (using User OAuth access token)
+    try:
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            dm_channels_url = "https://discord.com/api/v10/users/@me/channels"
+            dm_headers = {"Authorization": f"Bearer {user_oauth_token}"}
+            resp = await client.get(dm_channels_url, headers=dm_headers)
+            if resp.status_code == 200:
+                dm_channels = resp.json()
+                for channel in dm_channels:
+                    channel_id = channel.get("id")
+                    if not channel_id:
+                        continue
+                    
+                    # Fetch recent messages for this DM channel
+                    msg_url = f"https://discord.com/api/v10/channels/{channel_id}/messages?limit=20"
+                    msg_resp = await client.get(msg_url, headers=dm_headers)
+                    if msg_resp.status_code == 200:
+                        messages_list = msg_resp.json()
+                        for msg in messages_list:
+                            msg_id = msg.get("id")
+                            content = msg.get("content")
+                            author = msg.get("author", {})
+                            author_name = author.get("username", "DiscordUser")
+                            
+                            if author.get("bot") or not msg_id or not content:
+                                continue
+                                
+                            existing = db.query(Message).filter_by(
+                                message_id=str(msg_id), source=MessageSource.DISCORD
+                            ).first()
+                            if existing:
+                                total_stored += 1
+                                continue
+                                
+                            received_at_str = msg.get("timestamp")
+                            received_at = datetime.utcnow()
+                            if received_at_str:
+                                try:
+                                    if received_at_str.endswith("Z"):
+                                        received_at_str = received_at_str[:-1] + "+00:00"
+                                    received_at = datetime.fromisoformat(received_at_str)
+                                except Exception:
+                                    pass
+                                    
+                            db_msg = Message(
+                                user_id=current_user.id,
+                                message_id=str(msg_id),
+                                thread_id=str(channel_id),
+                                source=MessageSource.DISCORD,
+                                sender=author_name,
+                                recipient=user_username,
+                                subject="Personal DM",
+                                body=content,
+                                priority=MessagePriority.MEDIUM,
+                                status=MessageStatus.UNREAD,
+                                received_at=received_at,
+                            )
+                            db.add(db_msg)
+                            db.commit()
+                            db.refresh(db_msg)
+                            
+                            synced_count += 1
+                            total_stored += 1
+                            
+                            try:
+                                await process_message_ai(db, db_msg)
+                            except Exception as e:
+                                logger.error("AI pipeline failed on Discord DM message %s: %s", msg_id, e)
+    except Exception as exc:
+        logger.warning("Discord user DMs sync failed: %s", exc)
 
-            for msg in messages_list:
-                msg_id = msg.get("id")
-                content = msg.get("content")
-                author = msg.get("author", {})
-                author_name = author.get("username", "DiscordUser")
-                
-                # Skip messages sent by the bot itself
-                if author.get("bot"):
-                    continue
-
-                if not msg_id or not content:
-                    continue
-
-                existing = db.query(Message).filter_by(message_id=str(msg_id), source=MessageSource.DISCORD).first()
-                if existing:
-                    total_stored += 1
-                    continue
-
-                db_msg = Message(
-                    user_id=current_user.id,
-                    message_id=str(msg_id),
-                    thread_id=str(channel_id),
-                    source=MessageSource.DISCORD,
-                    sender=f"#{channel_name}",
-                    recipient=author_name,
-                    subject=f"Discord Message in #{channel_name}",
-                    body=content,
-                    priority=MessagePriority.MEDIUM,
-                    status=MessageStatus.UNREAD,
-                    received_at=datetime.utcnow(),
+    # 2. Fetch Server Messages (using Bot Token, cross-matched with user's servers)
+    if bot_token:
+        try:
+            async with httpx.AsyncClient(timeout=15.0) as client:
+                # Get user's guilds
+                user_guilds_resp = await client.get(
+                    "https://discord.com/api/v10/users/@me/guilds",
+                    headers={"Authorization": f"Bearer {user_oauth_token}"}
                 )
-                db.add(db_msg)
-                db.commit()
-                db.refresh(db_msg)
-
-                synced_count += 1
-                total_stored += 1
-
-                # Run AI pipeline
-                try:
-                    await process_message_ai(db, db_msg)
-                except Exception as e:
-                    logger.error("AI pipeline failed on Discord message %s: %s", msg_id, e)
+                
+                # Get bot's guilds
+                bot_guilds_resp = await client.get(
+                    "https://discord.com/api/v10/users/@me/guilds",
+                    headers={"Authorization": f"Bot {bot_token}"}
+                )
+                
+                if user_guilds_resp.status_code == 200 and bot_guilds_resp.status_code == 200:
+                    user_guilds = user_guilds_resp.json()
+                    bot_guilds = bot_guilds_resp.json()
+                    
+                    user_guild_map = {g.get("id"): g.get("name") for g in user_guilds if g.get("id")}
+                    bot_guild_ids = {g.get("id") for g in bot_guilds if g.get("id")}
+                    
+                    # Intersecting guilds
+                    common_guild_ids = set(user_guild_map.keys()) & bot_guild_ids
+                    
+                    bot_headers = {"Authorization": f"Bot {bot_token}"}
+                    
+                    for guild_id in common_guild_ids:
+                        guild_name = user_guild_map[guild_id]
+                        
+                        # Fetch channels of this guild
+                        channels_resp = await client.get(
+                            f"https://discord.com/api/v10/guilds/{guild_id}/channels",
+                            headers=bot_headers
+                        )
+                        if channels_resp.status_code == 200:
+                            channels = channels_resp.json()
+                            text_channels = [ch for ch in channels if ch.get("type") == 0]
+                            
+                            for channel in text_channels:
+                                channel_id = channel.get("id")
+                                channel_name = channel.get("name", "channel")
+                                if not channel_id:
+                                    continue
+                                    
+                                # Fetch recent messages for this text channel
+                                msg_url = f"https://discord.com/api/v10/channels/{channel_id}/messages?limit=20"
+                                msg_resp = await client.get(msg_url, headers=bot_headers)
+                                if msg_resp.status_code == 200:
+                                    messages_list = msg_resp.json()
+                                    for msg in messages_list:
+                                        msg_id = msg.get("id")
+                                        content = msg.get("content")
+                                        author = msg.get("author", {})
+                                        author_name = author.get("username", "DiscordUser")
+                                        
+                                        if author.get("bot") or not msg_id or not content:
+                                            continue
+                                            
+                                        existing = db.query(Message).filter_by(
+                                            message_id=str(msg_id), source=MessageSource.DISCORD
+                                        ).first()
+                                        if existing:
+                                            total_stored += 1
+                                            continue
+                                            
+                                        received_at_str = msg.get("timestamp")
+                                        received_at = datetime.utcnow()
+                                        if received_at_str:
+                                            try:
+                                                if received_at_str.endswith("Z"):
+                                                    received_at_str = received_at_str[:-1] + "+00:00"
+                                                received_at = datetime.fromisoformat(received_at_str)
+                                            except Exception:
+                                                pass
+                                                
+                                        db_msg = Message(
+                                            user_id=current_user.id,
+                                            message_id=str(msg_id),
+                                            thread_id=str(channel_id),
+                                            source=MessageSource.DISCORD,
+                                            sender=author_name,
+                                            recipient=None,
+                                            subject=f"Server: {guild_name} / #{channel_name}",
+                                            body=content,
+                                            priority=MessagePriority.MEDIUM,
+                                            status=MessageStatus.UNREAD,
+                                            received_at=received_at,
+                                        )
+                                        db.add(db_msg)
+                                        db.commit()
+                                        db.refresh(db_msg)
+                                        
+                                        synced_count += 1
+                                        total_stored += 1
+                                        
+                                        try:
+                                            await process_message_ai(db, db_msg)
+                                        except Exception as e:
+                                            logger.error("AI pipeline failed on Discord server message %s: %s", msg_id, e)
+        except Exception as exc:
+            logger.warning("Discord server messages sync failed: %s", exc)
 
     return SyncResponse(synced=synced_count, total_stored=total_stored, status="success")

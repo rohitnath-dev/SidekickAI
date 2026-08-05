@@ -1153,8 +1153,8 @@ export default function SettingsPage() {
                   <div className="space-y-3 pt-4 border-t border-zinc-900">
                     <div className="flex items-center justify-between">
                       <div>
-                        <h3 className="text-xs font-bold text-zinc-200">Discord Bot Integration</h3>
-                        <p className="text-[10px] text-zinc-500">Monitor and respond to Discord server channels</p>
+                        <h3 className="text-xs font-bold text-zinc-200">Discord Integration</h3>
+                        <p className="text-[10px] text-zinc-500">Monitor personal DMs and servers consolidated</p>
                       </div>
                       <span className={`text-[10px] font-mono px-2 py-0.5 rounded ${
                         discordPref?.connected ? 'bg-emerald-950/20 text-emerald-400 border border-emerald-900/30' : 'bg-zinc-900 text-zinc-500'
@@ -1167,7 +1167,7 @@ export default function SettingsPage() {
                         onClick={() => disconnectMutation.mutate('discord')}
                         className="w-full text-center py-2 bg-zinc-950 hover:bg-red-950/20 hover:text-red-400 rounded text-xs font-semibold text-zinc-400 border border-zinc-850 hover:border-red-900/20 transition-all cursor-pointer"
                       >
-                        Disconnect Bot
+                        Disconnect Discord
                       </button>
                     ) : (
                       <button
