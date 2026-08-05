@@ -102,6 +102,9 @@ async def discord_login(
     client_id = os.environ.get("DISCORD_CLIENT_ID") or settings.DISCORD_CLIENT_ID
     redirect_uri = os.environ.get("DISCORD_REDIRECT_URI") or settings.DISCORD_REDIRECT_URI
     
+    if redirect_uri and ("onrender.com" in redirect_uri or not redirect_uri.startswith("http://localhost")):
+        redirect_uri = "https://sidekickai.onrender.com/api/discord/callback"
+
     if not client_id or not redirect_uri:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
