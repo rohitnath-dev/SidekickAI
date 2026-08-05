@@ -234,6 +234,118 @@ async def discord_callback(
         """
     )
 
+class DiscordCallbackRequest(BaseModel):
+    code: str
+    guild_id: Optional[str] = None
+    state: Optional[str] = None
+
+@router.post("/callback")
+async def discord_callback_post(
+    request_data: DiscordCallbackRequest,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Handle Discord OAuth2 callback POST, exchange code, fetch profile, and save integration."""
+    import httpx
+    import os
+    import json
+    
+    code = request_data.code
+    guild_id = request_data.guild_id
+    
+    client_id = os.environ.get("DISCORD_CLIENT_ID") or settings.DISCORD_CLIENT_ID
+    client_secret = os.environ.get("DISCORD_CLIENT_SECRET") or settings.DISCORD_CLIENT_SECRET
+    redirect_uri = os.environ.get("DISCORD_REDIRECT_URI") or settings.DISCORD_REDIRECT_URI
+    
+    if not client_id or not client_secret:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Discord client credentials are not configured.",
+        )
+        
+    token_url = "https://discord.com/api/oauth2/token"
+    payload = {
+        "client_id": client_id,
+        "client_secret": client_secret,
+        "grant_type": "authorization_code",
+        "code": code,
+        "redirect_uri": redirect_uri,
+    }
+    headers = {"Content-Type": "application/x-www-form-urlencoded"}
+    
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            resp = await client.post(token_url, data=payload, headers=headers)
+            resp.raise_for_status()
+            token_data = resp.json()
+    except Exception as exc:
+        logger.error("Discord token exchange POST failed: %s", exc)
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=f"Failed to exchange Discord authorization code: {exc}",
+        )
+        
+    access_token = token_data.get("access_token")
+    if not access_token:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="Discord response did not contain an access_token.",
+        )
+        
+    profile_url = "https://discord.com/api/users/@me"
+    profile_headers = {"Authorization": f"Bearer {access_token}"}
+    profile_data = {}
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            p_resp = await client.get(profile_url, headers=profile_headers)
+            p_resp.raise_for_status()
+            profile_data = p_resp.json()
+    except Exception as exc:
+        logger.error("Failed to fetch Discord user profile: %s", exc)
+        
+    resolved_guild_id = guild_id
+    if not resolved_guild_id and "guild" in token_data:
+        resolved_guild_id = token_data["guild"].get("id")
+        
+    if not resolved_guild_id:
+        try:
+            guilds_url = "https://discord.com/api/users/@me/guilds"
+            guilds_headers = {"Authorization": f"Bearer {access_token}"}
+            async with httpx.AsyncClient(timeout=10.0) as client:
+                g_resp = await client.get(guilds_url, headers=guilds_headers)
+                if g_resp.status_code == 200:
+                    guilds_list = g_resp.json()
+                    if guilds_list:
+                        resolved_guild_id = guilds_list[0].get("id")
+        except Exception as guilds_exc:
+            logger.warning("Failed to fetch user guilds: %s", guilds_exc)
+            
+    if not resolved_guild_id:
+        resolved_guild_id = "user_linked"
+        
+    TokenRepository.upsert(
+        db=db,
+        user_id=current_user.id,
+        provider="discord",
+        access_token=access_token,
+        refresh_token=token_data.get("refresh_token") or resolved_guild_id,
+        token_uri=client_id,
+        scopes=json.dumps(token_data.get("scope", "identify guilds").split(" ")),
+    )
+    
+    logger.info("Successfully connected Discord via POST callback for user_id=%d", current_user.id)
+    
+    return {
+        "status": "success",
+        "message": "Discord integration connected successfully.",
+        "redirect_url": "/settings",
+        "profile": {
+            "id": profile_data.get("id"),
+            "username": profile_data.get("username"),
+            "discriminator": profile_data.get("discriminator"),
+            "avatar": profile_data.get("avatar"),
+        }
+    }
 
 @router.get("/status")
 async def get_discord_status(
