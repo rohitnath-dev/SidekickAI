@@ -110,13 +110,13 @@ class Settings(BaseSettings):
     DISCORD_CLIENT_ID: str = ""
     DISCORD_CLIENT_SECRET: str = ""
     DISCORD_BOT_TOKEN: str = ""
-    DISCORD_REDIRECT_URI: str = "http://localhost:8000/api/v1/discord/callback"
-
+    DISCORD_REDIRECT_URI: str = "http://localhost:8000/api/discord/callback"
 
     # ------------------------------------------------------------------ #
     # CORS                                                                  #
     # ------------------------------------------------------------------ #
     ALLOWED_ORIGINS: list[str] = ["*"]
+
 
     # ------------------------------------------------------------------ #
     # Pydantic config                                                       #
