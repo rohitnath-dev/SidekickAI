@@ -143,13 +143,22 @@ async def discord_callback(
             pass
             
     if not user_id:
-        user = db.query(User).first()
         user_id = user.id if user else 1
 
     client_id = os.environ.get("DISCORD_CLIENT_ID") or settings.DISCORD_CLIENT_ID
     client_secret = os.environ.get("DISCORD_CLIENT_SECRET") or settings.DISCORD_CLIENT_SECRET
     redirect_uri = os.environ.get("DISCORD_REDIRECT_URI") or settings.DISCORD_REDIRECT_URI
     
+    if client_id:
+        client_id = client_id.strip()
+    if client_secret:
+        client_secret = client_secret.strip()
+    if redirect_uri:
+        redirect_uri = redirect_uri.strip()
+        
+    if redirect_uri and ("onrender.com" in redirect_uri or not redirect_uri.startswith("http://localhost")):
+        redirect_uri = "https://sidekickai.onrender.com/api/discord/callback"
+        
     if not client_id or not client_secret:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -166,9 +175,12 @@ async def discord_callback(
     }
     headers = {"Content-Type": "application/x-www-form-urlencoded"}
     
+    token_data = {}
     try:
         async with httpx.AsyncClient(timeout=10.0) as client:
             resp = await client.post(token_url, data=payload, headers=headers)
+            if resp.status_code != 200:
+                logger.error("Discord token exchange failed with status_code=%d. Response: %s", resp.status_code, resp.text)
             resp.raise_for_status()
             token_data = resp.json()
     except Exception as exc:
