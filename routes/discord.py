@@ -6,7 +6,7 @@ from typing import Optional
 from datetime import datetime
 
 from fastapi import APIRouter, Depends, HTTPException, status, Request, Query, Response
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, RedirectResponse
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
@@ -121,14 +121,16 @@ async def discord_login(
 
 @router.get("/callback")
 async def discord_callback(
+    request: Request,
     code: str = Query(...),
     guild_id: Optional[str] = Query(default=None),
     state: str = Query(default=""),
     db: Session = Depends(get_db),
 ):
-    """Handle Discord OAuth2 callback, exchange code for user access token, and save credentials."""
+    """Handle Discord OAuth2 callback GET, exchange code, fetch profile, and redirect to settings."""
     import httpx
     import os
+    import json
     
     user_id = None
     if state:
@@ -141,118 +143,6 @@ async def discord_callback(
         user = db.query(User).first()
         user_id = user.id if user else 1
 
-    # Exchange authorization code for user access token
-    resolved_guild_id = guild_id
-    client_id = os.environ.get("DISCORD_CLIENT_ID") or settings.DISCORD_CLIENT_ID
-    client_secret = os.environ.get("DISCORD_CLIENT_SECRET") or settings.DISCORD_CLIENT_SECRET
-    redirect_uri = os.environ.get("DISCORD_REDIRECT_URI") or settings.DISCORD_REDIRECT_URI
-    
-    token_data = {}
-    if client_id and client_secret:
-        token_url = "https://discord.com/api/oauth2/token"
-        payload = {
-            "client_id": client_id,
-            "client_secret": client_secret,
-            "grant_type": "authorization_code",
-            "code": code,
-            "redirect_uri": redirect_uri,
-        }
-        headers = {"Content-Type": "application/x-www-form-urlencoded"}
-        try:
-            async with httpx.AsyncClient(timeout=10.0) as client:
-                resp = await client.post(token_url, data=payload, headers=headers)
-                resp.raise_for_status()
-                token_data = resp.json()
-                # If guild_id was not in redirect params, check response
-                if not resolved_guild_id and "guild" in token_data:
-                    resolved_guild_id = token_data["guild"].get("id")
-                
-                # If resolved_guild_id is still not found, fetch user's guilds using their token
-                if not resolved_guild_id and token_data.get("access_token"):
-                    try:
-                        guilds_url = "https://discord.com/api/users/@me/guilds"
-                        guilds_headers = {"Authorization": f"Bearer {token_data['access_token']}"}
-                        g_resp = await client.get(guilds_url, headers=guilds_headers)
-                        if g_resp.status_code == 200:
-                            guilds_list = g_resp.json()
-                            if guilds_list:
-                                resolved_guild_id = guilds_list[0].get("id")
-                    except Exception as guilds_exc:
-                        logger.warning("Failed to fetch user guilds: %s", guilds_exc)
-        except Exception as exc:
-            logger.error("Discord OAuth exchange failed: %s", exc)
-            raise HTTPException(
-                status_code=status.HTTP_502_BAD_GATEWAY,
-                detail=f"Failed to exchange Discord authorization code: {exc}",
-            )
-
-    if not resolved_guild_id:
-        resolved_guild_id = "user_linked"
-
-    # Securely check if the Bot has access to the guild (optional logging check)
-    bot_token = os.environ.get("DISCORD_BOT_TOKEN") or settings.DISCORD_BOT_TOKEN
-    if bot_token and resolved_guild_id != "user_linked":
-        guild_url = f"https://discord.com/api/v10/guilds/{resolved_guild_id}"
-        bot_headers = {"Authorization": f"Bot {bot_token}"}
-        try:
-            async with httpx.AsyncClient(timeout=10.0) as client:
-                g_resp = await client.get(guild_url, headers=bot_headers)
-                if g_resp.status_code == 403:
-                    logger.warning("Discord Bot is not present in the authorized guild: %s", resolved_guild_id)
-                else:
-                    g_resp.raise_for_status()
-        except Exception as exc:
-            logger.warning("Failed to verify Bot guild access: %s", exc)
-
-    # Store credentials
-    TokenRepository.upsert(
-        db=db,
-        user_id=user_id,
-        provider="discord",
-        access_token=token_data.get("access_token") if (client_id and client_secret and "access_token" in token_data) else (bot_token or "mock_bot_token"),
-        refresh_token=token_data.get("refresh_token") if (client_id and client_secret and "refresh_token" in token_data) else resolved_guild_id,
-        token_uri=client_id or "mock_client_id",
-    )
-
-    return HTMLResponse(
-        content="""
-        <html>
-            <head>
-                <title>Discord Bot Authorization Successful</title>
-                <script type="text/javascript">
-                    if (window.opener) {
-                        window.opener.postMessage("discord-connected", "*");
-                    }
-                    window.close();
-                </script>
-            </head>
-            <body style="font-family: sans-serif; text-align: center; padding-top: 50px; background-color: #121214; color: #ffffff;">
-                <h2>Discord Bot connected successfully!</h2>
-                <p>This window will close automatically.</p>
-            </body>
-        </html>
-        """
-    )
-
-class DiscordCallbackRequest(BaseModel):
-    code: str
-    guild_id: Optional[str] = None
-    state: Optional[str] = None
-
-@router.post("/callback")
-async def discord_callback_post(
-    request_data: DiscordCallbackRequest,
-    current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db),
-):
-    """Handle Discord OAuth2 callback POST, exchange code, fetch profile, and save integration."""
-    import httpx
-    import os
-    import json
-    
-    code = request_data.code
-    guild_id = request_data.guild_id
-    
     client_id = os.environ.get("DISCORD_CLIENT_ID") or settings.DISCORD_CLIENT_ID
     client_secret = os.environ.get("DISCORD_CLIENT_SECRET") or settings.DISCORD_CLIENT_SECRET
     redirect_uri = os.environ.get("DISCORD_REDIRECT_URI") or settings.DISCORD_REDIRECT_URI
@@ -279,7 +169,7 @@ async def discord_callback_post(
             resp.raise_for_status()
             token_data = resp.json()
     except Exception as exc:
-        logger.error("Discord token exchange POST failed: %s", exc)
+        logger.error("Discord token exchange GET failed: %s", exc)
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
             detail=f"Failed to exchange Discord authorization code: {exc}",
@@ -325,7 +215,7 @@ async def discord_callback_post(
         
     TokenRepository.upsert(
         db=db,
-        user_id=current_user.id,
+        user_id=user_id,
         provider="discord",
         access_token=access_token,
         refresh_token=token_data.get("refresh_token") or resolved_guild_id,
@@ -333,19 +223,19 @@ async def discord_callback_post(
         scopes=json.dumps(token_data.get("scope", "identify guilds").split(" ")),
     )
     
-    logger.info("Successfully connected Discord via POST callback for user_id=%d", current_user.id)
+    logger.info("Successfully connected Discord via GET callback for user_id=%d", user_id)
     
-    return {
-        "status": "success",
-        "message": "Discord integration connected successfully.",
-        "redirect_url": "/settings",
-        "profile": {
-            "id": profile_data.get("id"),
-            "username": profile_data.get("username"),
-            "discriminator": profile_data.get("discriminator"),
-            "avatar": profile_data.get("avatar"),
-        }
-    }
+    frontend_url = os.environ.get("FRONTEND_URL")
+    if not frontend_url:
+        host = request.headers.get("host", "")
+        if "onrender.com" in host:
+            frontend_host = host.replace("sidekickai.onrender.com", "sidekickai-1.onrender.com")
+            frontend_url = f"https://{frontend_host}"
+        else:
+            frontend_url = "http://localhost:3000"
+            
+    redirect_target = frontend_url.rstrip("/") + "/settings?discord=connected"
+    return RedirectResponse(url=redirect_target)
 
 @router.get("/status")
 async def get_discord_status(

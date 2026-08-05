@@ -31,7 +31,7 @@ from routes.whatsapp import router as whatsapp_router
 from routes.settings import router as settings_router
 from routes.linkedin import router as linkedin_router
 from routes.telegram import router as telegram_router
-from routes.discord import router as discord_router, discord_callback, discord_callback_post
+from routes.discord import router as discord_router, discord_callback
 # ---------------------------------------------------------------------------
 # Logging
 # ---------------------------------------------------------------------------
@@ -144,10 +144,6 @@ app.include_router(discord_router, prefix="")
 app.get("/api/discord/callback", tags=["Discord"])(discord_callback)
 app.get("/api/v1/discord/callback", tags=["Discord"])(discord_callback)
 app.get("/discord/callback", tags=["Discord"])(discord_callback)
-
-app.post("/api/discord/callback", tags=["Discord"])(discord_callback_post)
-app.post("/api/v1/discord/callback", tags=["Discord"])(discord_callback_post)
-app.post("/discord/callback", tags=["Discord"])(discord_callback_post)
 
 # ---------------------------------------------------------------------------
 # Root / Frontend UI + Health
