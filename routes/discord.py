@@ -102,14 +102,13 @@ async def discord_login(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="Discord OAuth2 is not configured on the backend. Please check your environment settings.",
         )
-    
-    scopes = "identify guilds bot"
+
+    scopes = "identify guilds"
     params = {
         "client_id": client_id,
         "redirect_uri": redirect_uri,
         "response_type": "code",
         "scope": scopes,
-        "permissions": "8", # Administrator permissions for bot
         "state": str(current_user.id),
     }
     auth_url = "https://discord.com/api/oauth2/authorize?" + urllib.parse.urlencode(params)
@@ -143,6 +142,7 @@ async def discord_callback(
     client_secret = os.environ.get("DISCORD_CLIENT_SECRET") or settings.DISCORD_CLIENT_SECRET
     redirect_uri = os.environ.get("DISCORD_REDIRECT_URI") or settings.DISCORD_REDIRECT_URI
     
+    token_data = {}
     if client_id and client_secret:
         token_url = "https://discord.com/api/oauth2/token"
         payload = {
@@ -161,6 +161,19 @@ async def discord_callback(
                 # If guild_id was not in redirect params, check response
                 if not resolved_guild_id and "guild" in token_data:
                     resolved_guild_id = token_data["guild"].get("id")
+                
+                # If resolved_guild_id is still not found, fetch user's guilds using their token
+                if not resolved_guild_id and token_data.get("access_token"):
+                    try:
+                        guilds_url = "https://discord.com/api/users/@me/guilds"
+                        guilds_headers = {"Authorization": f"Bearer {token_data['access_token']}"}
+                        g_resp = await client.get(guilds_url, headers=guilds_headers)
+                        if g_resp.status_code == 200:
+                            guilds_list = g_resp.json()
+                            if guilds_list:
+                                resolved_guild_id = guilds_list[0].get("id")
+                    except Exception as guilds_exc:
+                        logger.warning("Failed to fetch user guilds: %s", guilds_exc)
         except Exception as exc:
             logger.error("Discord OAuth exchange failed: %s", exc)
             raise HTTPException(
@@ -169,37 +182,30 @@ async def discord_callback(
             )
 
     if not resolved_guild_id:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="No authorized Discord Guild ID was returned from OAuth."
-        )
+        resolved_guild_id = "user_linked"
 
-    # Securely check if the Bot has access to the guild
+    # Securely check if the Bot has access to the guild (optional logging check)
     bot_token = os.environ.get("DISCORD_BOT_TOKEN") or settings.DISCORD_BOT_TOKEN
-    if bot_token:
+    if bot_token and resolved_guild_id != "user_linked":
         guild_url = f"https://discord.com/api/v10/guilds/{resolved_guild_id}"
         bot_headers = {"Authorization": f"Bot {bot_token}"}
         try:
             async with httpx.AsyncClient(timeout=10.0) as client:
                 g_resp = await client.get(guild_url, headers=bot_headers)
                 if g_resp.status_code == 403:
-                    raise HTTPException(
-                        status_code=status.HTTP_400_BAD_REQUEST,
-                        detail="Discord Bot is not present in the authorized guild. Ensure it is invited."
-                    )
-                g_resp.raise_for_status()
-        except HTTPException:
-            raise
+                    logger.warning("Discord Bot is not present in the authorized guild: %s", resolved_guild_id)
+                else:
+                    g_resp.raise_for_status()
         except Exception as exc:
-            logger.warning("Failed to verify Bot guild access (proceeding with callback): %s", exc)
+            logger.warning("Failed to verify Bot guild access: %s", exc)
 
     # Store credentials
     TokenRepository.upsert(
         db=db,
         user_id=user_id,
         provider="discord",
-        access_token=bot_token or "mock_bot_token",
-        refresh_token=resolved_guild_id,
+        access_token=token_data.get("access_token") if (client_id and client_secret and "access_token" in token_data) else (bot_token or "mock_bot_token"),
+        refresh_token=token_data.get("refresh_token") if (client_id and client_secret and "refresh_token" in token_data) else resolved_guild_id,
         token_uri=client_id or "mock_client_id",
     )
 
