@@ -498,7 +498,7 @@ export default function SettingsPage() {
   const handleConnectDiscord = async () => {
     setIsDiscordConnecting(true);
     try {
-      const response = await apiClient.get('/discord/login');
+      const response = await apiClient.get(`/discord/login?t=${Date.now()}`);
       const { authorization_url } = response.data;
       
       const token = Cookies.get('access_token');

@@ -1,0 +1,26 @@
+# Task List - Telegram Threading, Name Resolution, and UI Fixes
+
+- [x] Ingest Telegram event.chat_id to database thread_id in poller, manual sync, and real-time event pipeline
+- [x] Implement proper chat name resolution (group title/user name) and sender display name resolution using Telethon APIs
+- [x] Update frontend inbox list view to filter and group messages by thread_id, displaying the latest message per thread
+- [x] Design chronological chat thread bubble display in the inbox message detail panel
+- [x] Make conversation thread bubbles clickable to dynamically pivot AI summary and smart reply context
+- [x] Render actual chat/group name as the main thread title in the detail panel header, displaying sender labels clearly
+- [x] Bind summary and metadata tags properly to the selected message context in the thread view
+- [x] Enhance offline robust local LLM fallback to generate dynamic summaries and categories from prompt body text
+- [x] Fix static 'Twitter Mention' channel label inside inbox detail panel to render dynamic platform source (Telegram, Discord, etc.)
+- [x] Identify root cause of LLM fallback for Telegram messages (deprecated nvidia/nemotron-3-ultra:free model)
+- [x] Update default model to openrouter/free in config.py and .env.example templates
+- [x] Implement bulletproof direct entity lookup fallback in telegram_manager.py for large groups/channels
+- [x] Create and execute backfill script to update all database placeholder summaries with dynamic summaries
+- [x] Build Discord OAuth2 endpoints (/login & /callback) to redirect users and exchange tokens securely
+- [x] Remove manual text input fields from Discord Card in Settings and replace with a Connect with Discord button
+- [x] Prioritize real-time system environment variables for Discord client credentials dynamically in all OAuth endpoints
+- [x] Enable dual prefix mounts for Discord routes (both /api/v1/discord and /api/discord) to ensure dynamic URL mapping compatibility
+- [x] Remove tracked dummy client ID credentials from .env to prevent cached overrides in Render production containers
+- [x] Update Discord OAuth scopes to identify and guilds only, enabling instant profile linking without server install prompt
+- [x] Mount discord router under root prefix `""` to support direct `/discord/callback` endpoints dynamically
+- [x] Bind direct FastAPI `app.get` route decorators to the callback function to completely eliminate prefix translation 404s
+- [x] Dynamically resolve frontend API base URL client config on Render to correctly bridge static domains to backend instances
+- [x] Build and compile Next.js production code successfully
+- [x] Push all changes to GitHub to trigger Render redeployment

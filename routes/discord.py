@@ -5,7 +5,7 @@ import urllib.parse
 from typing import Optional
 from datetime import datetime
 
-from fastapi import APIRouter, Depends, HTTPException, status, Request, Query
+from fastapi import APIRouter, Depends, HTTPException, status, Request, Query, Response
 from fastapi.responses import HTMLResponse
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
@@ -90,10 +90,15 @@ async def connect_discord(
 
 @router.get("/login")
 async def discord_login(
+    response: Response,
     current_user: User = Depends(get_current_user),
 ):
     """Generate Discord OAuth2 authorization URL with state containing user ID."""
     import os
+    response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate, private"
+    response.headers["Pragma"] = "no-cache"
+    response.headers["Expires"] = "0"
+
     client_id = os.environ.get("DISCORD_CLIENT_ID") or settings.DISCORD_CLIENT_ID
     redirect_uri = os.environ.get("DISCORD_REDIRECT_URI") or settings.DISCORD_REDIRECT_URI
     
