@@ -111,8 +111,7 @@ async def discord_login(
             detail="Discord OAuth2 is not configured on the backend. Please check your environment settings.",
         )
 
-
-    scopes = "identify email guilds dm_channels.read"
+    scopes = "identify email guilds"
     params = {
         "client_id": client_id,
         "redirect_uri": redirect_uri,
@@ -121,12 +120,14 @@ async def discord_login(
         "state": str(current_user.id),
     }
     auth_url = "https://discord.com/api/oauth2/authorize?" + urllib.parse.urlencode(params)
+    logger.info("Generated Discord OAuth URL: %s", auth_url)
     return {"authorization_url": auth_url}
+
 
 @router.get("/callback")
 async def discord_callback(
     request: Request,
-    code: str = Query(...),
+    code: Optional[str] = Query(default=None),
     guild_id: Optional[str] = Query(default=None),
     state: str = Query(default=""),
     db: Session = Depends(get_db),
@@ -136,6 +137,27 @@ async def discord_callback(
     import os
     import json
     
+    # Handle callback errors from Discord
+    if "error" in request.query_params:
+        error = request.query_params.get("error")
+        logger.warning("Discord OAuth redirect returned error: %s", error)
+        
+        frontend_url = os.environ.get("FRONTEND_URL")
+        if not frontend_url:
+            host = request.headers.get("host", "")
+            if "onrender.com" in host:
+                frontend_host = host.replace("sidekickai.onrender.com", "sidekickai-1.onrender.com")
+                frontend_url = f"https://{frontend_host}"
+            else:
+                frontend_url = "http://localhost:3000"
+        return RedirectResponse(f"{frontend_url.rstrip('/')}/settings?discord_error={error}")
+        
+    if not code:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Authorization code was not provided by Discord.",
+        )
+        
     user_id = None
     if state:
         try:
