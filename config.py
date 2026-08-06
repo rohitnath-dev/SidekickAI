@@ -33,7 +33,10 @@ class Settings(BaseSettings):
     # ------------------------------------------------------------------ #
     SECRET_KEY: str
     JWT_ALGORITHM: str = "HS256"
-    ACCESS_TOKEN_EXPIRE_MINUTES: int = 60
+    ACCESS_TOKEN_EXPIRE_MINUTES: int = 15
+    REFRESH_TOKEN_EXPIRE_DAYS: int = 30
+    COOKIE_SECURE: bool = True
+    COOKIE_SAMESITE: str = "lax"
 
     # ------------------------------------------------------------------ #
     # Database                                                              #
@@ -41,6 +44,7 @@ class Settings(BaseSettings):
     DATABASE_URL: str = "sqlite:///./sidekick.db"
 
     # ------------------------------------------------------------------ #
+
     # OpenRouter LLM                                                        #
     # ------------------------------------------------------------------ #
     OPENROUTER_API_KEY: str

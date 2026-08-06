@@ -356,12 +356,7 @@ export default function SettingsPage() {
       const response = await apiClient.get('/gmail/authorize');
       const { authorization_url } = response.data;
       
-      // Store current token in cookies for redirect callback authentication
-      const token = Cookies.get('access_token');
-      if (token) {
-        // Set cookie explicitly on domain
-        Cookies.set('access_token', token, { expires: 1, sameSite: 'lax' });
-      }
+
 
       // Open Google Consent Screen in popup
       const width = 500;
@@ -407,10 +402,7 @@ export default function SettingsPage() {
       const response = await apiClient.get('/whatsapp/authorize');
       const { authorization_url } = response.data;
       
-      const token = Cookies.get('access_token');
-      if (token) {
-        Cookies.set('access_token', token, { expires: 1, sameSite: 'lax' });
-      }
+
 
       const width = 500;
       const height = 650;
@@ -454,10 +446,6 @@ export default function SettingsPage() {
       const response = await apiClient.get('/linkedin/login');
       const { authorization_url } = response.data;
       
-      const token = Cookies.get('access_token');
-      if (token) {
-        Cookies.set('access_token', token, { expires: 1, sameSite: 'lax' });
-      }
 
       const width = 500;
       const height = 650;
@@ -501,10 +489,6 @@ export default function SettingsPage() {
       const response = await apiClient.get(`/discord/login?t=${Date.now()}`);
       const { authorization_url } = response.data;
       
-      const token = Cookies.get('access_token');
-      if (token) {
-        Cookies.set('access_token', token, { expires: 1, sameSite: 'lax' });
-      }
 
       const width = 500;
       const height = 650;
@@ -549,6 +533,7 @@ export default function SettingsPage() {
     setIsDeleting(true);
     try {
       await apiClient.delete('/auth/me');
+      await apiClient.post('/auth/logout').catch(() => {});
       Cookies.remove('access_token');
       router.push('/login');
     } catch (err: any) {

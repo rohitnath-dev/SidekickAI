@@ -17,7 +17,9 @@ import {
   User,
   Activity
 } from 'lucide-react';
+
 import Logo from './logo';
+import { apiClient } from '@/lib/api-client';
 
 interface SidebarProps {
   children: React.ReactNode;
@@ -33,19 +35,21 @@ export default function SidebarLayout({ children }: SidebarProps) {
   useEffect(() => {
     setIsMounted(true);
     
-    // Handle potential CJS/ESM import differences safely
-    const c = (Cookies as any).default || Cookies;
-    const token = typeof c.get === 'function' ? c.get('access_token') : undefined;
-
-    if (!token) {
-      setIsAuthenticated(false);
-      router.push('/login');
-    } else {
-      setIsAuthenticated(true);
-    }
+    const checkAuth = async () => {
+      try {
+        console.log("[App Layout] Checking user session status...");
+        await apiClient.get('/auth/me');
+        setIsAuthenticated(true);
+      } catch (err) {
+        console.log("[App Layout] User not authenticated.");
+        setIsAuthenticated(false);
+        router.push('/login');
+      }
+    };
+    
+    checkAuth();
   }, [router]);
 
-  // SSR / Hydration Fallback: Render static loading screen matching the server DOM exactly
   if (!isMounted) {
     return (
       <div className="flex h-screen w-screen flex-col items-center justify-center bg-zinc-950 relative overflow-hidden">
@@ -76,7 +80,13 @@ export default function SidebarLayout({ children }: SidebarProps) {
     { name: 'Settings & Integrations', href: '/settings', icon: Settings },
   ];
 
-  const handleLogout = () => {
+  const handleLogout = async () => {
+    try {
+      console.log("[App Layout] Invalidating session on backend...");
+      await apiClient.post('/auth/logout');
+    } catch (err) {
+      console.error("Logout request failed:", err);
+    }
     const c = (Cookies as any).default || Cookies;
     if (typeof c.remove === 'function') {
       c.remove('access_token');

@@ -40,18 +40,11 @@ export default function LoginPage() {
       const params = new URLSearchParams();
       params.append('username', data.email);
       params.append('password', data.password);
-
-      const response = await apiClient.post('/auth/login', params, {
+      await apiClient.post('/auth/login', params, {
         headers: {
           'Content-Type': 'application/x-www-form-urlencoded',
         },
       });
-
-      const { access_token } = response.data;
-      
-      // Store token in cookies for OAuth redirect support
-      Cookies.set('access_token', access_token, { expires: 7, sameSite: 'lax' });
-      
       router.push('/');
     } catch (err: any) {
       console.error(err);

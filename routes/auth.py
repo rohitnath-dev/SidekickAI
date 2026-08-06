@@ -5,17 +5,19 @@ from __future__ import annotations
 import logging
 from datetime import datetime
 from typing import Optional
-
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status, Response, Request
 from fastapi.security import OAuth2PasswordRequestForm
 from pydantic import BaseModel, EmailStr
 from sqlalchemy.orm import Session
 
+from config import settings
 from database import get_db
 from dependencies import get_current_user
 from models.user import User
+from models.session import UserSession
 from repositories.user_repo import UserRepository
-from services.auth import create_access_token, hash_password, verify_password
+from services.auth import create_access_token, create_refresh_token, hash_password, verify_password, decode_access_token
+
 
 logger = logging.getLogger(__name__)
 
@@ -60,9 +62,12 @@ class UpdateProfileRequest(BaseModel):
 # Endpoints
 # ---------------------------------------------------------------------------
 
+
 @router.post("/register", response_model=TokenResponse, status_code=status.HTTP_201_CREATED)
-async def register(request: RegisterRequest, db: Session = Depends(get_db)):
-    """Create a new user account and return an access token."""
+async def register(response: Response, request: RegisterRequest, db: Session = Depends(get_db)):
+    """Create a new user account, return an access token, and set httpOnly secure cookies."""
+    from datetime import datetime, timedelta
+    
     if len(request.password) < 8:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
@@ -80,17 +85,47 @@ async def register(request: RegisterRequest, db: Session = Depends(get_db)):
         hashed_password=hash_password(request.password),
         full_name=request.full_name,
     )
-    token = create_access_token(subject=user.id)
-    logger.info("New user registered: %s (id=%d)", user.email, user.id)
-    return TokenResponse(access_token=token, user_id=user.id, email=user.email)
+    
+    access_token = create_access_token(subject=user.id)
+    refresh_token = create_refresh_token(subject=user.id)
+    
+    expires_at = datetime.utcnow() + timedelta(days=settings.REFRESH_TOKEN_EXPIRE_DAYS)
+    session_record = UserSession(user_id=user.id, refresh_token=refresh_token, expires_at=expires_at)
+    db.add(session_record)
+    db.commit()
+    
+    response.set_cookie(
+        key="access_token",
+        value=access_token,
+        httponly=True,
+        max_age=15 * 60,
+        expires=15 * 60,
+        secure=settings.COOKIE_SECURE,
+        samesite=settings.COOKIE_SAMESITE,
+    )
+    response.set_cookie(
+        key="refresh_token",
+        value=refresh_token,
+        httponly=True,
+        max_age=settings.REFRESH_TOKEN_EXPIRE_DAYS * 24 * 3600,
+        expires=settings.REFRESH_TOKEN_EXPIRE_DAYS * 24 * 3600,
+        secure=settings.COOKIE_SECURE,
+        samesite=settings.COOKIE_SAMESITE,
+    )
+    
+    logger.info("New user registered and session created: %s (id=%d)", user.email, user.id)
+    return TokenResponse(access_token=access_token, user_id=user.id, email=user.email)
 
 
 @router.post("/login", response_model=TokenResponse)
 async def login(
+    response: Response,
     form_data: OAuth2PasswordRequestForm = Depends(),
     db: Session = Depends(get_db),
 ):
-    """Authenticate with email + password and return an access token."""
+    """Authenticate with email + password, return an access token, and set httpOnly secure cookies."""
+    from datetime import datetime, timedelta
+    
     user = UserRepository.get_by_email(db, form_data.username)
     if user is None or not verify_password(form_data.password, user.hashed_password):
         raise HTTPException(
@@ -103,14 +138,41 @@ async def login(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Account is deactivated.",
         )
-    token = create_access_token(subject=user.id)
-    logger.info("User logged in: %s (id=%d)", user.email, user.id)
-    return TokenResponse(access_token=token, user_id=user.id, email=user.email)
+        
+    access_token = create_access_token(subject=user.id)
+    refresh_token = create_refresh_token(subject=user.id)
+    
+    expires_at = datetime.utcnow() + timedelta(days=settings.REFRESH_TOKEN_EXPIRE_DAYS)
+    session_record = UserSession(user_id=user.id, refresh_token=refresh_token, expires_at=expires_at)
+    db.add(session_record)
+    db.commit()
+    
+    response.set_cookie(
+        key="access_token",
+        value=access_token,
+        httponly=True,
+        max_age=15 * 60,
+        expires=15 * 60,
+        secure=settings.COOKIE_SECURE,
+        samesite=settings.COOKIE_SAMESITE,
+    )
+    response.set_cookie(
+        key="refresh_token",
+        value=refresh_token,
+        httponly=True,
+        max_age=settings.REFRESH_TOKEN_EXPIRE_DAYS * 24 * 3600,
+        expires=settings.REFRESH_TOKEN_EXPIRE_DAYS * 24 * 3600,
+        secure=settings.COOKIE_SECURE,
+        samesite=settings.COOKIE_SAMESITE,
+    )
+    
+    logger.info("User logged in and session created: %s (id=%d)", user.email, user.id)
+    return TokenResponse(access_token=access_token, user_id=user.id, email=user.email)
 
 
 @router.get("/me", response_model=UserResponse)
 async def get_me(current_user: User = Depends(get_current_user)):
-    """Return the authenticated user's profile."""
+    """Return the profile of the current logged-in user."""
     return UserResponse(
         id=current_user.id,
         email=current_user.email,
@@ -121,23 +183,22 @@ async def get_me(current_user: User = Depends(get_current_user)):
     )
 
 
-@router.put("/me", response_model=UserResponse)
+@router.patch("/me", response_model=UserResponse)
 async def update_me(
     request: UpdateProfileRequest,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    """Update full name or password."""
-    updates: dict = {}
-
+    """Update the current user's profile information."""
+    updates = {}
     if request.full_name is not None:
         updates["full_name"] = request.full_name
-
+        
     if request.new_password:
         if not request.current_password:
             raise HTTPException(
                 status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-                detail="Current password required to set a new password.",
+                detail="Current password is required to set a new password.",
             )
         if not verify_password(request.current_password, current_user.hashed_password):
             raise HTTPException(
@@ -172,3 +233,109 @@ async def delete_me(
     """Deactivate the current user's account."""
     UserRepository.update(db, current_user, is_active=False)
     logger.info("User deactivated: %s (id=%d)", current_user.email, current_user.id)
+
+
+@router.post("/refresh")
+async def refresh_session(
+    request: Request,
+    response: Response,
+    db: Session = Depends(get_db),
+):
+    """Explicitly refresh the access token using the refresh token from httpOnly cookie."""
+    from datetime import datetime, timedelta
+    
+    refresh_token = request.cookies.get("refresh_token")
+    if not refresh_token:
+        logger.warning("Refresh session failed: missing refresh_token cookie.")
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Session expired or invalid. Please login again.",
+        )
+        
+    refresh_sub = decode_access_token(refresh_token)
+    if not refresh_sub:
+        logger.warning("Refresh session failed: refresh_token cookie decode failed.")
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Session expired or invalid. Please login again.",
+        )
+        
+    session_record = db.query(UserSession).filter(
+        UserSession.refresh_token == refresh_token,
+        UserSession.expires_at > datetime.utcnow()
+    ).first()
+    
+    if not session_record:
+        logger.warning("Refresh session failed: active session not found in database or has expired.")
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Session expired or invalid. Please login again.",
+        )
+        
+    try:
+        user_id = int(refresh_sub)
+        user = db.query(User).filter(User.id == user_id).first()
+    except (ValueError, TypeError):
+        user = None
+        
+    if not user or not user.is_active:
+        logger.warning("Refresh session failed: user is deactivated or not found.")
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Session expired or invalid. Please login again.",
+        )
+        
+    new_access = create_access_token(user.id)
+    new_refresh = create_refresh_token(user.id)
+    
+    # Rotate refresh token in DB
+    session_record.refresh_token = new_refresh
+    session_record.expires_at = datetime.utcnow() + timedelta(days=settings.REFRESH_TOKEN_EXPIRE_DAYS)
+    db.commit()
+    
+    # Write cookies on outgoing Response
+    response.set_cookie(
+        key="access_token",
+        value=new_access,
+        httponly=True,
+        max_age=15 * 60,
+        expires=15 * 60,
+        secure=settings.COOKIE_SECURE,
+        samesite=settings.COOKIE_SAMESITE,
+    )
+    response.set_cookie(
+        key="refresh_token",
+        value=new_refresh,
+        httponly=True,
+        max_age=settings.REFRESH_TOKEN_EXPIRE_DAYS * 24 * 3600,
+        expires=settings.REFRESH_TOKEN_EXPIRE_DAYS * 24 * 3600,
+        secure=settings.COOKIE_SECURE,
+        samesite=settings.COOKIE_SAMESITE,
+    )
+    
+    logger.info("Successfully refreshed session for user_id=%d", user.id)
+    return {"status": "success", "user_id": user.id, "email": user.email}
+
+
+@router.post("/logout")
+async def logout(
+    request: Request,
+    response: Response,
+    db: Session = Depends(get_db),
+):
+    """Invalidate current refresh session in DB and clear browser auth cookies."""
+    refresh_token = request.cookies.get("refresh_token")
+    if refresh_token:
+        # Delete session from DB
+        db.query(UserSession).filter(UserSession.refresh_token == refresh_token).delete(synchronize_session=False)
+        db.commit()
+        logger.info("Successfully invalidated session in database on explicit logout.")
+    else:
+        logger.info("Logout called without a refresh token cookie.")
+        
+    # Clear cookies
+    response.delete_cookie("access_token", secure=settings.COOKIE_SECURE, samesite=settings.COOKIE_SAMESITE)
+    response.delete_cookie("refresh_token", secure=settings.COOKIE_SECURE, samesite=settings.COOKIE_SAMESITE)
+    
+    logger.info("Successfully cleared client cookies on logout.")
+    return {"status": "success"}

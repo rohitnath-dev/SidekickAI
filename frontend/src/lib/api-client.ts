@@ -14,6 +14,7 @@ if (typeof window !== 'undefined') {
 
 export const apiClient = axios.create({
   baseURL: API_BASE_URL,
+  withCredentials: true,
   headers: {
     'Content-Type': 'application/json',
   },
@@ -32,10 +33,26 @@ apiClient.interceptors.request.use(
   }
 );
 
+let isRefreshing = false;
+let failedQueue: any[] = [];
+
+const processQueue = (error: any, token: string | null = null) => {
+  failedQueue.forEach((prom) => {
+    if (error) {
+      prom.reject(error);
+    } else {
+      prom.resolve(token);
+    }
+  });
+  failedQueue = [];
+};
+
 // Response Interceptor: Handle auth errors and format structured exceptions
 apiClient.interceptors.response.use(
   (response) => response,
-  (error) => {
+  async (error) => {
+    const originalRequest = error.config;
+    
     if (error.response && error.response.data && error.response.data.detail) {
       const detail = error.response.data.detail;
       if (typeof detail === 'object' && detail !== null) {
@@ -43,13 +60,51 @@ apiClient.interceptors.response.use(
         error.response.data.detail = detail.message || JSON.stringify(detail);
       }
     }
-    if (error.response && error.response.status === 401) {
-      // If unauthorized, clear tokens and redirect to login
-      Cookies.remove('access_token');
-      if (typeof window !== 'undefined' && !window.location.pathname.startsWith('/login') && !window.location.pathname.startsWith('/register')) {
-        window.location.href = '/login';
+    
+    // Check if 401 and request wasn't already retried
+    if (error.response && error.response.status === 401 && !originalRequest._retry) {
+      // Avoid redirecting if we are already on login or register pages
+      if (typeof window !== 'undefined' && (window.location.pathname.startsWith('/login') || window.location.pathname.startsWith('/register'))) {
+        return Promise.reject(error);
+      }
+      
+      if (isRefreshing) {
+        return new Promise((resolve, reject) => {
+          failedQueue.push({ resolve, reject });
+        })
+          .then(() => {
+            return apiClient(originalRequest);
+          })
+          .catch((err) => {
+            return Promise.reject(err);
+          });
+      }
+      
+      originalRequest._retry = true;
+      isRefreshing = true;
+      
+      try {
+        console.log("[Auth Interceptor] 401 encountered. Attempting silent token refresh...");
+        await apiClient.post('/auth/refresh');
+        isRefreshing = false;
+        processQueue(null);
+        return apiClient(originalRequest);
+      } catch (refreshError) {
+        console.error("[Auth Interceptor] Silent refresh failed. Redirecting to login.", refreshError);
+        isRefreshing = false;
+        processQueue(refreshError);
+        
+        // Remove access_token cookie as backup
+        Cookies.remove('access_token');
+        
+        if (typeof window !== 'undefined') {
+          window.location.href = '/login';
+        }
+        return Promise.reject(refreshError);
       }
     }
+    
     return Promise.reject(error);
   }
 );
+

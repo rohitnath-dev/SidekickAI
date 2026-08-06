@@ -43,13 +43,8 @@ export default function RegisterPage() {
         password: data.password,
         full_name: data.fullName,
       });
-
-      const { access_token } = response.data;
-      
-      // Store token in cookies for OAuth redirect support
-      Cookies.set('access_token', access_token, { expires: 7, sameSite: 'lax' });
-      
       router.push('/');
+
     } catch (err: any) {
       console.error(err);
       if (err.response && err.response.data && err.response.data.detail) {
