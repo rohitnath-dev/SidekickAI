@@ -51,30 +51,39 @@ logger = logging.getLogger(__name__)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    import traceback
     logger.info("Starting Sidekick AI v%s …", settings.VERSION)
-    # Create all database tables (legacy/fallback)
-    Base.metadata.create_all(bind=engine)
-    logger.info("Database tables ready.")
-
-    # Run Alembic migrations automatically on startup
     try:
-        from alembic.config import Config
-        from alembic import command
-        alembic_cfg = Config("alembic.ini")
-        command.upgrade(alembic_cfg, "head")
-        logger.info("Alembic database migrations applied successfully on startup.")
-    except Exception as exc:
-        logger.error("Failed to run Alembic migrations automatically on startup: %s", exc)
-    # Start background poller task
-    import asyncio
-    from services.poller import start_polling
-    polling_task = asyncio.create_task(start_polling())
+        # Create all database tables (legacy/fallback)
+        Base.metadata.create_all(bind=engine)
+        logger.info("Database tables ready.")
 
-    # Start persistent Telegram client tasks
-    from services.telegram_manager import telegram_manager
-    asyncio.create_task(telegram_manager.start_all_clients())
+        # Run Alembic migrations automatically on startup
+        try:
+            from alembic.config import Config
+            from alembic import command
+            alembic_cfg = Config("alembic.ini")
+            command.upgrade(alembic_cfg, "head")
+            logger.info("Alembic database migrations applied successfully on startup.")
+        except Exception as exc:
+            logger.error("Failed to run Alembic migrations automatically on startup: %s", exc)
 
-    logger.info("Sidekick AI backend is ready.")
+        # Start background poller task
+        import asyncio
+        from services.poller import start_polling
+        polling_task = asyncio.create_task(start_polling())
+
+        # Start persistent Telegram client tasks
+        from services.telegram_manager import telegram_manager
+        asyncio.create_task(telegram_manager.start_all_clients())
+
+        logger.info("Sidekick AI backend is ready.")
+    except Exception as e:
+        print("FATAL STARTUP ERROR:")
+        traceback.print_exc()
+        logger.fatal("FATAL STARTUP ERROR: %s", e, exc_info=True)
+        raise
+
     yield
 
     # Shutdown background poller
