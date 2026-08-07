@@ -18,7 +18,6 @@ from services.ai_pipeline import process_message_ai
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/ai", tags=["AI"])
-
 class TestPromptRequest(BaseModel):
     prompt: Optional[str] = "Hello, are you working?"
 
@@ -26,14 +25,22 @@ class AnalyzeMessageRequest(BaseModel):
     message_id: Optional[int] = None
 
 @router.get("/health")
+
 async def ai_health(current_user: User = Depends(get_current_user)):
-    """Check health of the LLM provider connection."""
-    if not llm.api_key:
+    """Check health of the active LLM provider connection."""
+    from config import settings
+    
+    has_or_key = bool(llm.api_key and llm.api_key.strip() != "")
+    has_gemini_key = bool(settings.GEMINI_API_KEY and settings.GEMINI_API_KEY.strip() != "")
+    
+    if not has_or_key and not has_gemini_key:
         return {
             "status": "error",
-            "provider": "OpenRouter",
-            "reason": "API key is not configured in environment variables (OPENROUTER_API_KEY)."
+            "provider": "None",
+            "reason": "No LLM API keys are configured (neither OPENROUTER_API_KEY nor GEMINI_API_KEY)."
         }
+        
+    active_provider = "Gemini" if (has_gemini_key and not has_or_key) else "OpenRouter"
     
     try:
         # Perform actual ping call
@@ -41,20 +48,20 @@ async def ai_health(current_user: User = Depends(get_current_user)):
         if alive:
             return {
                 "status": "ok",
-                "provider": "OpenRouter",
-                "model": llm.model
+                "provider": active_provider,
+                "model": "gemini-1.5-flash" if active_provider == "Gemini" else llm.model
             }
         else:
             return {
                 "status": "error",
-                "provider": "OpenRouter",
+                "provider": active_provider,
                 "reason": "Health check request did not return a successful result."
             }
     except Exception as exc:
         logger.error("LLM health check exception: %s", exc, exc_info=True)
         return {
             "status": "error",
-            "provider": "OpenRouter",
+            "provider": active_provider,
             "reason": f"Connection check failed: {exc}"
         }
 
@@ -64,10 +71,15 @@ async def ai_test(
     current_user: User = Depends(get_current_user)
 ):
     """Send a test prompt to verify LLM responsiveness."""
-    if not llm.api_key:
+    from config import settings
+    
+    has_or_key = bool(llm.api_key and llm.api_key.strip() != "")
+    has_gemini_key = bool(settings.GEMINI_API_KEY and settings.GEMINI_API_KEY.strip() != "")
+    
+    if not has_or_key and not has_gemini_key:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="LLM API key is missing. Please configure OPENROUTER_API_KEY in settings/environment."
+            detail="No LLM API key configured. Please set OPENROUTER_API_KEY or GEMINI_API_KEY."
         )
     
     prompt = request.prompt or "Hello, are you working?"

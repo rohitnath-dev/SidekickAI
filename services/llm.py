@@ -164,8 +164,88 @@ class LLMClient:
             raise LLMResponseError(f"Unexpected response shape: {exc}") from exc
 
     # ------------------------------------------------------------------
+
     # Public API
     # ------------------------------------------------------------------
+
+    async def _chat_gemini(
+        self,
+        messages: list[dict[str, str]],
+        temperature: Optional[float] = None,
+        max_tokens: Optional[int] = None,
+    ) -> str:
+        if not settings.GEMINI_API_KEY:
+            raise LLMException("Gemini API key is not configured.")
+
+        contents = []
+        system_instruction = None
+        
+        for msg in messages:
+            role = msg["role"]
+            content_text = msg["content"]
+            
+            if role == "system":
+                system_instruction = {
+                    "parts": [{"text": content_text}]
+                }
+            elif role == "user":
+                contents.append({
+                    "role": "user",
+                    "parts": [{"text": content_text}]
+                })
+            elif role in ("assistant", "model"):
+                contents.append({
+                    "role": "model",
+                    "parts": [{"text": content_text}]
+                })
+                
+        payload = {
+            "contents": contents,
+            "generationConfig": {
+                "temperature": temperature if temperature is not None else settings.OPENROUTER_TEMPERATURE,
+            }
+        }
+        if max_tokens is not None:
+            payload["generationConfig"]["maxOutputTokens"] = max_tokens
+            
+        if system_instruction:
+            payload["systemInstruction"] = system_instruction
+
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={settings.GEMINI_API_KEY}"
+        
+        try:
+            response = await self._client.post(
+                url,
+                json=payload,
+                headers={"Content-Type": "application/json"}
+            )
+            response.raise_for_status()
+            data = response.json()
+            
+            candidates = data.get("candidates", [])
+            if not candidates:
+                raise LLMResponseError("Gemini returned empty candidates.")
+            
+            content_text = candidates[0].get("content", {}).get("parts", [{}])[0].get("text", "")
+            if not content_text:
+                raise LLMResponseError("Gemini candidate did not contain text parts.")
+                
+            return content_text
+        except httpx.TimeoutException as exc:
+            raise LLMConnectionError(f"Gemini request timed out: {exc}") from exc
+        except httpx.HTTPStatusError as exc:
+            status_code = exc.response.status_code
+            try:
+                body = exc.response.json()
+            except ValueError:
+                body = exc.response.text
+            if status_code == 401:
+                raise LLMAuthenticationError(f"Gemini Auth failed: {body}") from exc
+            if status_code == 429:
+                raise LLMRateLimitError(f"Gemini Rate limit: {body}") from exc
+            raise LLMException(f"Gemini error {status_code}: {body}") from exc
+        except Exception as exc:
+            raise LLMException(f"Gemini call failed: {exc}") from exc
 
     async def generate(
         self,
@@ -174,6 +254,8 @@ class LLMClient:
         temperature: Optional[float] = None,
         max_tokens: Optional[int] = None,
         model: Optional[str] = None,
+        user_id: Optional[int] = None,
+        caller: Optional[str] = None,
     ) -> str:
         """Generate a completion for a single prompt."""
         messages: list[dict[str, str]] = []
@@ -185,6 +267,8 @@ class LLMClient:
             temperature=temperature,
             max_tokens=max_tokens,
             model=model,
+            user_id=user_id,
+            caller=caller or "generate",
         )
 
     async def chat(
@@ -193,18 +277,54 @@ class LLMClient:
         temperature: Optional[float] = None,
         max_tokens: Optional[int] = None,
         model: Optional[str] = None,
+        user_id: Optional[int] = None,
+        caller: Optional[str] = None,
     ) -> str:
         """Send a conversation and return the assistant reply."""
+        from datetime import datetime
+        timestamp = datetime.utcnow().isoformat()
+        prompt_len = sum(len(m["content"]) for m in messages)
+        active_model = model or self.model
+        
+        user_id_str = str(user_id) if user_id is not None else "unknown"
+        caller_str = caller or "chat"
+
         if not messages:
             raise LLMException("Cannot send empty messages list.")
         
         user_msg = next((m["content"] for m in messages if m["role"] == "user"), "")
         system_msg = next((m["content"] for m in messages if m["role"] == "system"), "")
 
-        if not self.api_key or self.api_key.strip() == "":
-            logger.warning("LLMClient: no API key configured. Using local mock fallback response.")
-            return self._get_mock_fallback_response(user_msg, system_msg)
+        has_or_key = bool(self.api_key and self.api_key.strip() != "")
+        has_gemini_key = bool(settings.GEMINI_API_KEY and settings.GEMINI_API_KEY.strip() != "")
 
+        if not has_or_key and not has_gemini_key:
+            logger.warning("LLMClient: no API key configured (neither OpenRouter nor Gemini). Using local mock fallback response.")
+            mock_res = self._get_mock_fallback_response(user_msg, system_msg)
+            logger.info(
+                "[LLM_API_CALL] Timestamp=%s | UserID=%s | Caller=%s | Model=%s | PromptLength=%d | Status=SUCCESS (MOCK FALLBACK)",
+                timestamp, user_id_str, caller_str, active_model, prompt_len
+            )
+            return mock_res
+
+        # If Gemini key is set and OpenRouter is not, go to Gemini directly
+        if has_gemini_key and not has_or_key:
+            try:
+                active_model = "gemini-1.5-flash"
+                content = await self._chat_gemini(messages, temperature, max_tokens)
+                logger.info(
+                    "[LLM_API_CALL] Timestamp=%s | UserID=%s | Caller=%s | Model=%s | PromptLength=%d | Status=SUCCESS (GEMINI) | Length=%d",
+                    timestamp, user_id_str, caller_str, active_model, prompt_len, len(content)
+                )
+                return content
+            except Exception as exc:
+                logger.error(
+                    "[LLM_API_CALL] Timestamp=%s | UserID=%s | Caller=%s | Model=%s | PromptLength=%d | Status=ERROR (GEMINI) | Detail=%s",
+                    timestamp, user_id_str, caller_str, active_model, prompt_len, exc, exc_info=True
+                )
+                raise
+
+        # Try OpenRouter
         try:
             payload = self._payload(
                 messages=messages,
@@ -216,10 +336,37 @@ class LLMClient:
                 "LLM request — model=%s messages=%d", payload["model"], len(messages)
             )
             response = await self._request("POST", self.CHAT_PATH, payload)
-            return self._extract_content(response)
+            content = self._extract_content(response)
+            
+            logger.info(
+                "[LLM_API_CALL] Timestamp=%s | UserID=%s | Caller=%s | Model=%s | PromptLength=%d | Status=SUCCESS (OPENROUTER) | Length=%d",
+                timestamp, user_id_str, caller_str, active_model, prompt_len, len(content)
+            )
+            return content
         except Exception as exc:
-            logger.error("LLM call failed: %s", exc, exc_info=True)
-            raise
+            # OpenRouter failed. Check if we can fall back to Gemini
+            if has_gemini_key:
+                logger.warning("OpenRouter failed (details: %s). Attempting fallback to Gemini...", exc)
+                try:
+                    active_model = "gemini-1.5-flash (FALLBACK)"
+                    content = await self._chat_gemini(messages, temperature, max_tokens)
+                    logger.info(
+                        "[LLM_API_CALL] Timestamp=%s | UserID=%s | Caller=%s | Model=%s | PromptLength=%d | Status=SUCCESS (GEMINI FALLBACK) | Length=%d",
+                        timestamp, user_id_str, caller_str, active_model, prompt_len, len(content)
+                    )
+                    return content
+                except Exception as gem_exc:
+                    logger.error(
+                        "[LLM_API_CALL] Timestamp=%s | UserID=%s | Caller=%s | Model=%s | PromptLength=%d | Status=ERROR (BOTH PROVIDERS FAILED) | OpenRouterError=%s | GeminiError=%s",
+                        timestamp, user_id_str, caller_str, active_model, prompt_len, exc, gem_exc, exc_info=True
+                    )
+                    raise gem_exc
+            else:
+                logger.error(
+                    "[LLM_API_CALL] Timestamp=%s | UserID=%s | Caller=%s | Model=%s | PromptLength=%d | Status=ERROR (OPENROUTER) | Detail=%s",
+                    timestamp, user_id_str, caller_str, active_model, prompt_len, exc, exc_info=True
+                )
+                raise
 
     def _get_mock_fallback_response(self, user_msg: str, system_msg: str) -> str:
         is_briefing = "briefing" in user_msg.lower() or "briefing" in system_msg.lower() or "executive summary" in user_msg.lower()

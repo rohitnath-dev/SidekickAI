@@ -120,7 +120,7 @@ class PlannerAgent(BaseAgent):
 
             # ---- 4. Call LLM --------------------------------------------
             self.logger.info("PlannerAgent: Requesting briefing from OpenRouter LLM...")
-            raw = await self._call_llm(prompt)
+            raw = await self._call_llm(prompt, user_id=user_id)
             self.logger.info("PlannerAgent: Received raw LLM response (first 250 chars): %s", raw[:250] if raw else "")
             result = self.parse_json_response(raw)
 

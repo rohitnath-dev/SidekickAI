@@ -39,7 +39,7 @@ class PriorityAgent(BaseAgent):
         """
         message_content = message.to_context_string()
         prompt = build_priority_prompt(message_content, context=None)
-        raw = await self._call_llm(prompt)
+        raw = await self._call_llm(prompt, user_id=message.user_id)
         result = self.parse_json_response(raw)
 
         if not isinstance(result, dict) or "score" not in result:

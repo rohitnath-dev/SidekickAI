@@ -5,10 +5,11 @@ All settings are loaded from environment variables / .env file.
 No secrets are hardcoded here.
 """
 
+from typing import Optional
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-
 class Settings(BaseSettings):
+
 
     # ------------------------------------------------------------------ #
     # Project                                                               #
@@ -46,8 +47,9 @@ class Settings(BaseSettings):
     # ------------------------------------------------------------------ #
 
     # OpenRouter LLM                                                        #
+
     # ------------------------------------------------------------------ #
-    OPENROUTER_API_KEY: str
+    OPENROUTER_API_KEY: Optional[str] = None
     OPENROUTER_BASE_URL: str = "https://openrouter.ai/api/v1"
     OPENROUTER_MODEL: str = "openrouter/free"
     OPENROUTER_TIMEOUT: float = 60.0
@@ -56,7 +58,9 @@ class Settings(BaseSettings):
     HTTP_REFERER: str = "https://sidekick.ai"
     APP_TITLE: str = "Sidekick AI"
 
-    # ------------------------------------------------------------------ #
+    # Gemini LLM
+    GEMINI_API_KEY: Optional[str] = None
+
     # Google OAuth                                                          #
     # ------------------------------------------------------------------ #
     GOOGLE_CLIENT_ID: str
