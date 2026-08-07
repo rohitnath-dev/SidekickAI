@@ -6,7 +6,7 @@ from database import SessionLocal
 from config import settings
 from models.user import User
 from models.message import Message, MessageSource, MessagePriority, MessageStatus
-from models.oauth import OAuthToken
+from models.token import OAuthToken
 from repositories.token_repo import TokenRepository
 from services.oauth import get_credentials
 
