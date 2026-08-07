@@ -54,19 +54,14 @@ class BaseAgent(ABC):
         temperature: Optional[float] = None,
         max_tokens: Optional[int] = None,
     ) -> str:
-        """Call the LLM and return the generated text."""
-        try:
-            return await self.llm.generate(
-                prompt=prompt,
-                system_prompt=system_prompt,
-                temperature=temperature,
-                max_tokens=max_tokens,
-            )
-        except Exception as exc:
-            self.logger.error("%s: LLM call failed: %s", self.agent_name, exc)
-            return ""
+        """Call the LLM and return the generated text without catching exceptions."""
+        return await self.llm.generate(
+            prompt=prompt,
+            system_prompt=system_prompt,
+            temperature=temperature,
+            max_tokens=max_tokens,
+        )
 
-    # ------------------------------------------------------------------
     # Async retry with exponential backoff
     # ------------------------------------------------------------------
 

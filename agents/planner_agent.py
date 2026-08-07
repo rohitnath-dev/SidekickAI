@@ -116,13 +116,15 @@ class PlannerAgent(BaseAgent):
                 outstanding_items=None,
                 high_priority_messages=high_priority_str,
             )
+            self.logger.info("PlannerAgent: Prompt prepared. Character count = %d", len(prompt))
 
             # ---- 4. Call LLM --------------------------------------------
+            self.logger.info("PlannerAgent: Requesting briefing from OpenRouter LLM...")
             raw = await self._call_llm(prompt)
+            self.logger.info("PlannerAgent: Received raw LLM response (first 250 chars): %s", raw[:250] if raw else "")
             result = self.parse_json_response(raw)
 
             if not isinstance(result, dict) or "executive_summary" not in result:
-                self.logger.warning("PlannerAgent.generate_daily_briefing: parse failure")
                 return self._fallback_briefing(today_date, len(messages))
 
             return result

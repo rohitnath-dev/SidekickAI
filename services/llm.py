@@ -201,6 +201,10 @@ class LLMClient:
         user_msg = next((m["content"] for m in messages if m["role"] == "user"), "")
         system_msg = next((m["content"] for m in messages if m["role"] == "system"), "")
 
+        if not self.api_key or self.api_key.strip() == "":
+            logger.warning("LLMClient: no API key configured. Using local mock fallback response.")
+            return self._get_mock_fallback_response(user_msg, system_msg)
+
         try:
             payload = self._payload(
                 messages=messages,
@@ -214,8 +218,8 @@ class LLMClient:
             response = await self._request("POST", self.CHAT_PATH, payload)
             return self._extract_content(response)
         except Exception as exc:
-            logger.warning("LLM call failed (using robust local fallback): %s", exc)
-            return self._get_mock_fallback_response(user_msg, system_msg)
+            logger.error("LLM call failed: %s", exc, exc_info=True)
+            raise
 
     def _get_mock_fallback_response(self, user_msg: str, system_msg: str) -> str:
         is_briefing = "briefing" in user_msg.lower() or "briefing" in system_msg.lower() or "executive summary" in user_msg.lower()

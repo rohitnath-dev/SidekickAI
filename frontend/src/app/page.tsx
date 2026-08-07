@@ -191,6 +191,16 @@ export default function DashboardPage() {
     },
   });
 
+  // Fetch AI LLM health status
+  const { data: aiHealth } = useQuery({
+    queryKey: ['ai-health'],
+    queryFn: async () => {
+      const response = await apiClient.get('/ai/health');
+      return response.data;
+    },
+    refetchInterval: 60000, // Check health every minute
+  });
+
   const connectedServices = preferences?.connected_services || [];
   const isGoogleConnected = connectedServices.find((s: any) => s.provider === 'google')?.connected;
   const isTwitterConnected = connectedServices.find((s: any) => s.provider === 'twitter')?.connected;
@@ -199,6 +209,19 @@ export default function DashboardPage() {
   return (
     <SidebarLayout>
       <div className="p-6 md:p-8 space-y-8 max-w-7xl mx-auto relative z-10">
+        {aiHealth?.status === 'error' && (
+          <div className="flex items-start gap-3 p-4 rounded-xl border border-rose-500/25 bg-rose-500/5 text-rose-250 shadow-sm relative overflow-hidden group">
+            <div className="absolute inset-0 bg-gradient-to-r from-rose-500/0 via-rose-500/2 to-rose-500/0 pointer-events-none"></div>
+            <AlertTriangle className="w-5 h-5 text-rose-450 shrink-0 mt-0.5" />
+            <div className="space-y-1 z-10">
+              <h4 className="font-semibold text-rose-400">AI analysis temporarily unavailable</h4>
+              <p className="text-zinc-400 text-xs">
+                {aiHealth.reason || "Please check your LLM API key in settings."}
+              </p>
+            </div>
+          </div>
+        )}
+
         {/* Welcome Section */}
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-zinc-900/60 pb-6">
           <div>

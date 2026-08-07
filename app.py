@@ -32,6 +32,8 @@ from routes.settings import router as settings_router
 from routes.linkedin import router as linkedin_router
 from routes.telegram import router as telegram_router
 from routes.discord import router as discord_router, discord_callback
+from routes.ai import router as ai_router
+
 # ---------------------------------------------------------------------------
 # Logging
 # ---------------------------------------------------------------------------
@@ -140,6 +142,8 @@ app.include_router(telegram_router, prefix=API_PREFIX)
 app.include_router(discord_router, prefix=API_PREFIX)
 app.include_router(discord_router, prefix="/api")
 app.include_router(discord_router, prefix="")
+app.include_router(ai_router,      prefix=API_PREFIX)
+
 # Direct callback route registrations for Discord to prevent any router prefix translation / 404 issues
 app.get("/api/discord/callback", tags=["Discord"])(discord_callback)
 app.get("/api/v1/discord/callback", tags=["Discord"])(discord_callback)

@@ -48,15 +48,16 @@ async def daily_briefing(
     from datetime import datetime
 
     today_date = datetime.utcnow().strftime("%Y-%m-%d")
-
     from routes.gmail import get_active_providers
     active_providers = get_active_providers(current_user.id, db)
     if not active_providers:
+        logger.warning("User %d requested briefing but has no active integrations.", current_user.id)
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="No connected integration accounts found. Connect an integration in Settings.",
         )
 
+    logger.info("Generating daily briefing for user %d with active integrations: %s", current_user.id, active_providers)
     creds = get_credentials(current_user.id, db)
 
     try:
@@ -80,13 +81,30 @@ async def daily_briefing(
         )
     except Exception as exc:
         logger.error("Daily briefing failed or validated incorrectly for user %d: %s", current_user.id, exc, exc_info=True)
+        err_msg = str(exc)
+        if "429" in err_msg or "rate limit" in err_msg.lower():
+            friendly_summary = (
+                "AI analysis temporarily unavailable. Please check your LLM API key in settings or "
+                "wait a short while, as the OpenRouter API rate limit has been exceeded (429)."
+            )
+        elif "401" in err_msg or "auth" in err_msg.lower():
+            friendly_summary = (
+                "AI analysis temporarily unavailable. Please check your LLM API key in settings, "
+                "as OpenRouter returned an authentication error (401)."
+            )
+        else:
+            friendly_summary = (
+                f"AI daily briefing generation failed. Please verify your LLM API connection in Settings. "
+                f"Details: {err_msg}"
+            )
+            
         return BriefingResponse(
             date=today_date,
-            executive_summary="AI briefing generation encountered an error. Showing offline fallback summary.",
+            executive_summary=friendly_summary,
             critical_items=[],
             pending_work=[],
             upcoming_deadlines=[],
             recommended_priorities=[],
             risks=[],
-            next_actions=["Review communications manually in the Inbox tab."],
+            next_actions=["Review incoming messages manually inside Inbox tab."],
         )
