@@ -51,16 +51,12 @@ class GmailAgent(BaseAgent):
         except HttpError as exc:
             self.logger.error("GmailAgent.get_profile failed: %s", exc)
             return {}
-
-    # ------------------------------------------------------------------
-    # Message listing
-    # ------------------------------------------------------------------
-
     def get_messages(
         self,
         creds: Credentials,
         limit: int = 100,
         unread_only: bool = False,
+        query_override: Optional[str] = None,
     ) -> list[dict]:
         """
         List Gmail messages across all categories.
@@ -70,10 +66,14 @@ class GmailAgent(BaseAgent):
         """
         try:
             service = self._build_service(creds)
-            if unread_only:
+            if query_override:
+                query = query_override
+            elif unread_only:
                 query = "is:unread OR newer_than:2d"
             else:
                 query = "newer_than:7d"
+            
+            self.logger.info("GmailAgent.get_messages query: '%s'", query)
             result = (
                 service.users()
                 .messages()
@@ -88,6 +88,7 @@ class GmailAgent(BaseAgent):
     def get_message(self, creds: Credentials, message_id: str) -> dict:
         """Fetch a full Gmail message by ID."""
         try:
+
             service = self._build_service(creds)
             return (
                 service.users()
@@ -210,16 +211,63 @@ class GmailAgent(BaseAgent):
         except Exception as exc:
             self.logger.warning("GmailAgent._decode_base64 failed: %s", exc)
             return ""
+    def _strip_html(self, html_content: str) -> str:
+        """Remove HTML tags and decode HTML entities from a string, preserving spacing."""
+        import html
+        from html.parser import HTMLParser
 
-    def _strip_html(self, html: str) -> str:
-        """Remove HTML tags from a string using a simple regex."""
-        # Remove script/style blocks
-        text = re.sub(r"<(script|style)[^>]*>.*?</\1>", "", html, flags=re.DOTALL | re.IGNORECASE)
-        # Remove all tags
-        text = re.sub(r"<[^>]+>", " ", text)
-        # Collapse whitespace
-        text = re.sub(r"\s+", " ", text)
-        return text.strip()
+        class HTMLToTextParser(HTMLParser):
+            def __init__(self):
+                super().__init__()
+                self.text_parts = []
+                self.ignore_tags = {"script", "style", "head", "title", "meta", "link"}
+                self.current_tag = None
+                self.ignore_depth = 0
+
+            def handle_starttag(self, tag, attrs):
+                self.current_tag = tag.lower()
+                if self.current_tag in self.ignore_tags:
+                    self.ignore_depth += 1
+                if self.current_tag in {"p", "div", "br", "h1", "h2", "h3", "h4", "h5", "h6", "tr", "li"}:
+                    if self.text_parts and not self.text_parts[-1].endswith("\n"):
+                        self.text_parts.append("\n")
+
+            def handle_endtag(self, tag):
+                tag_lower = tag.lower()
+                if tag_lower in self.ignore_tags:
+                    self.ignore_depth = max(0, self.ignore_depth - 1)
+                if tag_lower in {"p", "div", "h1", "h2", "h3", "h4", "h5", "h6", "tr", "li"}:
+                    if self.text_parts and not self.text_parts[-1].endswith("\n"):
+                        self.text_parts.append("\n")
+
+            def handle_data(self, data):
+                if self.ignore_depth == 0:
+                    self.text_parts.append(data)
+
+            def get_text(self) -> str:
+                raw_text = "".join(self.text_parts)
+                decoded_text = html.unescape(raw_text).replace("\xa0", " ")
+                lines = []
+                for line in decoded_text.splitlines():
+                    cleaned_line = line.strip()
+                    if cleaned_line:
+                        lines.append(cleaned_line)
+                    elif lines and lines[-1] != "":
+                        lines.append("")
+                return "\n".join(lines).strip()
+
+        try:
+            parser = HTMLToTextParser()
+            parser.feed(html_content)
+            return parser.get_text()
+        except Exception as exc:
+            self.logger.warning("HTMLToTextParser parsing failed: %s. Falling back to simple regex.", exc)
+            import re
+            text = re.sub(r"<(script|style)[^>]*>.*?</\1>", "", html_content, flags=re.DOTALL | re.IGNORECASE)
+            text = re.sub(r"<[^>]+>", " ", text)
+            text = html.unescape(text).replace("\xa0", " ")
+            text = re.sub(r"\s+", " ", text)
+            return text.strip()
 
     def _parse_date(self, date_str: str) -> datetime:
         """
@@ -240,8 +288,6 @@ class GmailAgent(BaseAgent):
 
     # ------------------------------------------------------------------
     # Sync to DB
-    # ------------------------------------------------------------------
-
     async def sync_messages(
         self,
         creds: Credentials,
@@ -255,9 +301,28 @@ class GmailAgent(BaseAgent):
 
         Skips duplicates (by message_id). Returns a summary dict.
         """
-        raw_list = self.get_messages(creds, limit=limit, unread_only=unread_only)
-        synced = 0
+        # Find the most recent Gmail message in the DB
+        last_msg = (
+            db.query(Message)
+            .filter_by(user_id=user_id, source=MessageSource.GMAIL)
+            .order_by(Message.received_at.desc())
+            .first()
+        )
+        
+        query_override = None
+        if last_msg:
+            # Add 1 second to avoid fetching the exact same message
+            epoch = int(last_msg.received_at.timestamp()) + 1
+            query_override = f"after:{epoch}"
+            self.logger.info("Fetching emails since: %s", last_msg.received_at.isoformat())
+        else:
+            self.logger.info("Fetching emails since: None (defaulting to newer_than:7d)")
 
+        raw_list = self.get_messages(creds, limit=limit, unread_only=unread_only, query_override=query_override)
+        
+        self.logger.info("Found %d raw email headers in Gmail API list response.", len(raw_list))
+
+        synced = 0
         for item in raw_list:
             message_id = item.get("id", "")
             if not message_id:
@@ -297,6 +362,9 @@ class GmailAgent(BaseAgent):
             db.commit()
             db.refresh(msg)
             
+            # Log stored email details
+            self.logger.info("Stored email: %s from %s", parsed.get("subject", "(no subject)"), parsed.get("sender", "unknown"))
+
             # Run AI pipeline
             try:
                 from services.ai_pipeline import process_message_ai
@@ -306,17 +374,13 @@ class GmailAgent(BaseAgent):
                 
             synced += 1
 
+        # Found X new emails log
+        self.logger.info("Found %d new emails", synced)
+
         total_stored = (
             db.query(Message)
             .filter_by(user_id=user_id, source=MessageSource.GMAIL)
             .count()
-        )
-
-        self.logger.info(
-            "GmailAgent.sync_messages: synced=%d total_stored=%d for user_id=%d",
-            synced,
-            total_stored,
-            user_id,
         )
 
         return {"synced": synced, "total_stored": total_stored}

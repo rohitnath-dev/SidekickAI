@@ -213,16 +213,17 @@ async def sync(
             unread_only=request.unread_only,
         )
     except Exception as exc:
-        logger.error("Gmail sync failed for user %d: %s", current_user.id, exc)
-        from services.oauth import handle_google_error
-        handle_google_error(exc)
+        logger.error("Gmail sync failed for user %d: %s", current_user.id, exc, exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=f"Gmail sync failed: {str(exc)}"
+        )
 
     return SyncResponse(
         synced=result.get("synced", 0),
         total_stored=result.get("total_stored", 0),
         status="success",
     )
-
 
 def get_active_providers(user_id: int, db: Session) -> set[str]:
     from repositories.token_repo import TokenRepository

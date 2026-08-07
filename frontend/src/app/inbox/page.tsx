@@ -56,7 +56,16 @@ function InboxContent() {
   const [isApproving, setIsApproving] = useState(false);
   const seenMessageIds = React.useRef<Set<number>>(new Set());
   const [notification, setNotification] = useState<{ sender: string, subject: string, id: number } | null>(null);
+  const [lastSyncedAt, setLastSyncedAt] = useState<string | null>(null);
 
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      const stored = localStorage.getItem('last_synced_at');
+      if (stored) {
+        setLastSyncedAt(stored);
+      }
+    }
+  }, []);
   // Fetch messages list
   const { data: messages, isLoading: isMessagesLoading, refetch: refetchMessages } = useQuery({
     queryKey: ['messages', sourceFilter, unreadOnly],
@@ -238,6 +247,12 @@ function InboxContent() {
       return { synced: 0, source: 'none' };
     },
     onSuccess: (data) => {
+      const now = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+      if (typeof window !== 'undefined') {
+        localStorage.setItem('last_synced_at', now);
+      }
+      setLastSyncedAt(now);
+
       if (data.source === 'whatsapp') {
         setSyncStatus({ message: 'WhatsApp chats refreshed (Meta webhook real-time sync active).', isError: false });
       } else if (data.source === 'telegram') {
@@ -469,7 +484,12 @@ function InboxContent() {
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
                 <Inbox className="w-4 h-4 text-indigo-400" />
-                <h1 className="text-xs font-bold uppercase tracking-wider text-zinc-300">Executive Inbox</h1>
+                <div className="flex flex-col">
+                  <h1 className="text-xs font-bold uppercase tracking-wider text-zinc-300">Executive Inbox</h1>
+                  {lastSyncedAt && (
+                    <p className="text-[10px] text-zinc-500 font-medium">Last synced: {lastSyncedAt}</p>
+                  )}
+                </div>
               </div>
               <button 
                 onClick={() => syncMutation.mutate()}
