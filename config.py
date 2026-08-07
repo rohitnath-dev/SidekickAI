@@ -57,9 +57,12 @@ class Settings(BaseSettings):
     OPENROUTER_MAX_TOKENS: int = 2048
     HTTP_REFERER: str = "https://sidekick.ai"
     APP_TITLE: str = "Sidekick AI"
-
     # Gemini LLM
     GEMINI_API_KEY: Optional[str] = None
+
+    # Background Ingestion Poller
+    POLLER_INTERVAL_SECONDS: int = 3600
+    POLLER_ENABLED: bool = False
 
     # Google OAuth                                                          #
     # ------------------------------------------------------------------ #

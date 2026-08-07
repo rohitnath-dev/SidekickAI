@@ -6,14 +6,16 @@ from database import SessionLocal
 from config import settings
 from models.user import User
 from models.message import Message, MessageSource, MessagePriority, MessageStatus
+from models.oauth import OAuthToken
+from repositories.token_repo import TokenRepository
 from services.oauth import get_credentials
 
 logger = logging.getLogger(__name__)
 
 async def start_polling() -> None:
     """
-    Background worker loop that periodically polls Gmail and Twitter
-    for new messages and runs them through the AI priority/drafting pipeline.
+    Background worker loop that periodically polls Gmail, Twitter, Telegram,
+    and Discord for new messages and runs them through the AI priority/drafting pipeline.
     """
     logger.info("Background multi-channel ingestion poller started.")
     
@@ -21,154 +23,132 @@ async def start_polling() -> None:
     await asyncio.sleep(5)
     
     while True:
+        # Check if poller is enabled in settings
+        if not settings.POLLER_ENABLED:
+            logger.info("Background Poller: Poller is disabled in settings. Sleeping for %d seconds.", settings.POLLER_INTERVAL_SECONDS)
+            await asyncio.sleep(settings.POLLER_INTERVAL_SECONDS)
+            continue
+            
         db = SessionLocal()
         try:
-            # Retrieve the first user
-            user = db.query(User).first()
-            if not user:
-                logger.warning("Background Poller: No registered user found. Skipping loop iteration.")
+            # Retrieve all users
+            users = db.query(User).all()
+            if not users:
+                logger.warning("Background Poller: No registered users found. Skipping loop iteration.")
             else:
-                # 1. Gmail Ingestion Polling
-                creds = get_credentials(user.id, db)
-                if creds:
-                    try:
-                        from agents.gmail_agent import GmailAgent
-                        logger.info("Background Poller: Syncing Gmail for user_id=%d", user.id)
-                        # sync_messages automatically processes each new email through process_message_ai
-                        await GmailAgent().sync_messages(
-                            creds=creds,
-                            db=db,
-                            user_id=user.id,
-                            limit=50,
-                            unread_only=True,
-                        )
-                    except Exception as e:
-                        logger.error("Background Poller: Gmail sync failed: %s", e)
-                
-                # 2. Twitter Mentions Ingestion Polling
-                twitter_user_id = settings.TWITTER_USER_ID
-                if settings.TWITTER_BEARER_TOKEN and twitter_user_id:
-                    try:
-                        from agents.twitter_agent import TwitterAgent
-                        logger.info("Background Poller: Syncing Twitter mentions for user_id=%d, twitter_user_id=%s", user.id, twitter_user_id)
-                        tweets = await TwitterAgent().get_mentions(
-                            bearer_token=settings.TWITTER_BEARER_TOKEN,
-                            user_id=twitter_user_id,
-                            max_results=5,
-                        )
-                        for t in tweets:
-                            tweet_id = t.get("id")
-                            if not tweet_id:
-                                continue
-                            existing = db.query(Message).filter_by(message_id=tweet_id, source=MessageSource.TWITTER).first()
-                            if existing:
-                                continue
-                            
-                            logger.info("Background Poller: New Twitter mention found (ID: %s)", tweet_id)
-                            db_msg = Message(
-                                user_id=user.id,
-                                message_id=tweet_id,
-                                source=MessageSource.TWITTER,
-                                sender=t.get("author_id") or "TwitterUser",
-                                body=t.get("text", ""),
-                                priority=MessagePriority.MEDIUM,
-                                status=MessageStatus.UNREAD,
-                                received_at=datetime.utcnow()
-                            )
-                            db.add(db_msg)
-                            db.commit()
-                            db.refresh(db_msg)
-                            
-                            # Run AI pipeline
-                            try:
-                                from services.ai_pipeline import process_message_ai
-                                await process_message_ai(db, db_msg)
-                            except Exception as e:
-                                logger.error("Background Poller: Twitter AI pipeline failed for tweet %s: %s", tweet_id, e)
-                    except Exception as e:
-                        logger.error("Background Poller: Twitter sync failed: %s", e)
+                for user in users:
+                    # 1. SMART POLLER - CHECK BEFORE SYNC
+                    gmail_token = db.query(OAuthToken).filter_by(user_id=user.id, provider="google").first()
+                    has_gmail = bool(gmail_token and gmail_token.access_token)
+                    
+                    tokens = TokenRepository.list_by_user(db, user.id)
+                    has_telegram = any(t.provider == "telegram" and t.access_token and t.access_token != "disabled" for t in tokens)
+                    has_whatsapp = any(t.provider == "whatsapp" and t.access_token and t.access_token != "disabled" for t in tokens)
+                    has_discord = any(t.provider == "discord" and t.access_token and t.access_token != "disabled" for t in tokens)
+                    has_twitter = any(t.provider == "twitter" and t.access_token and t.access_token != "disabled" for t in tokens)
 
-                # 3. Telegram Ingestion Polling
-                from repositories.token_repo import TokenRepository
-                token = TokenRepository.get(db, user_id=user.id, provider="telegram")
-                if token and token.access_token != "disabled":
-                    try:
-                        from routes.telegram import decrypt_session, sync_telegram
-                        session_str = decrypt_session(token.access_token)
+                    # If NO integrations are connected for a user, SKIP the entire poll cycle for that user.
+                    if not (has_gmail or has_telegram or has_whatsapp or has_discord or has_twitter):
+                        logger.info("Poller skipped: No integrations connected for user %d", user.id)
+                        continue
                         
-                        import json
-                        try:
-                            creds = json.loads(token.token_uri)
-                            api_id = int(creds["api_id"])
-                            api_hash = creds["api_hash"]
-                        except Exception:
-                            api_id = 12345
-                            api_hash = "mock_hash"
+                    logger.info("Background Poller: Starting poll cycle for user_id=%d", user.id)
 
-                        if session_str.startswith("MOCK_SESSION"):
-                            logger.info("Background Poller: Syncing Telegram (MOCK) for user_id=%d", user.id)
-                            await sync_telegram(current_user=user, db=db)
-                        else:
-                            logger.info("Background Poller: Syncing Telegram (MTProto) for user_id=%d", user.id)
-                            from telethon import TelegramClient
-                            from telethon.sessions import StringSession
-                            
-                            client = TelegramClient(StringSession(session_str), api_id, api_hash)
-                            await client.connect()
+                    # 1. Gmail Ingestion Polling
+                    if has_gmail:
+                        creds = get_credentials(user.id, db)
+                        if creds:
                             try:
-                                if await client.is_user_authorized():
-                                    dialogs = await client.get_dialogs(limit=5)
-                                    for dialog in dialogs:
-                                        name = dialog.name or "Telegram User"
-                                        
-                                        async for message in client.iter_messages(dialog.entity, limit=5):
-                                            if message.out or not message.text:
-                                                continue
-                                            
-                                            msg_id = f"tg-user-{message.id}"
-                                            existing = db.query(Message).filter_by(message_id=str(msg_id), source=MessageSource.TELEGRAM).first()
-                                            if existing:
-                                                continue
-                                            
-                                            logger.info("Background Poller: New Telegram message found (ID: %s)", msg_id)
-                                            sender_entity = await message.get_sender()
-                                            sender_name = "Telegram User"
-                                            if sender_entity:
-                                                first_name = getattr(sender_entity, "first_name", "") or ""
-                                                last_name = getattr(sender_entity, "last_name", "") or ""
-                                                sender_name = f"{first_name} {last_name}".strip() or getattr(sender_entity, "username", None) or str(message.sender_id)
+                                from agents.gmail_agent import GmailAgent
+                                logger.info("Background Poller: Syncing Gmail for user_id=%d", user.id)
+                                res = await GmailAgent().sync_messages(
+                                    creds=creds,
+                                    db=db,
+                                    user_id=user.id,
+                                    limit=50,
+                                    unread_only=True,
+                                )
+                                synced_count = res.get("synced", 0) if isinstance(res, dict) else 0
+                                if synced_count == 0:
+                                    logger.info("Poller skipped: 0 messages found, skipping AI pipeline for Gmail user_id=%d", user.id)
+                            except Exception as e:
+                                logger.error("Background Poller: Gmail sync failed for user_id=%d: %s", user.id, e)
+                        else:
+                            logger.info("Background Poller: Gmail active but failed to load credentials for user_id=%d", user.id)
 
-                                            db_msg = Message(
-                                                user_id=user.id,
-                                                message_id=str(msg_id),
-                                                thread_id=str(dialog.id),
-                                                source=MessageSource.TELEGRAM,
-                                                sender=name,
-                                                recipient=sender_name,
-                                                subject=f"Telegram Chat with {name}" if name == sender_name else f"Telegram Message from {sender_name} in {name}",
-                                                body=message.text,
-                                                priority=MessagePriority.MEDIUM,
-                                                status=MessageStatus.UNREAD,
-                                                received_at=message.date or datetime.utcnow(),
-                                            )
-                                            db.add(db_msg)
-                                            db.commit()
-                                            db.refresh(db_msg)
-                                            
-                                            try:
-                                                from services.ai_pipeline import process_message_ai
-                                                await process_message_ai(db, db_msg)
-                                            except Exception as e:
-                                                logger.error("Background Poller: Telegram AI pipeline failed: %s", e)
-                            finally:
-                                await client.disconnect()
-                    except Exception as e:
-                        logger.error("Background Poller: Telegram sync failed: %s", e)
+                    # 2. Twitter Mentions Ingestion Polling
+                    twitter_user_id = settings.TWITTER_USER_ID
+                    if has_twitter and settings.TWITTER_BEARER_TOKEN and twitter_user_id:
+                        try:
+                            from agents.twitter_agent import TwitterAgent
+                            logger.info("Background Poller: Syncing Twitter mentions for user_id=%d", user.id)
+                            tweets = await TwitterAgent().get_mentions(
+                                bearer_token=settings.TWITTER_BEARER_TOKEN,
+                                user_id=twitter_user_id,
+                                max_results=5,
+                            )
+                            if not tweets:
+                                logger.info("Poller skipped: 0 messages found, skipping AI pipeline for Twitter user_id=%d", user.id)
+                            else:
+                                for t in tweets:
+                                    tweet_id = t.get("id")
+                                    if not tweet_id:
+                                        continue
+                                    existing = db.query(Message).filter_by(message_id=tweet_id, source=MessageSource.TWITTER).first()
+                                    if existing:
+                                        continue
+                                    
+                                    logger.info("Background Poller: New Twitter mention found (ID: %s)", tweet_id)
+                                    db_msg = Message(
+                                        user_id=user.id,
+                                        message_id=tweet_id,
+                                        source=MessageSource.TWITTER,
+                                        sender=t.get("author_id") or "TwitterUser",
+                                        body=t.get("text", ""),
+                                        priority=MessagePriority.MEDIUM,
+                                        status=MessageStatus.UNREAD,
+                                        received_at=datetime.utcnow()
+                                    )
+                                    db.add(db_msg)
+                                    db.commit()
+                                    db.refresh(db_msg)
+                                    
+                                    try:
+                                        from services.ai_pipeline import process_message_ai
+                                        await process_message_ai(db, db_msg)
+                                    except Exception as e:
+                                        logger.error("Background Poller: Twitter AI pipeline failed for tweet %s: %s", tweet_id, e)
+                        except Exception as e:
+                            logger.error("Background Poller: Twitter sync failed for user_id=%d: %s", user.id, e)
+
+                    # 3. Telegram Ingestion Polling
+                    if has_telegram:
+                        try:
+                            from routes.telegram import sync_telegram
+                            logger.info("Background Poller: Syncing Telegram for user_id=%d", user.id)
+                            res = await sync_telegram(current_user=user, db=db)
+                            synced_count = getattr(res, "synced", 0) if hasattr(res, "synced") else (res.get("synced", 0) if isinstance(res, dict) else 0)
+                            if synced_count == 0:
+                                logger.info("Poller skipped: 0 messages found, skipping AI pipeline for Telegram user_id=%d", user.id)
+                        except Exception as e:
+                            logger.error("Background Poller: Telegram sync failed for user_id=%d: %s", user.id, e)
+
+                    # 4. Discord Ingestion Polling
+                    if has_discord:
+                        try:
+                            from routes.discord import sync_discord
+                            logger.info("Background Poller: Syncing Discord for user_id=%d", user.id)
+                            res = await sync_discord(current_user=user, db=db)
+                            synced_count = getattr(res, "synced", 0) if hasattr(res, "synced") else (res.get("synced", 0) if isinstance(res, dict) else 0)
+                            if synced_count == 0:
+                                logger.info("Poller skipped: 0 messages found, skipping AI pipeline for Discord user_id=%d", user.id)
+                        except Exception as e:
+                            logger.error("Background Poller: Discord sync failed for user_id=%d: %s", user.id, e)
 
         except Exception as e:
             logger.error("Background Poller loop encountered an error: %s", e)
         finally:
             db.close()
             
-        # Poll every 30 seconds
-        await asyncio.sleep(30)
+        # Sleep for POLLER_INTERVAL_SECONDS
+        await asyncio.sleep(settings.POLLER_INTERVAL_SECONDS)
