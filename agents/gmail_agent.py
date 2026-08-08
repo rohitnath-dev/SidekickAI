@@ -323,9 +323,20 @@ class GmailAgent(BaseAgent):
                 self.logger.info("Backfill: corrected %d already synced messages to correct categories", backfilled_count)
         except Exception as e:
             self.logger.error("Failed to re-evaluate already synced messages: %s", e)
-
-        # Always fetch from labelIds=["INBOX"] (this works for everyone)
+        # Map category parameter to Gmail API labelIds if provided
         label_ids = ["INBOX"]
+        if category:
+            cat_lower = category.lower()
+            if cat_lower == "primary":
+                label_ids = ["CATEGORY_PERSONAL"]
+            elif cat_lower == "promotions":
+                label_ids = ["CATEGORY_PROMOTIONS"]
+            elif cat_lower == "social":
+                label_ids = ["CATEGORY_SOCIAL"]
+            elif cat_lower == "updates":
+                label_ids = ["CATEGORY_UPDATES"]
+            elif cat_lower == "forums":
+                label_ids = ["CATEGORY_FORUMS"]
 
         # Find the most recent Gmail message in the DB
         last_msg = (
@@ -350,8 +361,21 @@ class GmailAgent(BaseAgent):
             query_override=query_override,
             label_ids=label_ids,
         )
-        
+
         self.logger.info("Gmail query labelIds=%s, returned %d messages", label_ids, len(raw_list))
+
+        # Fallback: if category query returns 0 and is not "INBOX" already, try labelIds=["INBOX"]
+        if not raw_list and label_ids != ["INBOX"]:
+            self.logger.warning("Gmail query labelIds=%s returned 0. Trying fallback query with labelIds=['INBOX']", label_ids)
+            label_ids = ["INBOX"]
+            raw_list = self.get_messages(
+                creds,
+                limit=limit,
+                unread_only=unread_only,
+                query_override=query_override,
+                label_ids=label_ids,
+            )
+            self.logger.info("Gmail fallback query labelIds=%s, returned %d messages", label_ids, len(raw_list))
 
         synced = 0
         primary_count = 0

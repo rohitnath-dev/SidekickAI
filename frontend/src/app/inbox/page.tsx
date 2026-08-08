@@ -242,7 +242,6 @@ function InboxContent() {
         const response = await apiClient.post('/twitter/sync');
         return { ...response.data, source: 'twitter' };
       }
-
       if (sourceFilter === 'gmail') {
         if (!isGoogleConnected) {
           throw new Error('Gmail is not connected. Connect it in Settings.');
@@ -250,11 +249,12 @@ function InboxContent() {
         setSyncStatus('Fetching emails...');
         const response = await apiClient.post('/gmail/sync', { 
           max_results: 20, 
-          unread_only: false
+          unread_only: false,
+          category: gmailCategoryFilter
         });
         return { ...response.data, source: 'gmail' };
       }
-      
+
       if (sourceFilter === 'all') {
         const syncPromises = [];
         const activeSources: string[] = [];
