@@ -284,6 +284,7 @@ class GmailAgent(BaseAgent):
             return datetime.utcnow()
 
     # ------------------------------------------------------------------
+    # ------------------------------------------------------------------
     # Sync to DB
     async def sync_messages(
         self,
@@ -292,28 +293,15 @@ class GmailAgent(BaseAgent):
         user_id: int,
         limit: int = 20,
         unread_only: bool = False,
-        category: str = "primary",
+        category: Optional[str] = None,
     ) -> dict:
         """
         Fetch messages from Gmail and store new ones in DB.
 
         Skips duplicates (by message_id). Returns a summary dict.
         """
-        # Map category to Gmail API labels
-        if category == "all" or category == "all gmail":
-            label_ids = ["INBOX"]
-        elif category == "primary":
-            label_ids = ["CATEGORY_PERSONAL"]
-        elif category == "promotions":
-            label_ids = ["CATEGORY_PROMOTIONS"]
-        elif category == "social":
-            label_ids = ["CATEGORY_SOCIAL"]
-        elif category == "updates":
-            label_ids = ["CATEGORY_UPDATES"]
-        elif category == "forums":
-            label_ids = ["CATEGORY_FORUMS"]
-        else:
-            label_ids = ["CATEGORY_PERSONAL"]
+        # Always fetch from labelIds=["INBOX"] (this works for everyone)
+        label_ids = ["INBOX"]
 
         # Find the most recent Gmail message in the DB
         last_msg = (
@@ -324,13 +312,12 @@ class GmailAgent(BaseAgent):
         )
         
         query_override = None
-        category_title = category.capitalize()
         if last_msg:
             epoch = int(last_msg.received_at.timestamp()) + 1
             query_override = f"after:{epoch}"
-            self.logger.info("Fetching Gmail %s emails since: %s", category_title, last_msg.received_at.isoformat())
+            self.logger.info("Fetching Gmail emails since: %s", last_msg.received_at.isoformat())
         else:
-            self.logger.info("Fetching Gmail %s emails since: None", category_title)
+            self.logger.info("Fetching Gmail emails since: None")
 
         raw_list = self.get_messages(
             creds,
@@ -342,22 +329,12 @@ class GmailAgent(BaseAgent):
         
         self.logger.info("Gmail query labelIds=%s, returned %d messages", label_ids, len(raw_list))
 
-        # Fallback: if category query returns 0 and is not "INBOX" already
-        if not raw_list and label_ids != ["INBOX"]:
-            self.logger.warning("Gmail query labelIds=%s returned 0. Trying fallback query with labelIds=['INBOX']", label_ids)
-            label_ids = ["INBOX"]
-            raw_list = self.get_messages(
-                creds,
-                limit=limit,
-                unread_only=unread_only,
-                query_override=query_override,
-                label_ids=label_ids,
-            )
-            self.logger.info("Gmail fallback query labelIds=%s, returned %d messages", label_ids, len(raw_list))
-
         synced = 0
         primary_count = 0
         promotions_count = 0
+        social_count = 0
+        updates_count = 0
+        forums_count = 0
 
         for item in raw_list:
             message_id = item.get("id", "")
@@ -408,6 +385,12 @@ class GmailAgent(BaseAgent):
                 primary_count += 1
             elif cat == "promotions":
                 promotions_count += 1
+            elif cat == "social":
+                social_count += 1
+            elif cat == "updates":
+                updates_count += 1
+            elif cat == "forums":
+                forums_count += 1
             
             # Run AI pipeline
             try:
@@ -418,8 +401,8 @@ class GmailAgent(BaseAgent):
                 
             synced += 1
 
-        # Found X new emails, Y Primary, Z Promotions log
-        self.logger.info("Found %d new emails, %d Primary, %d Promotions", synced, primary_count, promotions_count)
+        # Log: "Fetched X emails: Y primary, Z promotions, W social"
+        self.logger.info("Fetched %d emails: %d primary, %d promotions, %d social", synced, primary_count, promotions_count, social_count)
 
         total_stored = (
             db.query(Message)

@@ -33,7 +33,6 @@ router = APIRouter(prefix="/gmail", tags=["Gmail"])
 class SyncRequest(BaseModel):
     max_results: int = 20
     unread_only: bool = False
-    category: Optional[str] = "primary"
 
 
 class SyncResponse(BaseModel):
@@ -212,7 +211,6 @@ async def sync(
             user_id=current_user.id,
             limit=request.max_results,
             unread_only=request.unread_only,
-            category=request.category or "primary",
         )
     except Exception as exc:
         logger.error("Gmail sync failed for user %d: %s", current_user.id, exc, exc_info=True)

@@ -184,15 +184,12 @@ function InboxContent() {
           throw new Error('Gmail is not connected. Connect it in Settings.');
         }
         setSyncStatus('Fetching emails...');
-        const categoryParam = ['promotions', 'social', 'updates'].includes(gmailCategoryFilter) 
-          ? gmailCategoryFilter 
-          : 'primary';
         const response = await apiClient.post('/gmail/sync', { 
           max_results: 20, 
-          unread_only: false,
-          category: categoryParam
+          unread_only: false
         });
-        return { ...response.data, source: 'gmail' };      }
+        return { ...response.data, source: 'gmail' };
+      }
       
       if (sourceFilter === 'all') {
         const syncPromises = [];
