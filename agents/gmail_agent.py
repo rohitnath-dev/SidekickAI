@@ -127,11 +127,12 @@ class GmailAgent(BaseAgent):
         payload = gmail_raw.get("payload", {})
         headers = self._extract_headers(payload)
         body = self._extract_body(payload)
-
         # Extract category from labelIds (normalize to uppercase for safety)
         label_ids = [label.upper() for label in gmail_raw.get("labelIds", [])]
         category = "primary"  # default
-        if "CATEGORY_PROMOTIONS" in label_ids:
+        if "CATEGORY_PERSONAL" in label_ids:
+            category = "primary"
+        elif "CATEGORY_PROMOTIONS" in label_ids:
             category = "promotions"
         elif "CATEGORY_SOCIAL" in label_ids:
             category = "social"
@@ -139,8 +140,6 @@ class GmailAgent(BaseAgent):
             category = "updates"
         elif "CATEGORY_FORUMS" in label_ids:
             category = "forums"
-        elif "CATEGORY_PERSONAL" in label_ids:
-            category = "primary"
 
         return {
             "message_id": gmail_raw.get("id", ""),
@@ -304,9 +303,8 @@ class GmailAgent(BaseAgent):
             misclassified = (
                 db.query(Message)
                 .filter_by(user_id=user_id, source=MessageSource.GMAIL)
-                .filter(Message.category == "primary")
                 .order_by(Message.received_at.desc())
-                .limit(50)
+                .limit(150)
                 .all()
             )
             backfilled_count = 0

@@ -67,30 +67,68 @@ function InboxContent() {
       }
     }
   }, []);
+
   const sanitizeEmailBody = (text: string | null | undefined): string => {
     if (!text) return '';
     try {
       const parser = new DOMParser();
       const doc = parser.parseFromString(text, 'text/html');
-      const plainText = doc.body.textContent || doc.body.innerText || '';
-      return plainText
-        .replace(/\u00a0/g, ' ')
-        .replace(/&nbsp;/g, ' ')
-        .replace(/&zwnj;/g, '')
-        .replace(/<[^>]+>/g, '')
-        .trim();
+      
+      // Remove stylesheet and script contents completely to avoid style bleeding
+      const elementsToRemove = doc.querySelectorAll('style, script, head, link, meta');
+      elementsToRemove.forEach(el => el.remove());
+      
+      // Convert hyperlinks from <a href="url">text</a> to "text (url)" or just "url" if text is identical
+      const links = doc.querySelectorAll('a');
+      links.forEach(link => {
+        const href = link.getAttribute('href');
+        const linkText = link.textContent?.trim();
+        if (href && linkText && href !== linkText && !href.startsWith('mailto:')) {
+          link.textContent = `${linkText} (${href})`;
+        }
+      });
+
+      let plainText = doc.body.textContent || doc.body.innerText || '';
+      
+      // Clean up broken spaces and custom entities
+      plainText = plainText
+        .replace(/&nb\s*sp\s*;/gi, ' ') // match &nbsp; with potential spaces like &nb sp; or &nb  sp;
+        .replace(/&zwnj;/gi, '')
+        .replace(/\u00a0/g, ' ') // convert non-breaking spaces to regular spaces
+        .replace(/&amp;/gi, '&')
+        .replace(/&lt;/gi, '<')
+        .replace(/&gt;/gi, '>')
+        .replace(/&quot;/gi, '"')
+        .replace(/&#39;/gi, "'");
+      
+      // Strip any residual HTML tags just in case
+      plainText = plainText.replace(/<[^>]+>/g, '');
+
+      // Format text into clean, readable plain paragraphs
+      const paragraphs = plainText
+        .split(/\n\s*\n/) // split by empty lines
+        .map(p => p.replace(/\s+/g, ' ').trim()) // collapse multiple spaces within paragraphs
+        .filter(p => p.length > 0);
+
+      return paragraphs.join('\n\n');
     } catch (e) {
+      // Fallback simple regex parsing
       return text
-        .replace(/\u00a0/g, ' ')
-        .replace(/&nbsp;/g, ' ')
-        .replace(/&zwnj;/g, '')
-        .replace(/&amp;/g, '&')
-        .replace(/&lt;/g, '<')
-        .replace(/&gt;/g, '>')
-        .replace(/&quot;/g, '"')
-        .replace(/&#39;/g, "'")
+        .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, '')
+        .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, '')
         .replace(/<[^>]+>/g, '')
-        .trim();
+        .replace(/&nb\s*sp\s*;/gi, ' ')
+        .replace(/&zwnj;/gi, '')
+        .replace(/\u00a0/g, ' ')
+        .replace(/&amp;/gi, '&')
+        .replace(/&lt;/gi, '<')
+        .replace(/&gt;/gi, '>')
+        .replace(/&quot;/gi, '"')
+        .replace(/&#39;/gi, "'")
+        .split(/\n\s*\n/)
+        .map(p => p.replace(/\s+/g, ' ').trim())
+        .filter(p => p.length > 0)
+        .join('\n\n');
     }
   };
 
