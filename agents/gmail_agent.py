@@ -300,19 +300,20 @@ class GmailAgent(BaseAgent):
         Skips duplicates (by message_id). Returns a summary dict.
         """
         # Map category to Gmail API labels
-        label_ids = ["INBOX"]
-        if category == "primary":
-            label_ids.append("CATEGORY_PERSONAL")
+        if category == "all" or category == "all gmail":
+            label_ids = ["INBOX"]
+        elif category == "primary":
+            label_ids = ["CATEGORY_PERSONAL"]
         elif category == "promotions":
-            label_ids.append("CATEGORY_PROMOTIONS")
+            label_ids = ["CATEGORY_PROMOTIONS"]
         elif category == "social":
-            label_ids.append("CATEGORY_SOCIAL")
+            label_ids = ["CATEGORY_SOCIAL"]
         elif category == "updates":
-            label_ids.append("CATEGORY_UPDATES")
+            label_ids = ["CATEGORY_UPDATES"]
         elif category == "forums":
-            label_ids.append("CATEGORY_FORUMS")
+            label_ids = ["CATEGORY_FORUMS"]
         else:
-            label_ids.append("CATEGORY_PERSONAL")
+            label_ids = ["CATEGORY_PERSONAL"]
 
         # Find the most recent Gmail message in the DB
         last_msg = (
@@ -339,7 +340,20 @@ class GmailAgent(BaseAgent):
             label_ids=label_ids,
         )
         
-        self.logger.info("Found %d raw email headers in Gmail API list response.", len(raw_list))
+        self.logger.info("Gmail query labelIds=%s, returned %d messages", label_ids, len(raw_list))
+
+        # Fallback: if category query returns 0 and is not "INBOX" already
+        if not raw_list and label_ids != ["INBOX"]:
+            self.logger.warning("Gmail query labelIds=%s returned 0. Trying fallback query with labelIds=['INBOX']", label_ids)
+            label_ids = ["INBOX"]
+            raw_list = self.get_messages(
+                creds,
+                limit=limit,
+                unread_only=unread_only,
+                query_override=query_override,
+                label_ids=label_ids,
+            )
+            self.logger.info("Gmail fallback query labelIds=%s, returned %d messages", label_ids, len(raw_list))
 
         synced = 0
         primary_count = 0
