@@ -45,6 +45,7 @@ class BaseAgent(ABC):
 
     # ------------------------------------------------------------------
     # Async LLM helper
+    
     # ------------------------------------------------------------------
 
     async def _call_llm(
@@ -53,13 +54,18 @@ class BaseAgent(ABC):
         system_prompt: Optional[str] = None,
         temperature: Optional[float] = None,
         max_tokens: Optional[int] = None,
+        user_id: Optional[int] = None,
+        caller: Optional[str] = None,
     ) -> str:
         """Call the LLM and return the generated text without catching exceptions."""
+        caller_name = caller or self.__class__.__name__
         return await self.llm.generate(
             prompt=prompt,
             system_prompt=system_prompt,
             temperature=temperature,
             max_tokens=max_tokens,
+            user_id=user_id,
+            caller=caller_name,
         )
 
     # Async retry with exponential backoff
