@@ -61,8 +61,12 @@ class MessageRepository:
                 q = q.filter(Message.source == MessageSource(source))
             except ValueError:
                 pass
-        if category and category.lower() != "all" and category.lower() != "all gmail":
-            q = q.filter(Message.category == category.lower())
+        if category and category.lower() not in ("all", "all gmail"):
+            if category.lower() == "primary":
+                q = q.filter(or_(Message.category == "primary", Message.category.is_(None)))
+            else:
+                q = q.filter(Message.category == category.lower())
+
         if high_priority_only:
             from models.message import MessagePriority
             q = q.filter(Message.priority.in_([MessagePriority.HIGH, MessagePriority.CRITICAL]))
