@@ -114,10 +114,23 @@ class GmailAgent(BaseAgent):
         """
         if not gmail_raw:
             return {}
-
         payload = gmail_raw.get("payload", {})
         headers = self._extract_headers(payload)
         body = self._extract_body(payload)
+
+        # Extract category from labelIds
+        label_ids = gmail_raw.get("labelIds", [])
+        category = "primary"  # default
+        if "CATEGORY_PERSONAL" in label_ids:
+            category = "primary"
+        elif "CATEGORY_PROMOTIONS" in label_ids:
+            category = "promotions"
+        elif "CATEGORY_SOCIAL" in label_ids:
+            category = "social"
+        elif "CATEGORY_UPDATES" in label_ids:
+            category = "updates"
+        elif "CATEGORY_FORUMS" in label_ids:
+            category = "forums"
 
         return {
             "message_id": gmail_raw.get("id", ""),
@@ -127,6 +140,7 @@ class GmailAgent(BaseAgent):
             "subject": headers.get("Subject", ""),
             "received_at": self._parse_date(headers.get("Date", "")),
             "body": body,
+            "category": category,
         }
 
     def _extract_headers(self, payload: dict) -> dict:
@@ -138,69 +152,42 @@ class GmailAgent(BaseAgent):
             if name in ("From", "To", "Subject", "Date"):
                 headers[name] = value
         return headers
-
     def _extract_body(self, payload: dict) -> str:
         """
-        Recursively extract the text body from a Gmail MIME payload.
-
-        Prefers text/plain; falls back to text/html (stripped of tags).
+        Recursively extract and combine the text/plain or text/html bodies
+        from a Gmail message payload.
         """
-        mime_type = payload.get("mimeType", "")
+        plain_text_parts = []
+        html_text_parts = []
 
-        # Leaf node — check for body data
-        if "body" in payload and "data" in payload["body"]:
-            data = payload["body"]["data"]
-            text = self._decode_base64(data)
-            if mime_type == "text/plain":
-                return text
-            if mime_type == "text/html":
-                return self._strip_html(text)
-            return text
+        def recurse(part: dict):
+            mime_type = part.get("mimeType", "")
+            body_data = part.get("body", {}).get("data", "")
 
-        # Multipart — recurse into parts
-        parts = payload.get("parts", [])
-        if not parts:
-            return ""
+            if body_data:
+                decoded = self._decode_base64(body_data)
+                if mime_type == "text/plain":
+                    plain_text_parts.append(decoded)
+                elif mime_type == "text/html":
+                    html_text_parts.append(decoded)
+            
+            parts = part.get("parts", [])
+            for subpart in parts:
+                recurse(subpart)
 
-        # For multipart/alternative prefer text/plain
-        plain_parts: list[str] = []
-        html_parts: list[str] = []
-        other_parts: list[str] = []
+        recurse(payload)
 
-        for part in parts:
-            part_mime = part.get("mimeType", "")
-            if part_mime == "text/plain":
-                data = part.get("body", {}).get("data", "")
-                if data:
-                    plain_parts.append(self._decode_base64(data))
-                else:
-                    # May be nested multipart
-                    nested = self._extract_body(part)
-                    if nested:
-                        plain_parts.append(nested)
-            elif part_mime == "text/html":
-                data = part.get("body", {}).get("data", "")
-                if data:
-                    html_parts.append(self._strip_html(self._decode_base64(data)))
-                else:
-                    nested = self._extract_body(part)
-                    if nested:
-                        html_parts.append(nested)
-            elif part_mime.startswith("multipart/"):
-                nested = self._extract_body(part)
-                if nested:
-                    other_parts.append(nested)
-            else:
-                # Recurse just in case
-                nested = self._extract_body(part)
-                if nested:
-                    other_parts.append(nested)
-
-        if plain_parts:
-            return "\n".join(plain_parts)
-        if html_parts:
-            return "\n".join(html_parts)
-        return "\n".join(other_parts)
+        # Prefer plain text if found, otherwise convert HTML to plain text
+        if plain_text_parts:
+            body = "\n".join(plain_text_parts).strip()
+        elif html_text_parts:
+            combined_html = "\n".join(html_text_parts).strip()
+            body = self._strip_html(combined_html)
+        else:
+            body = ""
+            
+        self.logger.info("Email body length: %d chars", len(body))
+        return body
 
     def _decode_base64(self, data: str) -> str:
         """Decode a Gmail base64url-encoded string to UTF-8 text."""
@@ -295,12 +282,28 @@ class GmailAgent(BaseAgent):
         user_id: int,
         limit: int = 20,
         unread_only: bool = False,
+        category: str = "primary",
     ) -> dict:
         """
         Fetch messages from Gmail and store new ones in DB.
 
         Skips duplicates (by message_id). Returns a summary dict.
         """
+        # Map category to Gmail API labels
+        label_ids = ["INBOX"]
+        if category == "primary":
+            label_ids.append("CATEGORY_PERSONAL")
+        elif category == "promotions":
+            label_ids.append("CATEGORY_PROMOTIONS")
+        elif category == "social":
+            label_ids.append("CATEGORY_SOCIAL")
+        elif category == "updates":
+            label_ids.append("CATEGORY_UPDATES")
+        elif category == "forums":
+            label_ids.append("CATEGORY_FORUMS")
+        else:
+            label_ids.append("CATEGORY_PERSONAL")
+
         # Find the most recent Gmail message in the DB
         last_msg = (
             db.query(Message)
@@ -310,19 +313,28 @@ class GmailAgent(BaseAgent):
         )
         
         query_override = None
+        category_title = category.capitalize()
         if last_msg:
-            # Add 1 second to avoid fetching the exact same message
             epoch = int(last_msg.received_at.timestamp()) + 1
             query_override = f"after:{epoch}"
-            self.logger.info("Fetching emails since: %s", last_msg.received_at.isoformat())
+            self.logger.info("Fetching Gmail %s emails since: %s", category_title, last_msg.received_at.isoformat())
         else:
-            self.logger.info("Fetching emails since: None (defaulting to newer_than:7d)")
+            self.logger.info("Fetching Gmail %s emails since: None", category_title)
 
-        raw_list = self.get_messages(creds, limit=limit, unread_only=unread_only, query_override=query_override)
+        raw_list = self.get_messages(
+            creds,
+            limit=limit,
+            unread_only=unread_only,
+            query_override=query_override,
+            label_ids=label_ids,
+        )
         
         self.logger.info("Found %d raw email headers in Gmail API list response.", len(raw_list))
 
         synced = 0
+        primary_count = 0
+        promotions_count = 0
+
         for item in raw_list:
             message_id = item.get("id", "")
             if not message_id:
@@ -354,6 +366,7 @@ class GmailAgent(BaseAgent):
                 recipient=parsed.get("recipient"),
                 subject=parsed.get("subject"),
                 body=parsed.get("body", ""),
+                category=parsed.get("category", "primary"),
                 priority=MessagePriority.MEDIUM,
                 status=MessageStatus.UNREAD,
                 received_at=parsed.get("received_at") or datetime.utcnow(),
@@ -362,9 +375,16 @@ class GmailAgent(BaseAgent):
             db.commit()
             db.refresh(msg)
             
-            # Log stored email details
+            # Log stored email details and category counts
             self.logger.info("Stored email: %s from %s", parsed.get("subject", "(no subject)"), parsed.get("sender", "unknown"))
+            self.logger.info("Stored content for: %s", parsed.get("subject", "(no subject)"))
 
+            cat = parsed.get("category", "primary")
+            if cat == "primary":
+                primary_count += 1
+            elif cat == "promotions":
+                promotions_count += 1
+            
             # Run AI pipeline
             try:
                 from services.ai_pipeline import process_message_ai
@@ -374,8 +394,8 @@ class GmailAgent(BaseAgent):
                 
             synced += 1
 
-        # Found X new emails log
-        self.logger.info("Found %d new emails", synced)
+        # Found X new emails, Y Primary, Z Promotions log
+        self.logger.info("Found %d new emails, %d Primary, %d Promotions", synced, primary_count, promotions_count)
 
         total_stored = (
             db.query(Message)

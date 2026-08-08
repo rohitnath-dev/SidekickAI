@@ -33,6 +33,7 @@ router = APIRouter(prefix="/gmail", tags=["Gmail"])
 class SyncRequest(BaseModel):
     max_results: int = 20
     unread_only: bool = False
+    category: Optional[str] = "primary"
 
 
 class SyncResponse(BaseModel):
@@ -211,6 +212,7 @@ async def sync(
             user_id=current_user.id,
             limit=request.max_results,
             unread_only=request.unread_only,
+            category=request.category or "primary",
         )
     except Exception as exc:
         logger.error("Gmail sync failed for user %d: %s", current_user.id, exc, exc_info=True)
@@ -244,7 +246,6 @@ def get_active_providers(user_id: int, db: Session) -> set[str]:
         disabled_token = next((t for t in tokens if t.provider == "whatsapp"), None)
         if not (disabled_token and disabled_token.access_token == "disabled"):
             connected.add("whatsapp")
-            
     return connected
 
 
@@ -255,6 +256,7 @@ async def list_messages(
     unread_only: bool = Query(default=False),
     source: Optional[str] = Query(default=None),
     high_priority_only: bool = Query(default=False),
+    category: Optional[str] = Query(default=None),
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
@@ -280,6 +282,7 @@ async def list_messages(
         unread_only=unread_only,
         source=source,
         high_priority_only=high_priority_only,
+        category=category,
     )
     
     # Filter messages to only show those where source maps to an active provider

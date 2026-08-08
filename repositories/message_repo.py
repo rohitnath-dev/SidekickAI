@@ -44,6 +44,7 @@ class MessageRepository:
         unread_only: bool = False,
         source: Optional[str] = None,
         high_priority_only: bool = False,
+        category: Optional[str] = None,
     ) -> list[Message]:
         from sqlalchemy import or_
         if source == "whatsapp":
@@ -60,6 +61,8 @@ class MessageRepository:
                 q = q.filter(Message.source == MessageSource(source))
             except ValueError:
                 pass
+        if category and category.lower() != "all" and category.lower() != "all gmail":
+            q = q.filter(Message.category == category.lower())
         if high_priority_only:
             from models.message import MessagePriority
             q = q.filter(Message.priority.in_([MessagePriority.HIGH, MessagePriority.CRITICAL]))

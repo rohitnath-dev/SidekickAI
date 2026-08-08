@@ -57,6 +57,7 @@ function InboxContent() {
   const seenMessageIds = React.useRef<Set<number>>(new Set());
   const [notification, setNotification] = useState<{ sender: string, subject: string, id: number } | null>(null);
   const [lastSyncedAt, setLastSyncedAt] = useState<string | null>(null);
+  const [gmailCategoryFilter, setGmailCategoryFilter] = useState('all');
 
   useEffect(() => {
     if (typeof window !== 'undefined') {
@@ -66,13 +67,16 @@ function InboxContent() {
       }
     }
   }, []);
-  // Fetch messages list
+
   const { data: messages, isLoading: isMessagesLoading, refetch: refetchMessages } = useQuery({
-    queryKey: ['messages', sourceFilter, unreadOnly],
+    queryKey: ['messages', sourceFilter, unreadOnly, gmailCategoryFilter],
     queryFn: async () => {
       const params: any = {};
       if (sourceFilter !== 'all') params.source = sourceFilter;
       if (unreadOnly) params.unread_only = true;
+      if (sourceFilter === 'gmail' && gmailCategoryFilter !== 'all') {
+        params.category = gmailCategoryFilter;
+      }
       params.limit = 50;
 
       const response = await apiClient.get('/gmail/messages', { params });
@@ -180,9 +184,15 @@ function InboxContent() {
           throw new Error('Gmail is not connected. Connect it in Settings.');
         }
         setSyncStatus('Fetching emails...');
-        const response = await apiClient.post('/gmail/sync', { max_results: 20, unread_only: false });
-        return { ...response.data, source: 'gmail' };
-      }
+        const categoryParam = ['promotions', 'social', 'updates'].includes(gmailCategoryFilter) 
+          ? gmailCategoryFilter 
+          : 'primary';
+        const response = await apiClient.post('/gmail/sync', { 
+          max_results: 20, 
+          unread_only: false,
+          category: categoryParam
+        });
+        return { ...response.data, source: 'gmail' };      }
       
       if (sourceFilter === 'all') {
         const syncPromises = [];
@@ -557,6 +567,19 @@ function InboxContent() {
                 <option value="telegram">Telegram</option>
                 <option value="discord">Discord</option>
               </select>
+              {sourceFilter === 'gmail' && (
+                <select
+                  value={gmailCategoryFilter}
+                  onChange={(e) => setGmailCategoryFilter(e.target.value)}
+                  className="bg-zinc-900/40 border border-zinc-800 rounded-lg px-2.5 py-1 text-zinc-400 focus:text-zinc-100 outline-none cursor-pointer hover:border-zinc-700/80 transition-colors animate-fade-in"
+                >
+                  <option value="all">All Gmail</option>
+                  <option value="primary">Primary</option>
+                  <option value="promotions">Promotions</option>
+                  <option value="social">Socials</option>
+                  <option value="updates">Updates</option>
+                </select>
+              )}
               {sourceFilter === 'discord' && (
                 <select
                   value={discordTypeFilter}
@@ -636,7 +659,19 @@ function InboxContent() {
                       }`}>
                         {msg.source}
                       </span>
-                      
+
+                      {msg.source === 'gmail' && msg.category && (
+                        <span className={`text-[9px] font-mono uppercase tracking-wider px-2 py-0.5 rounded border font-semibold ${
+                          msg.category === 'primary' ? 'bg-emerald-950/20 text-emerald-400 border border-emerald-900/20' :
+                          msg.category === 'promotions' ? 'bg-purple-950/20 text-purple-400 border border-purple-900/20' :
+                          msg.category === 'social' ? 'bg-pink-950/20 text-pink-400 border border-pink-900/20' :
+                          msg.category === 'updates' ? 'bg-blue-950/20 text-blue-400 border border-blue-900/20' :
+                          'bg-zinc-900 border border-zinc-800 text-zinc-400'
+                        }`}>
+                          {msg.category}
+                        </span>
+                      )}
+
                       {msg.source === 'discord' && msg.subject && (
                         <span className="text-[9px] font-mono uppercase tracking-wider px-2 py-0.5 rounded border border-indigo-900/20 bg-indigo-950/20 text-indigo-400 font-semibold">
                           {msg.subject.startsWith('Server:') ? 'Server Message' : 'Personal DM'}
