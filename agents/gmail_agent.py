@@ -128,12 +128,10 @@ class GmailAgent(BaseAgent):
         headers = self._extract_headers(payload)
         body = self._extract_body(payload)
 
-        # Extract category from labelIds
-        label_ids = gmail_raw.get("labelIds", [])
+        # Extract category from labelIds (normalize to uppercase for safety)
+        label_ids = [label.upper() for label in gmail_raw.get("labelIds", [])]
         category = "primary"  # default
-        if "CATEGORY_PERSONAL" in label_ids:
-            category = "primary"
-        elif "CATEGORY_PROMOTIONS" in label_ids:
+        if "CATEGORY_PROMOTIONS" in label_ids:
             category = "promotions"
         elif "CATEGORY_SOCIAL" in label_ids:
             category = "social"
@@ -141,6 +139,8 @@ class GmailAgent(BaseAgent):
             category = "updates"
         elif "CATEGORY_FORUMS" in label_ids:
             category = "forums"
+        elif "CATEGORY_PERSONAL" in label_ids:
+            category = "primary"
 
         return {
             "message_id": gmail_raw.get("id", ""),

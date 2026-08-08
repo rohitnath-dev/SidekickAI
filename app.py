@@ -58,6 +58,24 @@ async def lifespan(app: FastAPI):
         Base.metadata.create_all(bind=engine)
         logger.info("Database tables ready.")
 
+        # Backfill category = "primary" for existing messages where category is None
+        try:
+            from database import SessionLocal
+            from models.message import Message
+            db = SessionLocal()
+            updated_count = db.query(Message).filter(Message.category.is_(None)).update(
+                {Message.category: "primary"},
+                synchronize_session=False
+            )
+            if updated_count > 0:
+                db.commit()
+                logger.info("Backfilled %d messages with category='primary'.", updated_count)
+            else:
+                logger.info("No messages need category backfilling.")
+            db.close()
+        except Exception as err:
+            logger.error("Failed to backfill message categories: %s", err)
+
         # Run Alembic migrations automatically on startup
         try:
             from alembic.config import Config

@@ -49,7 +49,6 @@ class LLMClient:
 
     CHAT_PATH = "/chat/completions"
     MODELS_PATH = "/models"
-
     def __init__(
         self,
         api_key: Optional[str] = None,
@@ -57,15 +56,19 @@ class LLMClient:
         model: Optional[str] = None,
         timeout: Optional[float] = None,
     ) -> None:
-        self.api_key: str = api_key or settings.OPENROUTER_API_KEY
-        self.base_url: str = (base_url or settings.OPENROUTER_BASE_URL).rstrip("/")
-        self.model: str = model or settings.OPENROUTER_MODEL
-        self.timeout: float = timeout or settings.OPENROUTER_TIMEOUT
+        import os
+        self.api_key: str = api_key or os.environ.get("OPENROUTER_API_KEY") or settings.OPENROUTER_API_KEY or ""
+        self.base_url: str = (base_url or os.environ.get("OPENROUTER_BASE_URL") or settings.OPENROUTER_BASE_URL or "https://openrouter.ai/api/v1").rstrip("/")
+        self.model: str = model or os.environ.get("OPENROUTER_MODEL") or settings.OPENROUTER_MODEL or "openrouter/free"
+        
+        try:
+            self.timeout = timeout or float(os.environ.get("OPENROUTER_TIMEOUT") or settings.OPENROUTER_TIMEOUT or 60.0)
+        except Exception:
+            self.timeout = 60.0
 
         if not self.api_key:
             logger.warning("LLMClient: no API key configured.")
 
-        # Async client — one shared instance, closed at app shutdown.
         self._client: httpx.AsyncClient = httpx.AsyncClient(
             base_url=self.base_url,
             timeout=self.timeout,
@@ -167,14 +170,15 @@ class LLMClient:
 
     # Public API
     # ------------------------------------------------------------------
-
     async def _chat_gemini(
         self,
         messages: list[dict[str, str]],
         temperature: Optional[float] = None,
         max_tokens: Optional[int] = None,
     ) -> str:
-        if not settings.GEMINI_API_KEY:
+        import os
+        gemini_key = os.environ.get("GEMINI_API_KEY") or settings.GEMINI_API_KEY or ""
+        if not gemini_key:
             raise LLMException("Gemini API key is not configured.")
 
         contents = []
@@ -210,9 +214,7 @@ class LLMClient:
             
         if system_instruction:
             payload["systemInstruction"] = system_instruction
-
-        url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={settings.GEMINI_API_KEY}"
-        
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={gemini_key}"
         try:
             response = await self._client.post(
                 url,
@@ -294,9 +296,12 @@ class LLMClient:
         
         user_msg = next((m["content"] for m in messages if m["role"] == "user"), "")
         system_msg = next((m["content"] for m in messages if m["role"] == "system"), "")
+        import os
+        or_key = self.api_key or os.environ.get("OPENROUTER_API_KEY") or ""
+        gemini_key = os.environ.get("GEMINI_API_KEY") or settings.GEMINI_API_KEY or ""
 
-        has_or_key = bool(self.api_key and self.api_key.strip() != "")
-        has_gemini_key = bool(settings.GEMINI_API_KEY and settings.GEMINI_API_KEY.strip() != "")
+        has_or_key = bool(or_key and or_key.strip() != "")
+        has_gemini_key = bool(gemini_key and gemini_key.strip() != "")
 
         if not has_or_key and not has_gemini_key:
             logger.warning("LLMClient: no API key configured (neither OpenRouter nor Gemini). Using local mock fallback response.")
