@@ -51,12 +51,14 @@ class GmailAgent(BaseAgent):
         except HttpError as exc:
             self.logger.error("GmailAgent.get_profile failed: %s", exc)
             return {}
+
     def get_messages(
         self,
         creds: Credentials,
         limit: int = 100,
         unread_only: bool = False,
         query_override: Optional[str] = None,
+        label_ids: Optional[list[str]] = None,
     ) -> list[dict]:
         """
         List Gmail messages across all categories.
@@ -73,11 +75,19 @@ class GmailAgent(BaseAgent):
             else:
                 query = "newer_than:7d"
             
-            self.logger.info("GmailAgent.get_messages query: '%s'", query)
+            self.logger.info("GmailAgent.get_messages query: '%s', labelIds: %s", query, label_ids)
+            kwargs = {
+                "userId": "me",
+                "maxResults": limit,
+                "q": query,
+            }
+            if label_ids:
+                kwargs["labelIds"] = label_ids
+                
             result = (
                 service.users()
                 .messages()
-                .list(userId="me", maxResults=limit, q=query)
+                .list(**kwargs)
                 .execute()
             )
             return result.get("messages", [])
