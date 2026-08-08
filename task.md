@@ -1,0 +1,39 @@
+# Task List - LLM Integration Debugging & Diagnostic Endpoints
+
+- [x] LLM API Key Verification: Verify OpenRouter free model rate limits (429 Rate Limit Exceeded)
+- [x] Create `routes/ai.py` implementing `GET /health`, `POST /test`, and manual `POST /analyze` endpoints
+- [x] Register `/api/v1/ai` router in `app.py`
+- [x] Update `LLMClient` in `services/llm.py` to propagate exceptions if the key is configured, avoiding silent fallbacks
+- [x] Update `BaseAgent._call_llm` in `agents/base_agent.py` to propagate LLM connection/quota exceptions
+- [x] Update `routes/planner.py` to check exception patterns (429, 401) and return helpful error status in `executive_summary`
+- [x] Update `agents/planner_agent.py` to include detailed character and chat payload logs
+- [x] Fetch `GET /ai/health` on dashboard load in `frontend/src/app/page.tsx` and render a warning banner if rate limited or unauthorized
+- [x] Verify backend and Next.js frontend builds compile cleanly
+- [x] Overwrite changes to main branch and push to trigger Render rebuild
+- [x] Investigate silently running background jobs (start_polling in `services/poller.py` running every 30 seconds)
+- [x] Implement Gemini 1.5 free-tier integration as a failover/backup provider in `services/llm.py`
+- [x] Add detailed, high-level request logs (`[LLM_API_CALL]`) mapping Timestamp, UserID, Caller, Model, PromptLength, and Status to track all LLM consumption
+- [x] Add `POLLER_ENABLED` (default: false) and `POLLER_INTERVAL_SECONDS` (default: 3600) configurations to `config.py`
+- [x] Optimize `services/poller.py` to:
+  - Check integration connections (Gmail, Telegram, WhatsApp, Discord, Twitter) for each user in the database
+  - Skip users with no active integrations entirely, logging the skip
+  - Skip calling the AI pipeline when 0 messages are found during a sync cycle, logging the skip
+  - Prevent LLM pings during any health status check in the poller
+- [x] Resolve PostgreSQL alembic migration failure by adding table existence checks to `ea319a9d0ef6_create_user_sessions_table.py` (idempotent migrations)
+- [x] Implement explicit try-except block wrapping the lifespan startup inside `app.py` to log and output full tracebacks on startup errors
+- [x] Correct the broken `OAuthToken` import path in `services/poller.py` from `models.oauth` to `models.token`
+- [x] Fix Gmail sync outdated sync issues:
+  - Fetch the most recent emails using `after:UNIX_TIMESTAMP` queries relative to the maximum `received_at` of stored messages in the DB
+  - Implement a built-in `HTMLToTextParser` using standard python `html.parser` to clean rich HTML tags, decode entities (like `&nbsp;`), and preserve spacing
+  - Return accurate sync count metrics and throw `502 Bad Gateway` on errors
+  - Render a `Last synced` timestamp in the inbox header, persisted via localStorage
+  - Add debug logs tracking fetch timestamp, number of emails found, and stored email subjects/senders
+- [x] Update `BaseAgent._call_llm` function signature in `agents/base_agent.py` to support `user_id` and `caller` arguments
+- [x] Implement Gmail sync category filtering (Primary inbox default via labelIds=['INBOX', 'CATEGORY_PERSONAL'], plus Promotions, Socials, Updates support)
+- [x] Implement robust recursive Gmail body extraction solving empty content in conversation history
+- [x] Add category tag badges in inbox message list
+- [x] Implement conditional rendering for Gmail category sub-filter selector in frontend React page
+- [x] Fix `GmailAgent.get_messages()` unexpected keyword argument `label_ids` parameter signature mismatch
+- [x] Remove INBOX label filter from Gmail category queries and add fallback query to INBOX on 0 results with debug logs
+- [x] Refactor Gmail sync to always fetch from INBOX and categorize emails individually per message from labelIds, removing category parameter from sync API
+- [x] Map NULL/None category values to Primary on the backend to avoid empty inbox filters for older messages

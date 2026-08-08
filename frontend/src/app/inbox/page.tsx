@@ -67,6 +67,32 @@ function InboxContent() {
       }
     }
   }, []);
+  const sanitizeEmailBody = (text: string | null | undefined): string => {
+    if (!text) return '';
+    try {
+      const parser = new DOMParser();
+      const doc = parser.parseFromString(text, 'text/html');
+      const plainText = doc.body.textContent || doc.body.innerText || '';
+      return plainText
+        .replace(/\u00a0/g, ' ')
+        .replace(/&nbsp;/g, ' ')
+        .replace(/&zwnj;/g, '')
+        .replace(/<[^>]+>/g, '')
+        .trim();
+    } catch (e) {
+      return text
+        .replace(/\u00a0/g, ' ')
+        .replace(/&nbsp;/g, ' ')
+        .replace(/&zwnj;/g, '')
+        .replace(/&amp;/g, '&')
+        .replace(/&lt;/g, '<')
+        .replace(/&gt;/g, '>')
+        .replace(/&quot;/g, '"')
+        .replace(/&#39;/g, "'")
+        .replace(/<[^>]+>/g, '')
+        .trim();
+    }
+  };
 
   const { data: messages, isLoading: isMessagesLoading, refetch: refetchMessages } = useQuery({
     queryKey: ['messages', sourceFilter, unreadOnly, gmailCategoryFilter],
@@ -74,7 +100,7 @@ function InboxContent() {
       const params: any = {};
       if (sourceFilter !== 'all') params.source = sourceFilter;
       if (unreadOnly) params.unread_only = true;
-      if (sourceFilter === 'gmail' && gmailCategoryFilter !== 'all') {
+      if (gmailCategoryFilter !== 'all') {
         params.category = gmailCategoryFilter;
       }
       params.limit = 50;
@@ -564,19 +590,18 @@ function InboxContent() {
                 <option value="telegram">Telegram</option>
                 <option value="discord">Discord</option>
               </select>
-              {sourceFilter === 'gmail' && (
-                <select
-                  value={gmailCategoryFilter}
-                  onChange={(e) => setGmailCategoryFilter(e.target.value)}
-                  className="bg-zinc-900/40 border border-zinc-800 rounded-lg px-2.5 py-1 text-zinc-400 focus:text-zinc-100 outline-none cursor-pointer hover:border-zinc-700/80 transition-colors animate-fade-in"
-                >
-                  <option value="all">All Gmail</option>
-                  <option value="primary">Primary</option>
-                  <option value="promotions">Promotions</option>
-                  <option value="social">Socials</option>
-                  <option value="updates">Updates</option>
-                </select>
-              )}
+              <select
+                value={gmailCategoryFilter}
+                onChange={(e) => setGmailCategoryFilter(e.target.value)}
+                className="bg-zinc-900/40 border border-zinc-800 rounded-lg px-2.5 py-1 text-zinc-400 focus:text-zinc-100 outline-none cursor-pointer hover:border-zinc-700/80 transition-colors"
+              >
+                <option value="all">All</option>
+                <option value="primary">Primary</option>
+                <option value="promotions">Promotions</option>
+                <option value="social">Social</option>
+                <option value="updates">Updates</option>
+              </select>
+
               {sourceFilter === 'discord' && (
                 <select
                   value={discordTypeFilter}
@@ -642,7 +667,7 @@ function InboxContent() {
                     </p>
 
                     <p className="text-xs text-zinc-405 line-clamp-2">
-                      {msg.summary || msg.body}
+                      {msg.summary || sanitizeEmailBody(msg.body)}
                     </p>
 
                     <div className="flex items-center gap-1.5 mt-1.5">
@@ -899,8 +924,8 @@ function InboxContent() {
                                     {tmsg.received_at ? new Date(tmsg.received_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : ''}
                                   </span>
                                 </div>
-                                <p className="text-xs text-zinc-205 leading-relaxed whitespace-pre-wrap break-words font-sans font-normal">
-                                  {tmsg.body}
+                                <p className="text-xs text-zinc-200 leading-relaxed whitespace-pre-wrap break-words font-sans font-normal">
+                                  {sanitizeEmailBody(tmsg.body)}
                                 </p>
                               </div>
                             );
@@ -909,7 +934,7 @@ function InboxContent() {
                       </div>
                     ) : (
                       <div className="glass-panel rounded-xl p-5 text-sm text-zinc-300 font-normal leading-relaxed whitespace-pre-wrap font-sans overflow-x-auto">
-                        {selectedMessage.body}
+                        {sanitizeEmailBody(selectedMessage.body)}
                       </div>
                     )}                  </div>
 
