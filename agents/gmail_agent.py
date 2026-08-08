@@ -283,9 +283,6 @@ class GmailAgent(BaseAgent):
             self.logger.warning("GmailAgent._parse_date: cannot parse '%s'", date_str)
             return datetime.utcnow()
 
-    # ------------------------------------------------------------------
-    # ------------------------------------------------------------------
-    # Sync to DB
     async def sync_messages(
         self,
         creds: Credentials,
@@ -300,6 +297,35 @@ class GmailAgent(BaseAgent):
 
         Skips duplicates (by message_id). Returns a summary dict.
         """
+        # 1. Backfill / re-evaluate category tags for already synced messages.
+        # This will fetch the real Gmail labels and update database Message.category.
+        # We limit to 50 messages to keep it fast and prevent API limits.
+        try:
+            misclassified = (
+                db.query(Message)
+                .filter_by(user_id=user_id, source=MessageSource.GMAIL)
+                .filter(Message.category == "primary")
+                .order_by(Message.received_at.desc())
+                .limit(50)
+                .all()
+            )
+            backfilled_count = 0
+            for msg in misclassified:
+                raw_msg = self.get_message(creds, msg.message_id)
+                if raw_msg:
+                    parsed_msg = self.parse_message(raw_msg)
+                    if parsed_msg:
+                        new_cat = parsed_msg.get("category", "primary")
+                        if new_cat != msg.category:
+                            msg.category = new_cat
+                            db.add(msg)
+                            backfilled_count += 1
+            if backfilled_count > 0:
+                db.commit()
+                self.logger.info("Backfill: corrected %d already synced messages to correct categories", backfilled_count)
+        except Exception as e:
+            self.logger.error("Failed to re-evaluate already synced messages: %s", e)
+
         # Always fetch from labelIds=["INBOX"] (this works for everyone)
         label_ids = ["INBOX"]
 
@@ -341,13 +367,24 @@ class GmailAgent(BaseAgent):
             if not message_id:
                 continue
 
-            # Skip if already stored
+            # Skip if already stored (but check if we need to update category if it's incorrect)
             existing = (
                 db.query(Message)
                 .filter_by(user_id=user_id, message_id=message_id)
                 .first()
             )
             if existing:
+                if not existing.category or existing.category == "primary":
+                    raw = self.get_message(creds, message_id)
+                    if raw:
+                        parsed = self.parse_message(raw)
+                        if parsed:
+                            new_cat = parsed.get("category", "primary")
+                            if new_cat != existing.category:
+                                existing.category = new_cat
+                                db.add(existing)
+                                db.commit()
+                                self.logger.info("Updated existing email %s category to %s during sync", message_id, new_cat)
                 continue
 
             raw = self.get_message(creds, message_id)
