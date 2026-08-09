@@ -216,7 +216,7 @@ export default function DashboardPage() {
             <div className="space-y-1 z-10">
               <h4 className="font-semibold text-rose-400">AI analysis temporarily unavailable</h4>
               <p className="text-zinc-400 text-xs">
-                {aiHealth.reason || "Please check your LLM API key in settings."}
+                AI service is currently rate-limited or unavailable. Please check your API limits.
               </p>
             </div>
           </div>

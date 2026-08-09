@@ -211,21 +211,25 @@ class LLMClient:
         max_tokens: Optional[int] = None,
     ) -> str:
         import os
+        import google.generativeai as genai
+        from google.api_core.exceptions import GoogleAPICallError
+
         gemini_key = os.environ.get("GEMINI_API_KEY") or settings.GEMINI_API_KEY or ""
         if not gemini_key:
             raise LLMException("Gemini API key is not configured.")
 
+        # Configure the Google GenAI SDK
+        genai.configure(api_key=gemini_key)
+
         contents = []
-        system_instruction = None
+        system_instruction_str = None
         
         for msg in messages:
             role = msg["role"]
             content_text = msg["content"]
             
             if role == "system":
-                system_instruction = {
-                    "parts": [{"text": content_text}]
-                }
+                system_instruction_str = content_text
             elif role == "user":
                 contents.append({
                     "role": "user",
@@ -237,39 +241,34 @@ class LLMClient:
                     "parts": [{"text": content_text}]
                 })
                 
-        payload = {
-            "contents": contents,
-            "generationConfig": {
-                "temperature": temperature if temperature is not None else settings.OPENROUTER_TEMPERATURE,
-            }
-        }
+        generation_config = {}
+        if temperature is not None:
+            generation_config["temperature"] = temperature
+        else:
+            generation_config["temperature"] = settings.OPENROUTER_TEMPERATURE
         if max_tokens is not None:
-            payload["generationConfig"]["maxOutputTokens"] = max_tokens
-            
-        if system_instruction:
-            payload["systemInstruction"] = system_instruction
+            generation_config["max_output_tokens"] = max_tokens
 
         models_to_try = ["gemini-1.5-flash", "gemini-pro"]
         last_exc = None
 
         for model_name in models_to_try:
-            url = f"https://generativelanguage.googleapis.com/v1beta/models/{model_name}:generateContent?key={gemini_key}"
             try:
-                response = await self._client.post(
-                    url,
-                    json=payload,
-                    headers={"Content-Type": "application/json"}
+                # Initialize the model via SDK GenerativeModel constructor
+                model = genai.GenerativeModel(
+                    model_name=model_name,
+                    system_instruction=system_instruction_str
                 )
-                response.raise_for_status()
-                data = response.json()
                 
-                candidates = data.get("candidates", [])
-                if not candidates:
-                    raise LLMResponseError(f"Gemini {model_name} returned empty candidates.")
+                # Execute the request using async generate_content_async method
+                response = await model.generate_content_async(
+                    contents=contents,
+                    generation_config=generation_config
+                )
                 
-                content_text = candidates[0].get("content", {}).get("parts", [{}])[0].get("text", "")
+                content_text = response.text
                 if not content_text:
-                    raise LLMResponseError(f"Gemini {model_name} candidate did not contain text parts.")
+                    raise LLMResponseError(f"Gemini {model_name} returned empty text.")
                     
                 # Store successful model name
                 self.last_used_gemini_model = model_name
@@ -278,17 +277,13 @@ class LLMClient:
                 last_exc = exc
                 status_code = None
                 response_payload = None
-                if isinstance(exc, httpx.HTTPStatusError):
-                    status_code = exc.response.status_code
-                    try:
-                        response_payload = exc.response.json()
-                    except ValueError:
-                        response_payload = exc.response.text
-                    except Exception:
-                        response_payload = None
 
-                # If it's a 404, we want to try the next model
-                if isinstance(exc, httpx.HTTPStatusError) and status_code == 404:
+                if isinstance(exc, GoogleAPICallError):
+                    status_code = exc.code
+                    response_payload = str(exc)
+
+                # Check for 404 NOT_FOUND
+                if (isinstance(exc, GoogleAPICallError) and status_code == 404) or "404" in str(exc):
                     warn_msg = f"[WARNING] Gemini model '{model_name}' returned 404 NOT FOUND. Trying next fallback model..."
                     print(warn_msg)
                     logger.warning(warn_msg)
@@ -307,26 +302,15 @@ class LLMClient:
 
         if last_exc:
             status_code = None
-            response_payload = None
-            if isinstance(last_exc, httpx.HTTPStatusError):
-                status_code = last_exc.response.status_code
-                try:
-                    response_payload = last_exc.response.json()
-                except Exception:
-                    response_payload = last_exc.response.text
-
-            if isinstance(last_exc, httpx.TimeoutException):
-                raise LLMConnectionError(f"Gemini request timed out: {last_exc}") from last_exc
-            elif isinstance(last_exc, httpx.HTTPStatusError):
+            if isinstance(last_exc, GoogleAPICallError):
+                status_code = last_exc.code
                 if status_code == 401:
-                    raise LLMAuthenticationError(f"Gemini Auth failed: {response_payload}") from last_exc
+                    raise LLMAuthenticationError(f"Gemini Auth failed: {last_exc}") from last_exc
                 if status_code == 429:
-                    raise LLMRateLimitError(f"Gemini Rate limit: {response_payload}") from last_exc
-                raise LLMException(f"Gemini error {status_code}: {response_payload}") from last_exc
-            elif isinstance(last_exc, httpx.RequestError):
-                raise LLMConnectionError(f"Gemini connection failed: {last_exc}") from last_exc
-            else:
-                raise LLMException(f"Gemini call failed: {last_exc}") from last_exc
+                    raise LLMRateLimitError(f"Gemini Rate limit: {last_exc}") from last_exc
+                raise LLMException(f"Gemini error {status_code}: {last_exc}") from last_exc
+            
+            raise LLMException(f"Gemini call failed: {last_exc}") from last_exc
         else:
             raise LLMException("Gemini call failed: no models could be tried.")
 
@@ -693,7 +677,7 @@ class LLMClient:
                     "status": "error",
                     "provider": "Gemini",
                     "model": self.last_used_gemini_model,
-                    "reason": f"Gemini connection failed: {exc}"
+                    "reason": "AI service is currently rate-limited or unavailable. Please check your API limits."
                 }
 
         # Case 2: OpenRouter is configured (Gemini might be fallback)
@@ -730,14 +714,14 @@ class LLMClient:
                     "status": "error",
                     "provider": "OpenRouter & Gemini Fallback",
                     "model": "None",
-                    "reason": f"OpenRouter failed: {or_error}. Gemini fallback also failed: {gem_exc}"
+                    "reason": "AI service is currently rate-limited or unavailable. Please check your API limits."
                 }
         else:
             return {
                 "status": "error",
                 "provider": "OpenRouter",
                 "model": self.model,
-                "reason": f"OpenRouter health check failed: {or_error}"
+                "reason": "AI service is currently rate-limited or unavailable. Please check your API limits."
             }
 
     async def list_models(self) -> list[dict[str, Any]]:
