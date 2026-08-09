@@ -362,7 +362,7 @@ class GmailAgent(BaseAgent):
             label_ids=label_ids,
         )
 
-        self.logger.info("Gmail query labelIds=%s, returned %d messages", label_ids, len(raw_list))
+        logger.info(f"GMAIL DEBUG: label_ids sent = {label_ids}, raw API response message count = {len(raw_list) if raw_list else 0}, raw response snippet = {raw_list[:2] if raw_list else 'EMPTY'}")
 
         # Fallback: if category query returns 0 and is not "INBOX" already, try labelIds=["INBOX"]
         if not raw_list and label_ids != ["INBOX"]:
