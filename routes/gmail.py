@@ -264,12 +264,13 @@ async def list_messages(
     try:
         from models.message import Message, MessageSource
         db_messages = db.query(Message).filter_by(source=MessageSource.GMAIL).order_by(Message.id.desc()).limit(10).all()
-        logger.info(f"DIAGNOSTIC STORED MESSAGES: {[(m.id, m.subject, m.category) for m in db_messages]}")
+        raw_values = [(m.id, m.subject, m.category) for m in db_messages]
+        logger.info(f"GMAIL_DIAGNOSTIC: category parameter = {category}, raw stored GMAIL count = {db.query(Message).filter_by(source=MessageSource.GMAIL).count()}, raw response snippet = {raw_values}")
     except Exception as exc:
-        logger.error(f"DIAGNOSTIC QUERY FAILED: {exc}")
+        logger.error(f"GMAIL_DIAGNOSTIC QUERY FAILED: {exc}")
 
     active_providers = get_active_providers(current_user.id, db)
-    
+
     # If source is specified, check if that source's provider is active
     if source:
         provider_map = {"GMAIL": "google", "TWITTER": "twitter", "WHATSAPP": "whatsapp", "LINKEDIN": "linkedin", "TELEGRAM": "telegram", "DISCORD": "discord"}
