@@ -261,6 +261,13 @@ async def list_messages(
     db: Session = Depends(get_db),
 ):
     """List stored messages for the current user."""
+    try:
+        from models.message import Message, MessageSource
+        db_messages = db.query(Message).filter_by(source=MessageSource.GMAIL).order_by(Message.id.desc()).limit(10).all()
+        logger.info(f"DIAGNOSTIC STORED MESSAGES: {[(m.id, m.subject, m.category) for m in db_messages]}")
+    except Exception as exc:
+        logger.error(f"DIAGNOSTIC QUERY FAILED: {exc}")
+
     active_providers = get_active_providers(current_user.id, db)
     
     # If source is specified, check if that source's provider is active
