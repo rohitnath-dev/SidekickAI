@@ -52,6 +52,8 @@ logger = logging.getLogger(__name__)
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     import traceback
+    logger.info("APP_VERSION_MARKER: starting new deploy version")
+    print("APP_VERSION_MARKER: starting new deploy version")
     logger.info("Starting Sidekick AI v%s …", settings.VERSION)
     try:
         # Create all database tables (legacy/fallback)

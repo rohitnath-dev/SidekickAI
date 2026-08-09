@@ -261,17 +261,21 @@ async def list_messages(
     db: Session = Depends(get_db),
 ):
     """List stored messages for the current user."""
+    logger.info("LIST_MESSAGES_FUNCTION_ENTRY_MARKER_12345")
+    print("LIST_MESSAGES_FUNCTION_ENTRY_MARKER_12345")
     try:
         from models.message import Message, MessageSource
         db_messages = db.query(Message).filter_by(source=MessageSource.GMAIL).order_by(Message.id.desc()).limit(10).all()
         raw_values = [(m.id, m.subject, m.category) for m in db_messages]
-        logger.info(f"GMAIL_DIAGNOSTIC: category parameter = {category}, raw stored GMAIL count = {db.query(Message).filter_by(source=MessageSource.GMAIL).count()}, raw response snippet = {raw_values}")
+        log_msg = f"GMAIL_DIAGNOSTIC: category parameter = {category}, raw stored GMAIL count = {db.query(Message).filter_by(source=MessageSource.GMAIL).count()}, raw response snippet = {raw_values}"
+        logger.info(log_msg)
+        print(log_msg)
     except Exception as exc:
         logger.error(f"GMAIL_DIAGNOSTIC QUERY FAILED: {exc}")
+        print(f"GMAIL_DIAGNOSTIC QUERY FAILED: {exc}")
 
     active_providers = get_active_providers(current_user.id, db)
 
-    # If source is specified, check if that source's provider is active
     if source:
         provider_map = {"GMAIL": "google", "TWITTER": "twitter", "WHATSAPP": "whatsapp", "LINKEDIN": "linkedin", "TELEGRAM": "telegram", "DISCORD": "discord"}
         provider = provider_map.get(source.upper())
