@@ -127,13 +127,38 @@ class LLMClient:
             )
             response.raise_for_status()
             return response
-        except httpx.TimeoutException as exc:
-            raise LLMConnectionError(f"LLM request timed out: {exc}") from exc
-        except httpx.HTTPStatusError as exc:
-            self._handle_http_error(exc)
-            raise  # _handle_http_error always raises; satisfies type checkers
-        except httpx.RequestError as exc:
-            raise LLMConnectionError(f"LLM connection failed: {exc}") from exc
+        except Exception as exc:
+            # Robust extraction of error details for logging
+            status_code = None
+            response_payload = None
+            if isinstance(exc, httpx.HTTPStatusError):
+                status_code = exc.response.status_code
+                try:
+                    response_payload = exc.response.json()
+                except ValueError:
+                    response_payload = exc.response.text
+                except Exception:
+                    response_payload = None
+
+            err_msg = (
+                f"[LLM_ERROR] OpenRouter request failed.\n"
+                f"Exception Type: {type(exc).__name__}\n"
+                f"Exception Message: {str(exc)}\n"
+                f"Status Code: {status_code}\n"
+                f"Response Payload: {response_payload}"
+            )
+            print(err_msg)
+            logger.error(err_msg)
+
+            if isinstance(exc, httpx.TimeoutException):
+                raise LLMConnectionError(f"LLM request timed out: {exc}") from exc
+            elif isinstance(exc, httpx.HTTPStatusError):
+                self._handle_http_error(exc)
+                raise
+            elif isinstance(exc, httpx.RequestError):
+                raise LLMConnectionError(f"LLM connection failed: {exc}") from exc
+            else:
+                raise LLMException(f"OpenRouter request failed: {exc}") from exc
 
     def _handle_http_error(self, exc: httpx.HTTPStatusError) -> None:
         status = exc.response.status_code
@@ -233,21 +258,41 @@ class LLMClient:
                 raise LLMResponseError("Gemini candidate did not contain text parts.")
                 
             return content_text
-        except httpx.TimeoutException as exc:
-            raise LLMConnectionError(f"Gemini request timed out: {exc}") from exc
-        except httpx.HTTPStatusError as exc:
-            status_code = exc.response.status_code
-            try:
-                body = exc.response.json()
-            except ValueError:
-                body = exc.response.text
-            if status_code == 401:
-                raise LLMAuthenticationError(f"Gemini Auth failed: {body}") from exc
-            if status_code == 429:
-                raise LLMRateLimitError(f"Gemini Rate limit: {body}") from exc
-            raise LLMException(f"Gemini error {status_code}: {body}") from exc
         except Exception as exc:
-            raise LLMException(f"Gemini call failed: {exc}") from exc
+            # Robust extraction of error details for logging
+            status_code = None
+            response_payload = None
+            if isinstance(exc, httpx.HTTPStatusError):
+                status_code = exc.response.status_code
+                try:
+                    response_payload = exc.response.json()
+                except ValueError:
+                    response_payload = exc.response.text
+                except Exception:
+                    response_payload = None
+
+            err_msg = (
+                f"[LLM_ERROR] Gemini request failed.\n"
+                f"Exception Type: {type(exc).__name__}\n"
+                f"Exception Message: {str(exc)}\n"
+                f"Status Code: {status_code}\n"
+                f"Response Payload: {response_payload}"
+            )
+            print(err_msg)
+            logger.error(err_msg)
+
+            if isinstance(exc, httpx.TimeoutException):
+                raise LLMConnectionError(f"Gemini request timed out: {exc}") from exc
+            elif isinstance(exc, httpx.HTTPStatusError):
+                if status_code == 401:
+                    raise LLMAuthenticationError(f"Gemini Auth failed: {response_payload}") from exc
+                if status_code == 429:
+                    raise LLMRateLimitError(f"Gemini Rate limit: {response_payload}") from exc
+                raise LLMException(f"Gemini error {status_code}: {response_payload}") from exc
+            elif isinstance(exc, httpx.RequestError):
+                raise LLMConnectionError(f"Gemini connection failed: {exc}") from exc
+            else:
+                raise LLMException(f"Gemini call failed: {exc}") from exc
 
     async def generate(
         self,
@@ -351,7 +396,9 @@ class LLMClient:
         except Exception as exc:
             # OpenRouter failed. Check if we can fall back to Gemini
             if has_gemini_key:
-                logger.warning("OpenRouter failed (details: %s). Attempting fallback to Gemini...", exc)
+                warn_msg = f"[WARNING] OpenRouter failed (details: {exc}). Attempting fallback to Gemini (gemini-1.5-flash)..."
+                print(warn_msg)
+                logger.warning(warn_msg)
                 try:
                     active_model = "gemini-1.5-flash (FALLBACK)"
                     content = await self._chat_gemini(messages, temperature, max_tokens)
@@ -579,6 +626,83 @@ class LLMClient:
         except LLMException as exc:
             logger.warning("LLM health check failed: %s", exc)
             return False
+
+    async def health_check_details(self) -> dict[str, Any]:
+        """Check health of OpenRouter and Gemini providers, returning detailed status."""
+        import os
+        or_key = self.api_key or os.environ.get("OPENROUTER_API_KEY") or ""
+        gemini_key = os.environ.get("GEMINI_API_KEY") or settings.GEMINI_API_KEY or ""
+        has_or_key = bool(or_key and or_key.strip() != "")
+        has_gemini_key = bool(gemini_key and gemini_key.strip() != "")
+
+        if not has_or_key and not has_gemini_key:
+            return {
+                "status": "error",
+                "provider": "None",
+                "model": "None",
+                "reason": "No LLM API keys are configured (neither OPENROUTER_API_KEY nor GEMINI_API_KEY)."
+            }
+
+        # Case 1: Only Gemini is configured
+        if has_gemini_key and not has_or_key:
+            try:
+                await self._chat_gemini([{"role": "user", "content": "ping"}], max_tokens=1)
+                return {
+                    "status": "ok",
+                    "provider": "Gemini",
+                    "model": "gemini-1.5-flash"
+                }
+            except Exception as exc:
+                return {
+                    "status": "error",
+                    "provider": "Gemini",
+                    "model": "gemini-1.5-flash",
+                    "reason": f"Gemini connection failed: {exc}"
+                }
+
+        # Case 2: OpenRouter is configured (Gemini might be fallback)
+        or_error = None
+        try:
+            payload = self._payload(
+                messages=[{"role": "user", "content": "ping"}],
+                max_tokens=1,
+            )
+            response = await self._request("POST", self.CHAT_PATH, payload)
+            self._extract_content(response)
+            return {
+                "status": "ok",
+                "provider": "OpenRouter",
+                "model": self.model
+            }
+        except Exception as exc:
+            or_error = exc
+            warn_msg = f"[WARNING] OpenRouter health check failed (details: {exc}). Checking Gemini fallback status..."
+            print(warn_msg)
+            logger.warning(warn_msg)
+
+        if has_gemini_key:
+            try:
+                await self._chat_gemini([{"role": "user", "content": "ping"}], max_tokens=1)
+                return {
+                    "status": "ok",
+                    "provider": "Gemini (Fallback)",
+                    "model": "gemini-1.5-flash",
+                    "warning": f"OpenRouter failed: {or_error}. Using Gemini fallback."
+                }
+            except Exception as gem_exc:
+                return {
+                    "status": "error",
+                    "provider": "OpenRouter & Gemini Fallback",
+                    "model": "None",
+                    "reason": f"OpenRouter failed: {or_error}. Gemini fallback also failed: {gem_exc}"
+                }
+        else:
+            return {
+                "status": "error",
+                "provider": "OpenRouter",
+                "model": self.model,
+                "reason": f"OpenRouter health check failed: {or_error}"
+            }
 
     async def list_models(self) -> list[dict[str, Any]]:
         """Return available models from OpenRouter."""

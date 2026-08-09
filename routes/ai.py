@@ -25,43 +25,15 @@ class AnalyzeMessageRequest(BaseModel):
     message_id: Optional[int] = None
 
 @router.get("/health")
-
 async def ai_health(current_user: User = Depends(get_current_user)):
     """Check health of the active LLM provider connection."""
-    from config import settings
-    
-    has_or_key = bool(llm.api_key and llm.api_key.strip() != "")
-    has_gemini_key = bool(settings.GEMINI_API_KEY and settings.GEMINI_API_KEY.strip() != "")
-    
-    if not has_or_key and not has_gemini_key:
-        return {
-            "status": "error",
-            "provider": "None",
-            "reason": "No LLM API keys are configured (neither OPENROUTER_API_KEY nor GEMINI_API_KEY)."
-        }
-        
-    active_provider = "Gemini" if (has_gemini_key and not has_or_key) else "OpenRouter"
-    
     try:
-        # Perform actual ping call
-        alive = await llm.health_check()
-        if alive:
-            return {
-                "status": "ok",
-                "provider": active_provider,
-                "model": "gemini-1.5-flash" if active_provider == "Gemini" else llm.model
-            }
-        else:
-            return {
-                "status": "error",
-                "provider": active_provider,
-                "reason": "Health check request did not return a successful result."
-            }
+        return await llm.health_check_details()
     except Exception as exc:
         logger.error("LLM health check exception: %s", exc, exc_info=True)
         return {
             "status": "error",
-            "provider": active_provider,
+            "provider": "Unknown",
             "reason": f"Connection check failed: {exc}"
         }
 
