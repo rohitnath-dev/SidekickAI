@@ -93,26 +93,21 @@ class GmailAgent(BaseAgent):
             )
             return result.get("messages", [])
         except HttpError as exc:
-            self.logger.error("GmailAgent.get_messages failed: %s", exc)
             raise exc
 
     def get_message(self, creds: Credentials, message_id: str) -> dict:
         """Fetch a full Gmail message by ID."""
-        try:
-
-            service = self._build_service(creds)
-            return (
-                service.users()
-                .messages()
-                .get(userId="me", id=message_id, format="full")
-                .execute()
-            )
-        except HttpError as exc:
-            self.logger.error("GmailAgent.get_message(%s) failed: %s", message_id, exc)
-            return {}
+        service = self._build_service(creds)
+        return (
+            service.users()
+            .messages()
+            .get(userId="me", id=message_id, format="full")
+            .execute()
+        )
 
     # ------------------------------------------------------------------
     # Parsing
+
     # ------------------------------------------------------------------
 
     def parse_message(self, gmail_raw: dict) -> dict:
