@@ -69,6 +69,8 @@ class LLMClient:
         if not self.api_key:
             logger.warning("LLMClient: no API key configured.")
 
+        self.last_used_gemini_model: str = "gemini-1.5-flash"
+
         self._client: httpx.AsyncClient = httpx.AsyncClient(
             base_url=self.base_url,
             timeout=self.timeout,
@@ -176,17 +178,24 @@ class LLMClient:
         raise LLMException(f"Unexpected LLM error {status}: {body}") from exc
 
     def _extract_content(self, response: httpx.Response) -> str:
+        if not response or not response.text or not response.text.strip():
+            raise LLMResponseError("OpenRouter response body is empty or null.")
         try:
             data = response.json()
         except ValueError as exc:
             raise LLMResponseError(f"Non-JSON response: {exc}") from exc
+        if not data:
+            raise LLMResponseError("OpenRouter response JSON is empty.")
         try:
-            choices = data["choices"]
+            choices = data.get("choices")
             if not choices:
-                raise LLMResponseError("Empty choices list.")
-            content = choices[0]["message"]["content"]
-            if not isinstance(content, str) or not content.strip():
-                raise LLMResponseError("Empty content in response.")
+                raise LLMResponseError("OpenRouter choices list is empty.")
+            message = choices[0].get("message")
+            if not message:
+                raise LLMResponseError("OpenRouter message object is missing.")
+            content = message.get("content")
+            if content is None or (isinstance(content, str) and not content.strip()):
+                raise LLMResponseError("OpenRouter message content is empty or null.")
             return content
         except (KeyError, IndexError, TypeError) as exc:
             raise LLMResponseError(f"Unexpected response shape: {exc}") from exc
@@ -239,60 +248,87 @@ class LLMClient:
             
         if system_instruction:
             payload["systemInstruction"] = system_instruction
-        url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={gemini_key}"
-        try:
-            response = await self._client.post(
-                url,
-                json=payload,
-                headers={"Content-Type": "application/json"}
-            )
-            response.raise_for_status()
-            data = response.json()
-            
-            candidates = data.get("candidates", [])
-            if not candidates:
-                raise LLMResponseError("Gemini returned empty candidates.")
-            
-            content_text = candidates[0].get("content", {}).get("parts", [{}])[0].get("text", "")
-            if not content_text:
-                raise LLMResponseError("Gemini candidate did not contain text parts.")
+
+        models_to_try = ["gemini-1.5-flash", "gemini-pro"]
+        last_exc = None
+
+        for model_name in models_to_try:
+            url = f"https://generativelanguage.googleapis.com/v1beta/models/{model_name}:generateContent?key={gemini_key}"
+            try:
+                response = await self._client.post(
+                    url,
+                    json=payload,
+                    headers={"Content-Type": "application/json"}
+                )
+                response.raise_for_status()
+                data = response.json()
                 
-            return content_text
-        except Exception as exc:
-            # Robust extraction of error details for logging
+                candidates = data.get("candidates", [])
+                if not candidates:
+                    raise LLMResponseError(f"Gemini {model_name} returned empty candidates.")
+                
+                content_text = candidates[0].get("content", {}).get("parts", [{}])[0].get("text", "")
+                if not content_text:
+                    raise LLMResponseError(f"Gemini {model_name} candidate did not contain text parts.")
+                    
+                # Store successful model name
+                self.last_used_gemini_model = model_name
+                return content_text
+            except Exception as exc:
+                last_exc = exc
+                status_code = None
+                response_payload = None
+                if isinstance(exc, httpx.HTTPStatusError):
+                    status_code = exc.response.status_code
+                    try:
+                        response_payload = exc.response.json()
+                    except ValueError:
+                        response_payload = exc.response.text
+                    except Exception:
+                        response_payload = None
+
+                # If it's a 404, we want to try the next model
+                if isinstance(exc, httpx.HTTPStatusError) and status_code == 404:
+                    warn_msg = f"[WARNING] Gemini model '{model_name}' returned 404 NOT FOUND. Trying next fallback model..."
+                    print(warn_msg)
+                    logger.warning(warn_msg)
+                    continue
+
+                err_msg = (
+                    f"[LLM_ERROR] Gemini request failed for model '{model_name}'.\n"
+                    f"Exception Type: {type(exc).__name__}\n"
+                    f"Exception Message: {str(exc)}\n"
+                    f"Status Code: {status_code}\n"
+                    f"Response Payload: {response_payload}"
+                )
+                print(err_msg)
+                logger.error(err_msg)
+                break
+
+        if last_exc:
             status_code = None
             response_payload = None
-            if isinstance(exc, httpx.HTTPStatusError):
-                status_code = exc.response.status_code
+            if isinstance(last_exc, httpx.HTTPStatusError):
+                status_code = last_exc.response.status_code
                 try:
-                    response_payload = exc.response.json()
-                except ValueError:
-                    response_payload = exc.response.text
+                    response_payload = last_exc.response.json()
                 except Exception:
-                    response_payload = None
+                    response_payload = last_exc.response.text
 
-            err_msg = (
-                f"[LLM_ERROR] Gemini request failed.\n"
-                f"Exception Type: {type(exc).__name__}\n"
-                f"Exception Message: {str(exc)}\n"
-                f"Status Code: {status_code}\n"
-                f"Response Payload: {response_payload}"
-            )
-            print(err_msg)
-            logger.error(err_msg)
-
-            if isinstance(exc, httpx.TimeoutException):
-                raise LLMConnectionError(f"Gemini request timed out: {exc}") from exc
-            elif isinstance(exc, httpx.HTTPStatusError):
+            if isinstance(last_exc, httpx.TimeoutException):
+                raise LLMConnectionError(f"Gemini request timed out: {last_exc}") from last_exc
+            elif isinstance(last_exc, httpx.HTTPStatusError):
                 if status_code == 401:
-                    raise LLMAuthenticationError(f"Gemini Auth failed: {response_payload}") from exc
+                    raise LLMAuthenticationError(f"Gemini Auth failed: {response_payload}") from last_exc
                 if status_code == 429:
-                    raise LLMRateLimitError(f"Gemini Rate limit: {response_payload}") from exc
-                raise LLMException(f"Gemini error {status_code}: {response_payload}") from exc
-            elif isinstance(exc, httpx.RequestError):
-                raise LLMConnectionError(f"Gemini connection failed: {exc}") from exc
+                    raise LLMRateLimitError(f"Gemini Rate limit: {response_payload}") from last_exc
+                raise LLMException(f"Gemini error {status_code}: {response_payload}") from last_exc
+            elif isinstance(last_exc, httpx.RequestError):
+                raise LLMConnectionError(f"Gemini connection failed: {last_exc}") from last_exc
             else:
-                raise LLMException(f"Gemini call failed: {exc}") from exc
+                raise LLMException(f"Gemini call failed: {last_exc}") from last_exc
+        else:
+            raise LLMException("Gemini call failed: no models could be tried.")
 
     async def generate(
         self,
@@ -650,13 +686,13 @@ class LLMClient:
                 return {
                     "status": "ok",
                     "provider": "Gemini",
-                    "model": "gemini-1.5-flash"
+                    "model": self.last_used_gemini_model
                 }
             except Exception as exc:
                 return {
                     "status": "error",
                     "provider": "Gemini",
-                    "model": "gemini-1.5-flash",
+                    "model": self.last_used_gemini_model,
                     "reason": f"Gemini connection failed: {exc}"
                 }
 
@@ -686,7 +722,7 @@ class LLMClient:
                 return {
                     "status": "ok",
                     "provider": "Gemini (Fallback)",
-                    "model": "gemini-1.5-flash",
+                    "model": self.last_used_gemini_model,
                     "warning": f"OpenRouter failed: {or_error}. Using Gemini fallback."
                 }
             except Exception as gem_exc:
