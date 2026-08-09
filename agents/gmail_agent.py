@@ -21,9 +21,10 @@ from sqlalchemy.orm import Session
 
 from agents.base_agent import BaseAgent
 from models.message import Message, MessagePriority, MessageSource, MessageStatus
-
 logger = logging.getLogger(__name__)
 
+# Track users whose legacy messages have been re-evaluated during this server runtime
+_backfilled_users: set[int] = set()
 
 class GmailAgent(BaseAgent):
     """Gmail integration agent — fetches, parses, and stores Gmail messages."""
@@ -296,39 +297,51 @@ class GmailAgent(BaseAgent):
 
         Skips duplicates (by message_id). Returns a summary dict.
         """
-        # 1. Backfill / re-evaluate category tags for already synced messages.
-        # This will fetch the real Gmail labels and update database Message.category.
-        # We limit to 50 messages to keep it fast and prevent API limits.
-        try:
-            misclassified = (
-                db.query(Message)
-                .filter_by(user_id=user_id, source=MessageSource.GMAIL)
-                .order_by(Message.received_at.desc())
-                .limit(150)
-                .all()
-            )
-            backfilled_count = 0
-            for msg in misclassified:
-                raw_msg = self.get_message(creds, msg.message_id)
-                if raw_msg:
-                    parsed_msg = self.parse_message(raw_msg)
-                    if parsed_msg:
-                        new_cat = parsed_msg.get("category", "primary")
-                        if new_cat != msg.category:
-                            msg.category = new_cat
-                            db.add(msg)
-                            backfilled_count += 1
-            if backfilled_count > 0:
-                db.commit()
-                self.logger.info("Backfill: corrected %d already synced messages to correct categories", backfilled_count)
-        except Exception as e:
-            self.logger.error("Failed to re-evaluate already synced messages: %s", e)
+        global _backfilled_users
+        if user_id not in _backfilled_users:
+            _backfilled_users.add(user_id)
+            # 1. Backfill / re-evaluate category tags for already synced messages.
+            # This will fetch the real Gmail labels and update database Message.category.
+            # We limit to 150 messages to keep it fast and prevent API limits.
+            try:
+                misclassified = (
+                    db.query(Message)
+                    .filter_by(user_id=user_id, source=MessageSource.GMAIL)
+                    .order_by(Message.received_at.desc())
+                    .limit(150)
+                    .all()
+                )
+                backfilled_count = 0
+                for msg in misclassified:
+                    try:
+                        raw_msg = self.get_message(creds, msg.message_id)
+                        if raw_msg:
+                            parsed_msg = self.parse_message(raw_msg)
+                            if parsed_msg:
+                                new_cat = parsed_msg.get("category", "primary")
+                                if new_cat != msg.category:
+                                    msg.category = new_cat
+                                    db.add(msg)
+                                    backfilled_count += 1
+                    except HttpError as exc:
+                        if exc.resp.status == 404:
+                            self.logger.info("Email %s not found in Gmail (404) during backfill. Deleting from database.", msg.message_id)
+                            db.delete(msg)
+                            db.commit()
+                        else:
+                            raise exc
+                if backfilled_count > 0:
+                    db.commit()
+                    self.logger.info("Backfill: corrected %d already synced messages to correct categories", backfilled_count)
+            except Exception as e:
+                self.logger.error("Failed to re-evaluate already synced messages: %s", e)
+
         # Map category parameter to Gmail API labelIds if provided
         label_ids = ["INBOX"]
         if category:
             cat_lower = category.lower()
             if cat_lower == "primary":
-                label_ids = ["CATEGORY_PERSONAL"]
+                label_ids = ["INBOX"]
             elif cat_lower == "promotions":
                 label_ids = ["CATEGORY_PROMOTIONS"]
             elif cat_lower == "social":
@@ -338,7 +351,6 @@ class GmailAgent(BaseAgent):
             elif cat_lower == "forums":
                 label_ids = ["CATEGORY_FORUMS"]
 
-        # Find the most recent Gmail message in the DB
         last_msg = (
             db.query(Message)
             .filter_by(user_id=user_id, source=MessageSource.GMAIL)
@@ -397,19 +409,34 @@ class GmailAgent(BaseAgent):
             )
             if existing:
                 if not existing.category or existing.category == "primary":
-                    raw = self.get_message(creds, message_id)
-                    if raw:
-                        parsed = self.parse_message(raw)
-                        if parsed:
-                            new_cat = parsed.get("category", "primary")
-                            if new_cat != existing.category:
-                                existing.category = new_cat
-                                db.add(existing)
-                                db.commit()
-                                self.logger.info("Updated existing email %s category to %s during sync", message_id, new_cat)
+                    try:
+                        raw = self.get_message(creds, message_id)
+                        if raw:
+                            parsed = self.parse_message(raw)
+                            if parsed:
+                                new_cat = parsed.get("category", "primary")
+                                if new_cat != existing.category:
+                                    existing.category = new_cat
+                                    db.add(existing)
+                                    db.commit()
+                                    self.logger.info("Updated existing email %s category to %s during sync", message_id, new_cat)
+                    except HttpError as exc:
+                        if exc.resp.status == 404:
+                            self.logger.info("Email %s not found in Gmail (404) during inline check. Deleting from database.", message_id)
+                            db.delete(existing)
+                            db.commit()
+                        else:
+                            raise exc
                 continue
 
-            raw = self.get_message(creds, message_id)
+            try:
+                raw = self.get_message(creds, message_id)
+            except HttpError as exc:
+                if exc.resp.status == 404:
+                    self.logger.info("Email %s not found in Gmail (404) during sync. Skipping.", message_id)
+                    continue
+                else:
+                    raise exc
             if not raw:
                 continue
 
