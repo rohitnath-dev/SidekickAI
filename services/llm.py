@@ -59,7 +59,7 @@ class LLMClient:
         import os
         self.api_key: str = api_key or os.environ.get("OPENROUTER_API_KEY") or settings.OPENROUTER_API_KEY or ""
         self.base_url: str = (base_url or os.environ.get("OPENROUTER_BASE_URL") or settings.OPENROUTER_BASE_URL or "https://openrouter.ai/api/v1").rstrip("/")
-        self.model: str = model or "gemini-1.5-flash"
+        self.model: str = model or "google/gemini-flash-1.5"
         
         try:
             self.timeout = timeout or float(os.environ.get("OPENROUTER_TIMEOUT") or settings.OPENROUTER_TIMEOUT or 60.0)
@@ -69,7 +69,7 @@ class LLMClient:
         if not self.api_key:
             logger.warning("LLMClient: no API key configured.")
 
-        self.last_used_gemini_model: str = "gemini-1.5-flash"
+        self.last_used_gemini_model: str = "google/gemini-flash-1.5"
 
         self._client: httpx.AsyncClient = httpx.AsyncClient(
             base_url=self.base_url,
@@ -246,7 +246,7 @@ class LLMClient:
         if max_tokens is not None:
             generation_config["max_output_tokens"] = max_tokens
 
-        models_to_try = ["models/gemini-1.5-flash", "gemini-1.5-flash"]
+        models_to_try = ["models/gemini-1.5-flash", "google/gemini-flash-1.5"]
         last_exc = None
 
         for model_name in models_to_try:
