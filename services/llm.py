@@ -59,9 +59,7 @@ class LLMClient:
         import os
         self.api_key: str = api_key or os.environ.get("OPENROUTER_API_KEY") or settings.OPENROUTER_API_KEY or ""
         self.base_url: str = (base_url or os.environ.get("OPENROUTER_BASE_URL") or settings.OPENROUTER_BASE_URL or "https://openrouter.ai/api/v1").rstrip("/")
-        self.model: str = model or os.environ.get("OPENROUTER_MODEL") or settings.OPENROUTER_MODEL or "meta-llama/llama-3-8b-instruct:free"
-        if self.model == "openrouter/free":
-            self.model = "meta-llama/llama-3-8b-instruct:free"
+        self.model: str = model or "gemini-1.5-flash"
         
         try:
             self.timeout = timeout or float(os.environ.get("OPENROUTER_TIMEOUT") or settings.OPENROUTER_TIMEOUT or 60.0)
@@ -364,14 +362,11 @@ class LLMClient:
         user_msg = next((m["content"] for m in messages if m["role"] == "user"), "")
         system_msg = next((m["content"] for m in messages if m["role"] == "system"), "")
         import os
-        or_key = self.api_key or os.environ.get("OPENROUTER_API_KEY") or ""
         gemini_key = os.environ.get("GEMINI_API_KEY") or settings.GEMINI_API_KEY or ""
-
-        has_or_key = bool(or_key and or_key.strip() != "")
         has_gemini_key = bool(gemini_key and gemini_key.strip() != "")
 
-        if not has_or_key and not has_gemini_key:
-            logger.warning("LLMClient: no API key configured (neither OpenRouter nor Gemini). Using local mock fallback response.")
+        if not has_gemini_key:
+            logger.warning("LLMClient: no Gemini API key configured. Using local mock fallback response.")
             mock_res = self._get_mock_fallback_response(user_msg, system_msg)
             logger.info(
                 "[LLM_API_CALL] Timestamp=%s | UserID=%s | Caller=%s | Model=%s | PromptLength=%d | Status=SUCCESS (MOCK FALLBACK)",
@@ -379,68 +374,20 @@ class LLMClient:
             )
             return mock_res
 
-        # If Gemini key is set and OpenRouter is not, go to Gemini directly
-        if has_gemini_key and not has_or_key:
-            try:
-                active_model = "gemini-1.5-flash"
-                content = await self._chat_gemini(messages, temperature, max_tokens)
-                logger.info(
-                    "[LLM_API_CALL] Timestamp=%s | UserID=%s | Caller=%s | Model=%s | PromptLength=%d | Status=SUCCESS (GEMINI) | Length=%d",
-                    timestamp, user_id_str, caller_str, active_model, prompt_len, len(content)
-                )
-                return content
-            except Exception as exc:
-                logger.error(
-                    "[LLM_API_CALL] Timestamp=%s | UserID=%s | Caller=%s | Model=%s | PromptLength=%d | Status=ERROR (GEMINI) | Detail=%s",
-                    timestamp, user_id_str, caller_str, active_model, prompt_len, exc, exc_info=True
-                )
-                raise
-
-        # Try OpenRouter
+        # Try Gemini directly as primary
         try:
-            payload = self._payload(
-                messages=messages,
-                model=model,
-                temperature=temperature or settings.OPENROUTER_TEMPERATURE,
-                max_tokens=max_tokens or settings.OPENROUTER_MAX_TOKENS,
-            )
-            logger.debug(
-                "LLM request — model=%s messages=%d", payload["model"], len(messages)
-            )
-            response = await self._request("POST", self.CHAT_PATH, payload)
-            content = self._extract_content(response)
-            
+            content = await self._chat_gemini(messages, temperature, max_tokens)
             logger.info(
-                "[LLM_API_CALL] Timestamp=%s | UserID=%s | Caller=%s | Model=%s | PromptLength=%d | Status=SUCCESS (OPENROUTER) | Length=%d",
+                "[LLM_API_CALL] Timestamp=%s | UserID=%s | Caller=%s | Model=%s | PromptLength=%d | Status=SUCCESS (GEMINI) | Length=%d",
                 timestamp, user_id_str, caller_str, active_model, prompt_len, len(content)
             )
             return content
         except Exception as exc:
-            # OpenRouter failed. Check if we can fall back to Gemini
-            if has_gemini_key:
-                warn_msg = f"[WARNING] OpenRouter failed (details: {exc}). Attempting fallback to Gemini (gemini-1.5-flash)..."
-                print(warn_msg)
-                logger.warning(warn_msg)
-                try:
-                    active_model = "gemini-1.5-flash (FALLBACK)"
-                    content = await self._chat_gemini(messages, temperature, max_tokens)
-                    logger.info(
-                        "[LLM_API_CALL] Timestamp=%s | UserID=%s | Caller=%s | Model=%s | PromptLength=%d | Status=SUCCESS (GEMINI FALLBACK) | Length=%d",
-                        timestamp, user_id_str, caller_str, active_model, prompt_len, len(content)
-                    )
-                    return content
-                except Exception as gem_exc:
-                    logger.error(
-                        "[LLM_API_CALL] Timestamp=%s | UserID=%s | Caller=%s | Model=%s | PromptLength=%d | Status=ERROR (BOTH PROVIDERS FAILED) | OpenRouterError=%s | GeminiError=%s",
-                        timestamp, user_id_str, caller_str, active_model, prompt_len, exc, gem_exc, exc_info=True
-                    )
-                    raise gem_exc
-            else:
-                logger.error(
-                    "[LLM_API_CALL] Timestamp=%s | UserID=%s | Caller=%s | Model=%s | PromptLength=%d | Status=ERROR (OPENROUTER) | Detail=%s",
-                    timestamp, user_id_str, caller_str, active_model, prompt_len, exc, exc_info=True
-                )
-                raise
+            logger.error(
+                "[LLM_API_CALL] Timestamp=%s | UserID=%s | Caller=%s | Model=%s | PromptLength=%d | Status=ERROR (GEMINI) | Detail=%s",
+                timestamp, user_id_str, caller_str, active_model, prompt_len, exc, exc_info=True
+            )
+            raise
 
     def _get_mock_fallback_response(self, user_msg: str, system_msg: str) -> str:
         is_briefing = "briefing" in user_msg.lower() or "briefing" in system_msg.lower() or "executive summary" in user_msg.lower()
@@ -650,79 +597,31 @@ class LLMClient:
             return False
 
     async def health_check_details(self) -> dict[str, Any]:
-        """Check health of OpenRouter and Gemini providers, returning detailed status."""
+        """Check health of the primary Gemini provider, returning detailed status."""
         import os
-        or_key = self.api_key or os.environ.get("OPENROUTER_API_KEY") or ""
         gemini_key = os.environ.get("GEMINI_API_KEY") or settings.GEMINI_API_KEY or ""
-        has_or_key = bool(or_key and or_key.strip() != "")
         has_gemini_key = bool(gemini_key and gemini_key.strip() != "")
 
-        if not has_or_key and not has_gemini_key:
+        if not has_gemini_key:
             return {
                 "status": "error",
                 "provider": "None",
                 "model": "None",
-                "reason": "No LLM API keys are configured (neither OPENROUTER_API_KEY nor GEMINI_API_KEY)."
+                "reason": "No LLM API keys are configured (GEMINI_API_KEY is missing)."
             }
 
-        # Case 1: Only Gemini is configured
-        if has_gemini_key and not has_or_key:
-            try:
-                await self._chat_gemini([{"role": "user", "content": "ping"}], max_tokens=1)
-                return {
-                    "status": "ok",
-                    "provider": "Gemini",
-                    "model": self.last_used_gemini_model
-                }
-            except Exception as exc:
-                return {
-                    "status": "error",
-                    "provider": "Gemini",
-                    "model": self.last_used_gemini_model,
-                    "reason": "AI service is currently rate-limited or unavailable. Please check your API limits."
-                }
-
-        # Case 2: OpenRouter is configured (Gemini might be fallback)
-        or_error = None
         try:
-            payload = self._payload(
-                messages=[{"role": "user", "content": "ping"}],
-                max_tokens=1,
-            )
-            response = await self._request("POST", self.CHAT_PATH, payload)
-            self._extract_content(response)
+            await self._chat_gemini([{"role": "user", "content": "ping"}], max_tokens=1)
             return {
                 "status": "ok",
-                "provider": "OpenRouter",
-                "model": self.model
+                "provider": "Gemini",
+                "model": self.last_used_gemini_model
             }
         except Exception as exc:
-            or_error = exc
-            warn_msg = f"[WARNING] OpenRouter health check failed (details: {exc}). Checking Gemini fallback status..."
-            print(warn_msg)
-            logger.warning(warn_msg)
-
-        if has_gemini_key:
-            try:
-                await self._chat_gemini([{"role": "user", "content": "ping"}], max_tokens=1)
-                return {
-                    "status": "ok",
-                    "provider": "Gemini (Fallback)",
-                    "model": self.last_used_gemini_model,
-                    "warning": f"OpenRouter failed: {or_error}. Using Gemini fallback."
-                }
-            except Exception as gem_exc:
-                return {
-                    "status": "error",
-                    "provider": "OpenRouter & Gemini Fallback",
-                    "model": "None",
-                    "reason": "AI service is currently rate-limited or unavailable. Please check your API limits."
-                }
-        else:
             return {
                 "status": "error",
-                "provider": "OpenRouter",
-                "model": self.model,
+                "provider": "Gemini",
+                "model": self.last_used_gemini_model,
                 "reason": "AI service is currently rate-limited or unavailable. Please check your API limits."
             }
 
