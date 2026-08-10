@@ -7,6 +7,7 @@ Uses async httpx so it never blocks the FastAPI event loop.
 from __future__ import annotations
 
 import logging
+from pydoc import text
 from typing import Any, Optional
 
 import httpx
@@ -646,7 +647,57 @@ class LLMClient:
         except ValueError as exc:
             raise LLMResponseError(f"Cannot parse models list: {exc}") from exc
 
-    def estimate_tokens(self, text: str) -> int:
+async def _chat_openrouter(
+        self,
+        messages: list[dict[str, str]],
+        temperature: Optional[float] = None,
+        max_tokens: Optional[int] = None,
+    ) -> str:
+        import os
+        import httpx
+
+        openrouter_key = os.environ.get("OPENROUTER_API_KEY") or getattr(settings, "OPENROUTER_API_KEY", "")
+        if not openrouter_key:
+            raise LLMException("OpenRouter API key is not configured.")
+
+        model_name = getattr(settings, "OPENROUTER_MODEL", "deepseek/deepseek-chat")
+
+        headers = {
+            "Authorization": f"Bearer {openrouter_key}",
+            "HTTP-Referer": "https://sidekickai-1.onrender.com",
+            "X-Title": "SidekickAI"
+        }
+
+        payload = {
+            "model": model_name,
+            "messages": messages,
+        }
+        
+        if temperature is not None:
+            payload["temperature"] = temperature
+        else:
+            payload["temperature"] = getattr(settings, "OPENROUTER_TEMPERATURE", 0.7)
+            
+        if max_tokens is not None:
+            payload["max_tokens"] = max_tokens
+
+        async with httpx.AsyncClient(timeout=45.0) as client:
+            response = await client.post(
+                "https://openrouter.ai/api/v1/chat/completions",
+                json=payload,
+                headers=headers
+            )
+            
+            if response.status_code != 200:
+                raise LLMException(f"OpenRouter error {response.status_code}: {response.text}")
+                
+            data = response.json()
+            try:
+                return data["choices"][0]["message"]["content"]
+            except (KeyError, IndexError) as e:
+                raise LLMException(f"Invalid OpenRouter response format: {data}") from e
+
+def estimate_tokens(self, text: str) -> int:
         """Rough token estimate (~4 chars/token)."""
         return max(1, len(text) // 4) if text else 0
 
