@@ -218,9 +218,6 @@ class LLMClient:
         if not gemini_key:
             raise LLMException("Gemini API key is not configured.")
 
-        # Configure the Google GenAI SDK
-        genai.configure(api_key=gemini_key)
-
         contents = []
         system_instruction_str = None
         
@@ -254,6 +251,9 @@ class LLMClient:
 
         for model_name in models_to_try:
             try:
+                # Explicit SDK configuration right before model initialization
+                genai.configure(api_key=os.environ.get("GEMINI_API_KEY") or settings.GEMINI_API_KEY or "")
+
                 # Initialize the model via SDK GenerativeModel constructor
                 model = genai.GenerativeModel(
                     model_name=model_name,
@@ -297,7 +297,7 @@ class LLMClient:
                     f"Response Payload: {response_payload}"
                 )
                 print(err_msg)
-                logger.error(err_msg)
+                logger.error(err_msg, exc_info=True)
                 break
 
         if last_exc:
