@@ -19,4 +19,4 @@ greenlet
 email-validator
 psycopg2-binary
 telethon
-google-generativeai
+google-generativeai>=0.8.3
