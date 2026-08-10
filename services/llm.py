@@ -59,7 +59,9 @@ class LLMClient:
         import os
         self.api_key: str = api_key or os.environ.get("OPENROUTER_API_KEY") or settings.OPENROUTER_API_KEY or ""
         self.base_url: str = (base_url or os.environ.get("OPENROUTER_BASE_URL") or settings.OPENROUTER_BASE_URL or "https://openrouter.ai/api/v1").rstrip("/")
-        self.model: str = model or os.environ.get("OPENROUTER_MODEL") or settings.OPENROUTER_MODEL or "openrouter/free"
+        self.model: str = model or os.environ.get("OPENROUTER_MODEL") or settings.OPENROUTER_MODEL or "meta-llama/llama-3-8b-instruct:free"
+        if self.model == "openrouter/free":
+            self.model = "meta-llama/llama-3-8b-instruct:free"
         
         try:
             self.timeout = timeout or float(os.environ.get("OPENROUTER_TIMEOUT") or settings.OPENROUTER_TIMEOUT or 60.0)
