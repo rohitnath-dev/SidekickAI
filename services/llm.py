@@ -382,12 +382,25 @@ class LLMClient:
                 timestamp, user_id_str, caller_str, active_model, prompt_len, len(content)
             )
             return content
-        except Exception as exc:
-            logger.error(
-                "[LLM_API_CALL] Timestamp=%s | UserID=%s | Caller=%s | Model=%s | PromptLength=%d | Status=ERROR (GEMINI) | Detail=%s",
-                timestamp, user_id_str, caller_str, active_model, prompt_len, exc, exc_info=True
+        except Exception as gemini_exc:
+            logger.warning(
+                "[LLM_API_CALL] Gemini failed or hit rate limit (%s). Falling back to OpenRouter...",
+                gemini_exc
             )
-            raise
+            try:
+                # Fallback to OpenRouter backup method
+                content = await self._chat_openrouter(messages, temperature, max_tokens)
+                logger.info(
+                    "[LLM_API_CALL] Timestamp=%s | UserID=%s | Caller=%s | Model=%s | PromptLength=%d | Status=SUCCESS (OPENROUTER FALLBACK) | Length=%d",
+                    timestamp, user_id_str, caller_str, active_model, prompt_len, len(content)
+                )
+                return content
+            except Exception as router_exc:
+                logger.error(
+                    "[LLM_API_CALL] Timestamp=%s | UserID=%s | Caller=%s | Model=%s | PromptLength=%d | Status=ERROR (BOTH GEMINI & OPENROUTER FAILED) | GeminiDetail=%s | RouterDetail=%s",
+                    timestamp, user_id_str, caller_str, active_model, prompt_len, gemini_exc, router_exc, exc_info=True
+                )
+                raise LLMException(f"Both Gemini and OpenRouter failed. Gemini: {gemini_exc} | OpenRouter: {router_exc}")
 
     def _get_mock_fallback_response(self, user_msg: str, system_msg: str) -> str:
         is_briefing = "briefing" in user_msg.lower() or "briefing" in system_msg.lower() or "executive summary" in user_msg.lower()
