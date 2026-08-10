@@ -56,6 +56,7 @@ class BaseAgent(ABC):
         max_tokens: Optional[int] = None,
         user_id: Optional[int] = None,
         caller: Optional[str] = None,
+        **kwargs,
     ) -> str:
         """Call the LLM and return the generated text without catching exceptions."""
         caller_name = caller or self.__class__.__name__
