@@ -247,7 +247,7 @@ class LLMClient:
         if max_tokens is not None:
             generation_config["max_output_tokens"] = max_tokens
 
-        models_to_try = ["gemini-1.5-flash"]
+        models_to_try = ["gemini-2.5-flash", "gemini-2.5-flash-lite"]
         last_exc = None
 
         for model_name in models_to_try:
@@ -647,7 +647,7 @@ class LLMClient:
         except ValueError as exc:
             raise LLMResponseError(f"Cannot parse models list: {exc}") from exc
 
-async def _chat_openrouter(
+    async def _chat_openrouter(
         self,
         messages: list[dict[str, str]],
         temperature: Optional[float] = None,
@@ -697,7 +697,7 @@ async def _chat_openrouter(
             except (KeyError, IndexError) as e:
                 raise LLMException(f"Invalid OpenRouter response format: {data}") from e
 
-def estimate_tokens(self, text: str) -> int:
+    def estimate_tokens(self, text: str) -> int:
         """Rough token estimate (~4 chars/token)."""
         return max(1, len(text) // 4) if text else 0
 
