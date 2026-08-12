@@ -660,7 +660,20 @@ class LLMClient:
         if not openrouter_key:
             raise LLMException("OpenRouter API key is not configured.")
 
-        model_name = getattr(settings, "OPENROUTER_MODEL", "deepseek/deepseek-chat")
+        # OpenRouter free model slugs go paid/disappear often without warning,
+        # so we give it a list of current free candidates + the auto-router
+        # as a final catch-all. OpenRouter tries them in order server-side.
+        configured_model = getattr(settings, "OPENROUTER_MODEL", None)
+        free_model_candidates = [
+            "meta-llama/llama-3.3-70b-instruct:free",
+            "openai/gpt-oss-120b:free",
+            "poolside/laguna-xs-2.1:free",
+            "openrouter/free",
+        ]
+        if configured_model and configured_model not in free_model_candidates:
+            models_list = [configured_model] + free_model_candidates
+        else:
+            models_list = free_model_candidates
 
         headers = {
             "Authorization": f"Bearer {openrouter_key}",
@@ -669,7 +682,7 @@ class LLMClient:
         }
 
         payload = {
-            "model": model_name,
+            "models": models_list,
             "messages": messages,
         }
         
