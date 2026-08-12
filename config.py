@@ -6,13 +6,14 @@ No secrets are hardcoded here.
 """
 
 from typing import Optional
+
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-class Settings(BaseSettings):
 
+class Settings:
 
     # ------------------------------------------------------------------ #
-    # Project                                                               #
+    # Project
     # ------------------------------------------------------------------ #
     PROJECT_NAME: str = "Sidekick AI"
     VERSION: str = "1.0.0"
@@ -24,13 +25,13 @@ class Settings(BaseSettings):
     DEBUG: bool = False
 
     # ------------------------------------------------------------------ #
-    # Server                                                                #
+    # Server
     # ------------------------------------------------------------------ #
     HOST: str = "0.0.0.0"
     PORT: int = 8000
 
     # ------------------------------------------------------------------ #
-    # Security / JWT                                                        #
+    # Security / JWT
     # ------------------------------------------------------------------ #
     SECRET_KEY: str
     JWT_ALGORITHM: str = "HS256"
@@ -40,53 +41,91 @@ class Settings(BaseSettings):
     COOKIE_SAMESITE: str = "lax"
 
     # ------------------------------------------------------------------ #
-    # Database                                                              #
+    # Database
     # ------------------------------------------------------------------ #
     DATABASE_URL: str = "sqlite:///./sidekick.db"
 
     # ------------------------------------------------------------------ #
+    # LLM Configuration
+    #
+    # Supported providers:
+    #   - ollama
+    #   - openrouter
+    #
+    # The provider can later be overridden by a user's request/config.
+    # ------------------------------------------------------------------ #
 
-    # OpenRouter LLM                                                        #
+    # Default provider
+    LLM_PROVIDER: str = "openrouter"
 
     # ------------------------------------------------------------------ #
+    # Ollama
+    # ------------------------------------------------------------------ #
+
+    # Default local Ollama server.
+    OLLAMA_BASE_URL: str = "http://localhost:11434"
+
+    # Default Ollama model.
+    OLLAMA_MODEL: str = "llama3.2"
+
+    # ------------------------------------------------------------------ #
+    # OpenRouter
+    # ------------------------------------------------------------------ #
+
     OPENROUTER_API_KEY: Optional[str] = None
-    OPENROUTER_BASE_URL: str = "https://openrouter.ai/api/v1"
+
+    OPENROUTER_BASE_URL: str = (
+        "https://openrouter.ai/api/v1"
+    )
+
+    # Default model.
+    # This can later be overridden by the user's selected model.
     OPENROUTER_MODEL: str = "openrouter/free"
+
     OPENROUTER_TIMEOUT: float = 60.0
     OPENROUTER_TEMPERATURE: float = 0.4
     OPENROUTER_MAX_TOKENS: int = 2048
+
+    # OpenRouter optional metadata
     HTTP_REFERER: str = "https://sidekick.ai"
     APP_TITLE: str = "Sidekick AI"
-    # Gemini LLM
-    GEMINI_API_KEY: Optional[str] = None
 
+    # ------------------------------------------------------------------ #
     # Background Ingestion Poller
+    # ------------------------------------------------------------------ #
     POLLER_INTERVAL_SECONDS: int = 3600
     POLLER_ENABLED: bool = False
 
-    # Google OAuth                                                          #
+    # ------------------------------------------------------------------ #
+    # Google OAuth
     # ------------------------------------------------------------------ #
     GOOGLE_CLIENT_ID: str
     GOOGLE_CLIENT_SECRET: str
-    GOOGLE_REDIRECT_URI: str = "http://localhost:8000/api/v1/gmail/callback"
+    GOOGLE_REDIRECT_URI: str = (
+        "http://localhost:8000/api/v1/gmail/callback"
+    )
 
     # ------------------------------------------------------------------ #
-    # LinkedIn OAuth                                                        #
+    # LinkedIn OAuth
     # ------------------------------------------------------------------ #
     LINKEDIN_CLIENT_ID: str
     LINKEDIN_CLIENT_SECRET: str
-    LINKEDIN_REDIRECT_URI: str = "http://localhost:8000/api/v1/linkedin/callback"
+    LINKEDIN_REDIRECT_URI: str = (
+        "http://localhost:8000/api/v1/linkedin/callback"
+    )
 
     # ------------------------------------------------------------------ #
-    # Twitter / X OAuth 2.0 (Per-User Authentication)                      #
+    # Twitter / X OAuth 2.0
     # ------------------------------------------------------------------ #
     TWITTER_CLIENT_ID: str = ""
     TWITTER_CLIENT_SECRET: str = ""
-    TWITTER_REDIRECT_URI: str = "http://localhost:8000/api/v1/twitter/callback"
-    TWITTER_APP_SECRET: str = ""  # For webhook signature verification
+    TWITTER_REDIRECT_URI: str = (
+        "http://localhost:8000/api/v1/twitter/callback"
+    )
+    TWITTER_APP_SECRET: str = ""
 
     # ------------------------------------------------------------------ #
-    # Twitter / X (Legacy - App-Level, for reading public timeline)        #
+    # Twitter / X Legacy
     # ------------------------------------------------------------------ #
     TWITTER_API_KEY: str = ""
     TWITTER_API_SECRET: str = ""
@@ -96,41 +135,46 @@ class Settings(BaseSettings):
     TWITTER_USER_ID: str = ""
 
     # ------------------------------------------------------------------ #
-    # WhatsApp (Meta Cloud API)                                             #
+    # WhatsApp (Meta Cloud API)
     # ------------------------------------------------------------------ #
     WHATSAPP_API_TOKEN: str = ""
     WHATSAPP_PHONE_NUMBER_ID: str = ""
     WHATSAPP_VERIFY_TOKEN: str = ""
     WHATSAPP_APP_SECRET: str = ""
-    WHATSAPP_API_BASE_URL: str = "https://graph.facebook.com/v19.0"
+    WHATSAPP_API_BASE_URL: str = (
+        "https://graph.facebook.com/v19.0"
+    )
     META_APP_ID: str = ""
     META_APP_SECRET: str = ""
     WHATSAPP_CONFIG_ID: str = ""
-    WHATSAPP_REDIRECT_URI: str = "http://localhost:8000/api/v1/whatsapp/callback"
+    WHATSAPP_REDIRECT_URI: str = (
+        "http://localhost:8000/api/v1/whatsapp/callback"
+    )
 
     # ------------------------------------------------------------------ #
-    # Telegram                                                              #
+    # Telegram
     # ------------------------------------------------------------------ #
     TELEGRAM_API_ID: int = 123456
     TELEGRAM_API_HASH: str = "mock_api_hash_value"
     TELEGRAM_SESSION_ENCRYPTION_KEY: str = ""
 
     # ------------------------------------------------------------------ #
-    # Discord OAuth & Bot                                                   #
+    # Discord OAuth & Bot
     # ------------------------------------------------------------------ #
     DISCORD_CLIENT_ID: str = ""
     DISCORD_CLIENT_SECRET: str = ""
     DISCORD_BOT_TOKEN: str = ""
-    DISCORD_REDIRECT_URI: str = "http://localhost:8000/api/discord/callback"
+    DISCORD_REDIRECT_URI: str = (
+        "http://localhost:8000/api/discord/callback"
+    )
 
     # ------------------------------------------------------------------ #
-    # CORS                                                                  #
+    # CORS
     # ------------------------------------------------------------------ #
     ALLOWED_ORIGINS: list[str] = ["*"]
 
-
     # ------------------------------------------------------------------ #
-    # Pydantic config                                                       #
+    # Pydantic config
     # ------------------------------------------------------------------ #
     model_config = SettingsConfigDict(
         env_file=".env",
