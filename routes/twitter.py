@@ -305,11 +305,11 @@ async def sync_twitter_mentions(
 
         synced_count += 1
         
-        # Run AI pipeline
-        try:
-            await process_message_ai(db, db_msg)
-        except Exception as e:
-            logger.error("Twitter sync: AI pipeline failed for tweet %s: %s", tweet_id, e)
+        # Decoupled: AI pipeline is now triggered manually via Run AI
+        # try:
+        #     await process_message_ai(db, db_msg)
+        # except Exception as e:
+        #     logger.error("Twitter sync: AI pipeline failed for tweet %s: %s", tweet_id, e)
 
     logger.info("Twitter sync complete: synced=%d tweets for user_id=%d", synced_count, current_user.id)
     return {
@@ -509,11 +509,11 @@ async def process_twitter_payload_async(body: dict, user_id: int) -> None:
         db.commit()
         db.refresh(db_msg)
 
-        # Trigger AI pipeline
-        try:
-            await process_message_ai(db, db_msg)
-        except Exception as e:
-            logger.error("Twitter Webhook: AI pipeline failed for tweet %s: %s", tweet_id, e)
+        # Decoupled: AI pipeline is now triggered manually via Run AI
+        # try:
+        #     await process_message_ai(db, db_msg)
+        # except Exception as e:
+        #     logger.error("Twitter Webhook: AI pipeline failed for tweet %s: %s", tweet_id, e)
 
         logger.info("Twitter Webhook: Successfully processed tweet %s", tweet_id)
 

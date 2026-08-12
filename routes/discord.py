@@ -421,11 +421,11 @@ async def discord_webhook(request: Request):
         db.commit()
         db.refresh(db_msg)
         
-        # Run AI priority pipeline
-        try:
-            await process_message_ai(db, db_msg)
-        except Exception as e:
-            logger.error("Failed to run AI pipeline on Discord message: %s", e)
+        # Decoupled: AI pipeline is now triggered manually via Run AI
+        # try:
+        #     await process_message_ai(db, db_msg)
+        # except Exception as e:
+        #     logger.error("Failed to run AI pipeline on Discord message: %s", e)
             
     except Exception as exc:
         logger.error("Failed to process Discord webhook message: %s", exc)
@@ -568,10 +568,11 @@ async def sync_discord(
                                 synced_count += 1
                                 total_stored += 1
                                 
-                                try:
-                                    await process_message_ai(db, db_msg)
-                                except Exception as e:
-                                    logger.error("AI pipeline failed on Discord DM message %s: %s", msg_id, e)
+                                # Decoupled: AI pipeline is now triggered manually via Run AI
+                                # try:
+                                #     await process_message_ai(db, db_msg)
+                                # except Exception as e:
+                                #     logger.error("AI pipeline failed on Discord DM message %s: %s", msg_id, e)
                 else:
                     logger.warning("Failed to create/open DM channel with recipient %s. Status code: %d. Response: %s", 
                                    discord_user_id, dm_resp.status_code, dm_resp.text)
@@ -674,10 +675,11 @@ async def sync_discord(
                                     synced_count += 1
                                     total_stored += 1
                                     
-                                    try:
-                                        await process_message_ai(db, db_msg)
-                                    except Exception as e:
-                                        logger.error("AI pipeline failed on Discord server message %s: %s", msg_id, e)
+                                    # Decoupled: AI pipeline is now triggered manually via Run AI
+                                    # try:
+                                    #     await process_message_ai(db, db_msg)
+                                    # except Exception as e:
+                                    #     logger.error("AI pipeline failed on Discord server message %s: %s", msg_id, e)
             else:
                 logger.warning("Failed to fetch guilds list: user_guilds_status=%d, bot_guilds_status=%d",
                                user_guilds_resp.status_code, bot_guilds_resp.status_code)

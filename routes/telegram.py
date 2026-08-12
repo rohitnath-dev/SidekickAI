@@ -428,10 +428,11 @@ async def sync_telegram(
             synced_count += 1
             total_stored += 1
 
-            try:
-                await process_message_ai(db, db_msg)
-            except Exception as e:
-                logger.error("AI pipeline failed on Telegram mock message %s: %s", msg["id"], e)
+            # Decoupled: AI pipeline is now triggered manually via Run AI
+            # try:
+            #     await process_message_ai(db, db_msg)
+            # except Exception as e:
+            #     logger.error("AI pipeline failed on Telegram mock message %s: %s", msg["id"], e)
 
         return SyncResponse(synced=synced_count, total_stored=total_stored, status="success")
 
@@ -482,10 +483,11 @@ async def sync_telegram(
                 synced_count += 1
                 total_stored += 1
 
-                try:
-                    await process_message_ai(db, db_msg)
-                except Exception as e:
-                    logger.error("AI pipeline failed on Telegram message %s: %s", msg_id, e)
+                # Decoupled: AI pipeline is now triggered manually via Run AI
+                # try:
+                #     await process_message_ai(db, db_msg)
+                # except Exception as e:
+                #     logger.error("AI pipeline failed on Telegram message %s: %s", msg_id, e)
 
     except Exception as exc:
         logger.error("Telethon active sync failed: %s", exc)

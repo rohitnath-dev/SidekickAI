@@ -247,7 +247,7 @@ class LLMClient:
         if max_tokens is not None:
             generation_config["max_output_tokens"] = max_tokens
 
-        models_to_try = ["gemini-2.5-flash", "gemini-2.5-flash-lite"]
+        models_to_try = ["gemini-3.6-flash", "gemini-3.5-flash-lite", "gemini-2.5-flash"]
         last_exc = None
 
         for model_name in models_to_try:

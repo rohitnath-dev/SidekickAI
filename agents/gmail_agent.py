@@ -473,12 +473,12 @@ class GmailAgent(BaseAgent):
             elif cat == "forums":
                 forums_count += 1
             
-            # Run AI pipeline
-            try:
-                from services.ai_pipeline import process_message_ai
-                await process_message_ai(db, msg)
-            except Exception as e:
-                self.logger.error("Failed to run AI pipeline during sync: %s", e)
+            # Decoupled: AI pipeline is now triggered manually via Run AI
+            # try:
+            #     from services.ai_pipeline import process_message_ai
+            #     await process_message_ai(db, msg)
+            # except Exception as e:
+            #     self.logger.error("Failed to run AI pipeline during sync: %s", e)
                 
             synced += 1
 

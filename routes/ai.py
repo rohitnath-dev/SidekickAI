@@ -18,6 +18,11 @@ from services.ai_pipeline import process_message_ai
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/ai", tags=["AI"])
+
+from collections import defaultdict
+import asyncio
+
+_ai_run_locks = defaultdict(asyncio.Lock)
 class TestPromptRequest(BaseModel):
     prompt: Optional[str] = "Hello, are you working?"
 
@@ -73,7 +78,6 @@ async def ai_test(
             status_code=status.HTTP_502_BAD_GATEWAY,
             detail=f"LLM request failed: {exc}"
         )
-
 @router.post("/analyze")
 async def analyze_messages(
     request: AnalyzeMessageRequest,
@@ -84,39 +88,126 @@ async def analyze_messages(
     Manually trigger AI pipeline processing on a specific message
     or on all unprocessed messages for the user.
     """
-    if request.message_id is not None:
-        msg = db.query(Message).filter(Message.id == request.message_id, Message.user_id == current_user.id).first()
-        if not msg:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail=f"Message with ID {request.message_id} not found."
-            )
-        try:
-            logger.info("Manually running process_message_ai for message_id=%d", msg.id)
-            await process_message_ai(db, msg)
-            return {"status": "success", "processed_count": 1}
-        except Exception as exc:
-            logger.error("AI pipeline failed manually for message %d: %s", msg.id, exc, exc_info=True)
-            raise HTTPException(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail=f"AI pipeline failed: {exc}"
-            )
-    else:
+    lock = _ai_run_locks[current_user.id]
+    if lock.locked():
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="AI processing is already in progress. Please wait."
+        )
+        
+    async with lock:
+        if request.message_id is not None:
+            msg = db.query(Message).filter(Message.id == request.message_id, Message.user_id == current_user.id).first()
+            if not msg:
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    detail=f"Message with ID {request.message_id} not found."
+                )
+            try:
+                logger.info("Manually running process_message_ai for message_id=%d", msg.id)
+                await process_message_ai(db, msg)
+                return {"status": "success", "processed_count": 1}
+            except Exception as exc:
+                logger.error("AI pipeline failed manually for message %d: %s", msg.id, exc, exc_info=True)
+                raise HTTPException(
+                    status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                    detail=f"AI pipeline failed: {exc}"
+                )
+        else:
+            unprocessed = db.query(Message).filter(
+                Message.user_id == current_user.id,
+                Message.is_processed == False
+            ).all()
+            
+            if not unprocessed:
+                return {"status": "success", "processed_count": 0, "detail": "No unprocessed messages found."}
+                
+            count = 0
+            for msg in unprocessed:
+                try:
+                    logger.info("Manually running process_message_ai for message_id=%d", msg.id)
+                    await process_message_ai(db, msg)
+                    count += 1
+                except Exception as exc:
+                    logger.error("AI pipeline failed manually in batch for message %d: %s", msg.id, exc, exc_info=True)
+                    
+            return {"status": "success", "processed_count": count}
+
+
+@router.post("/run")
+async def run_ai_pipeline(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Run the full AI processing pipeline:
+    1. Process all unprocessed messages (run priority, summary, suggested reply drafts, etc.)
+    2. Generate/regenerate the daily executive briefing and save it to the cache.
+    """
+    lock = _ai_run_locks[current_user.id]
+    if lock.locked():
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="AI processing is already in progress. Please wait."
+        )
+
+    async with lock:
+        from models.message import Message
+        from services.ai_pipeline import process_message_ai
+        from agents.planner_agent import PlannerAgent
+        
+        # 1. Process all unprocessed messages
         unprocessed = db.query(Message).filter(
             Message.user_id == current_user.id,
             Message.is_processed == False
         ).all()
         
-        if not unprocessed:
-            return {"status": "success", "processed_count": 0, "detail": "No unprocessed messages found."}
-            
-        count = 0
+        processed_count = 0
+        errors = []
+        
         for msg in unprocessed:
             try:
-                logger.info("Manually running process_message_ai for message_id=%d", msg.id)
+                logger.info("Running process_message_ai for message_id=%d", msg.id)
                 await process_message_ai(db, msg)
-                count += 1
+                processed_count += 1
             except Exception as exc:
-                logger.error("AI pipeline failed manually in batch for message %d: %s", msg.id, exc, exc_info=True)
+                logger.error("AI pipeline failed for message %d: %s", msg.id, exc, exc_info=True)
+                errors.append(f"Message {msg.id}: {str(exc)}")
                 
-        return {"status": "success", "processed_count": count}
+        # 2. Generate/regenerate the daily executive briefing
+        briefing_status = "success"
+        briefing_data = None
+        try:
+            from routes.planner import cache_briefing
+            from services.oauth import get_credentials
+            
+            logger.info("Regenerating daily briefing as part of Run AI for user %d", current_user.id)
+            creds = get_credentials(current_user.id, db)
+            briefing_data = await PlannerAgent().generate_daily_briefing(
+                user_id=current_user.id,
+                db=db,
+                creds=creds
+            )
+            
+            # Cache the newly generated briefing
+            cache_briefing(current_user.id, briefing_data)
+        except Exception as exc:
+            logger.error("Failed to generate daily briefing: %s", exc, exc_info=True)
+            errors.append(f"Briefing: {str(exc)}")
+            briefing_status = "failed"
+            
+        status_str = "success" if not errors else "partial_failure"
+        if len(errors) > 0 and processed_count == 0 and briefing_status == "failed":
+            status_str = "failure"
+            raise HTTPException(
+                status_code=status.HTTP_502_BAD_GATEWAY,
+                detail=f"AI pipeline run failed: {'; '.join(errors)}"
+            )
+            
+        return {
+            "status": status_str,
+            "processed_count": processed_count,
+            "briefing_status": briefing_status,
+            "briefing": briefing_data,
+            "errors": errors
+        }

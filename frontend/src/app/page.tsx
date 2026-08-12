@@ -81,6 +81,59 @@ export default function DashboardPage() {
   });
 
   const queryClient = useQueryClient();
+
+  const [syncLoading, setSyncLoading] = useState(false);
+  const [syncStatus, setSyncStatus] = useState<string | null>(null);
+  
+  const [aiLoading, setAiLoading] = useState(false);
+  const [aiStatus, setAiStatus] = useState<string | null>(null);
+
+  const syncMutation = useMutation({
+    mutationFn: async () => {
+      setSyncLoading(true);
+      setSyncStatus('Syncing...');
+      const response = await apiClient.post('/settings/sync');
+      return response.data;
+    },
+    onSuccess: (data) => {
+      setSyncStatus(`Sync completed! Synced ${data.synced} items.`);
+      queryClient.invalidateQueries({ queryKey: ['recent-messages'] });
+      setTimeout(() => setSyncStatus(null), 4000);
+    },
+    onError: (err: any) => {
+      console.error(err);
+      const detail = err.response?.data?.detail || err.message;
+      setSyncStatus(`Sync failed: ${detail}`);
+      setTimeout(() => setSyncStatus(null), 4500);
+    },
+    onSettled: () => {
+      setSyncLoading(false);
+    }
+  });
+
+  const runAiMutation = useMutation({
+    mutationFn: async () => {
+      setAiLoading(true);
+      setAiStatus('Running AI...');
+      const response = await apiClient.post('/ai/run');
+      return response.data;
+    },
+    onSuccess: (data) => {
+      setAiStatus(`AI complete! Processed ${data.processed_count} messages.`);
+      queryClient.invalidateQueries({ queryKey: ['recent-messages'] });
+      queryClient.invalidateQueries({ queryKey: ['briefing'] });
+      setTimeout(() => setAiStatus(null), 4000);
+    },
+    onError: (err: any) => {
+      console.error(err);
+      const detail = err.response?.data?.detail || err.message;
+      setAiStatus(`AI processing failed: ${detail}`);
+      setTimeout(() => setAiStatus(null), 4500);
+    },
+    onSettled: () => {
+      setAiLoading(false);
+    }
+  });
   const [draftEdits, setDraftEdits] = useState<Record<number, string>>({});
   const [actionStatuses, setActionStatuses] = useState<Record<number, { message: string, isError: boolean } | null>>({});
   const [expandedSummary, setExpandedSummary] = useState<Record<number, boolean>>({});
@@ -238,14 +291,37 @@ export default function DashboardPage() {
               Assistant Online
             </span>
             <button 
-              onClick={() => refetchBriefing()}
-              className="flex items-center gap-1.5 px-3.5 py-2 rounded-lg text-xs font-semibold bg-zinc-100 text-zinc-950 hover:bg-zinc-200 hover:scale-[1.02] active:scale-[0.98] transition-all cursor-pointer shadow-md shadow-zinc-950/20"
+              onClick={() => syncMutation.mutate()}
+              disabled={syncLoading}
+              className="flex items-center gap-1.5 px-3.5 py-2 rounded-lg text-xs font-semibold bg-zinc-100 text-zinc-950 hover:bg-zinc-200 hover:scale-[1.02] active:scale-[0.98] transition-all cursor-pointer disabled:opacity-50 shadow-md shadow-zinc-950/20"
             >
-              <RefreshCw className="w-3.5 h-3.5" />
-              Regenerate Briefing
+              {syncLoading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RefreshCw className="w-3.5 h-3.5" />}
+              {syncLoading ? 'Syncing...' : 'Sync'}
+            </button>
+            <button 
+              onClick={() => runAiMutation.mutate()}
+              disabled={aiLoading}
+              className="flex items-center gap-1.5 px-3.5 py-2 rounded-lg text-xs font-semibold bg-indigo-650 hover:bg-indigo-600 text-zinc-100 hover:scale-[1.02] active:scale-[0.98] transition-all cursor-pointer disabled:opacity-50 shadow-md shadow-indigo-950/20 border border-indigo-500/30"
+            >
+              {aiLoading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Sparkles className="w-3.5 h-3.5 text-indigo-400" />}
+              {aiLoading ? 'Running AI...' : 'Run AI'}
             </button>
           </div>
         </div>
+
+        {(syncStatus || aiStatus) && (
+          <div className={`flex items-start gap-3 p-4 rounded-xl border ${
+            (syncStatus?.includes('failed') || aiStatus?.includes('failed'))
+              ? 'border-rose-500/25 bg-rose-500/5 text-rose-300 shadow-sm relative overflow-hidden group'
+              : 'border-zinc-800 bg-zinc-900/40 text-zinc-300 shadow-sm'
+          }`}>
+            <div className="space-y-1">
+              <p className="text-xs font-semibold">
+                {syncStatus || aiStatus}
+              </p>
+            </div>
+          </div>
+        )}
 
         {/* Daily Executive Briefing */}
         <div className="glass-panel rounded-xl p-6 relative overflow-hidden group/briefing hover:border-indigo-500/25 transition-all duration-500">

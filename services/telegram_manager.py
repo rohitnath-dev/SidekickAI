@@ -147,10 +147,11 @@ class TelegramManager:
             db.commit()
             db.refresh(db_msg)
 
-            try:
-                await process_message_ai(db, db_msg)
-            except Exception as e:
-                logger.error("TelegramManager: AI pipeline error on real-time message %s: %s", msg_id, e)
+            # Decoupled: AI pipeline is now triggered manually via Run AI
+            # try:
+            #     await process_message_ai(db, db_msg)
+            # except Exception as e:
+            #     logger.error("TelegramManager: AI pipeline error on real-time message %s: %s", msg_id, e)
 
         except Exception as e:
             logger.error("TelegramManager: Error handling incoming event: %s", e)

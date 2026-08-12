@@ -17,6 +17,11 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/settings", tags=["Settings"])
 
+from collections import defaultdict
+import asyncio
+
+_sync_run_locks = defaultdict(asyncio.Lock)
+
 
 # ---------------------------------------------------------------------------
 # Schemas
@@ -177,3 +182,117 @@ async def clear_data(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to clear database logs: {str(exc)}"
         )
+
+
+@router.post("/sync")
+async def sync_all_integrations(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """
+    Trigger immediate synchronization for all connected integration sources.
+    Does NOT run the AI pipeline.
+    """
+    # Prevent concurrent sync runs for this user
+    lock = _sync_run_locks[current_user.id]
+    if lock.locked():
+         raise HTTPException(
+             status_code=status.HTTP_409_CONFLICT,
+             detail="Synchronization is already in progress. Please wait."
+         )
+
+    async with lock:
+        from config import settings
+        from datetime import datetime
+
+        tokens = TokenRepository.list_by_user(db, current_user.id)
+        connected_providers = set()
+
+        # Check Gmail
+        gmail_token = next((t for t in tokens if t.provider == "google"), None)
+        if gmail_token and gmail_token.access_token and gmail_token.access_token != "disabled":
+            connected_providers.add("gmail")
+
+        # Check Telegram
+        if any(t.provider == "telegram" and t.access_token and t.access_token != "disabled" for t in tokens):
+            connected_providers.add("telegram")
+
+        # Check Discord
+        if any(t.provider == "discord" and t.access_token and t.access_token != "disabled" for t in tokens):
+            connected_providers.add("discord")
+
+        # Check Twitter
+        if settings.TWITTER_BEARER_TOKEN and settings.TWITTER_USER_ID:
+            disabled_token = next((t for t in tokens if t.provider == "twitter"), None)
+            if not (disabled_token and disabled_token.access_token == "disabled"):
+                connected_providers.add("twitter")
+
+        synced_results = {}
+        errors = []
+
+        # 1. Gmail
+        if "gmail" in connected_providers:
+            try:
+                from services.oauth import get_credentials
+                creds = get_credentials(current_user.id, db)
+                if creds:
+                    from agents.gmail_agent import GmailAgent
+                    agent = GmailAgent()
+                    res = await agent.sync_messages(
+                        creds=creds,
+                        db=db,
+                        user_id=current_user.id,
+                        limit=20,
+                        unread_only=False,
+                    )
+                    synced_results["gmail"] = res.get("synced", 0) if isinstance(res, dict) else 0
+            except Exception as e:
+                logger.error("Sync API: Gmail sync failed for user %d: %s", current_user.id, e)
+                errors.append(f"Gmail: {str(e)}")
+
+        # 2. Telegram
+        if "telegram" in connected_providers:
+            try:
+                from routes.telegram import sync_telegram
+                res = await sync_telegram(current_user=current_user, db=db)
+                synced_results["telegram"] = getattr(res, "synced", 0) if hasattr(res, "synced") else (res.get("synced", 0) if isinstance(res, dict) else 0)
+            except Exception as e:
+                logger.error("Sync API: Telegram sync failed for user %d: %s", current_user.id, e)
+                errors.append(f"Telegram: {str(e)}")
+
+        # 3. Discord
+        if "discord" in connected_providers:
+            try:
+                from routes.discord import sync_discord
+                res = await sync_discord(current_user=current_user, db=db)
+                synced_results["discord"] = getattr(res, "synced", 0) if hasattr(res, "synced") else (res.get("synced", 0) if isinstance(res, dict) else 0)
+            except Exception as e:
+                logger.error("Sync API: Discord sync failed for user %d: %s", current_user.id, e)
+                errors.append(f"Discord: {str(e)}")
+
+        # 4. Twitter
+        if "twitter" in connected_providers:
+            try:
+                from routes.twitter import sync_twitter_mentions
+                res = await sync_twitter_mentions(current_user=current_user, db=db)
+                synced_results["twitter"] = res.get("synced", 0) if isinstance(res, dict) else 0
+            except Exception as e:
+                logger.error("Sync API: Twitter sync failed for user %d: %s", current_user.id, e)
+                errors.append(f"Twitter: {str(e)}")
+
+        total_synced = sum(synced_results.values())
+        status_str = "success" if not errors else "partial_failure"
+
+        if len(errors) == len(connected_providers) and connected_providers:
+            status_str = "failure"
+            raise HTTPException(
+                status_code=status.HTTP_502_BAD_GATEWAY,
+                detail=f"All sync operations failed: {'; '.join(errors)}"
+            )
+
+        return {
+            "status": status_str,
+            "synced": total_synced,
+            "details": synced_results,
+            "errors": errors
+        }

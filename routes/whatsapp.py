@@ -146,11 +146,11 @@ async def process_whatsapp_payload_async(body: dict) -> None:
             db.commit()
             db.refresh(db_msg)
 
-            # Trigger AI pipeline
-            try:
-                await process_message_ai(db, db_msg)
-            except Exception as e:
-                logger.error("Failed to run AI pipeline for WhatsApp message %s: %s", msg_id, e)
+            # Decoupled: AI pipeline is now triggered manually via Run AI
+            # try:
+            #     await process_message_ai(db, db_msg)
+            # except Exception as e:
+            #     logger.error("Failed to run AI pipeline for WhatsApp message %s: %s", msg_id, e)
     except Exception as exc:
         logger.error("Background WhatsApp processing error: %s", exc)
     finally:

@@ -58,6 +58,8 @@ function InboxContent() {
   const [notification, setNotification] = useState<{ sender: string, subject: string, id: number } | null>(null);
   const [lastSyncedAt, setLastSyncedAt] = useState<string | null>(null);
   const [gmailCategoryFilter, setGmailCategoryFilter] = useState('all');
+  const [inboxAiLoading, setInboxAiLoading] = useState(false);
+  const [inboxAiStatus, setInboxAiStatus] = useState<string | null>(null);
 
   useEffect(() => {
     if (typeof window !== 'undefined') {
@@ -380,12 +382,39 @@ function InboxContent() {
   // Run AI Summary/Analysis on selected message
   const analyzeMutation = useMutation({
     mutationFn: async (id: number) => {
-      const response = await apiClient.post(`/summary/message/${id}`);
+      const response = await apiClient.post('/ai/analyze', { message_id: id });
       return response.data;
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['messages'] });
       queryClient.invalidateQueries({ queryKey: ['message-detail', selectedId] });
+    }
+  });
+
+  // Run AI on all unprocessed inbox messages
+  const runInboxAiMutation = useMutation({
+    mutationFn: async () => {
+      setInboxAiLoading(true);
+      setInboxAiStatus('Running AI...');
+      const response = await apiClient.post('/ai/analyze', {});
+      return response.data;
+    },
+    onSuccess: (data) => {
+      setInboxAiStatus(`AI complete! Processed ${data.processed_count} messages.`);
+      queryClient.invalidateQueries({ queryKey: ['messages'] });
+      if (selectedId) {
+        queryClient.invalidateQueries({ queryKey: ['message-detail', selectedId] });
+      }
+      setTimeout(() => setInboxAiStatus(null), 4000);
+    },
+    onError: (err: any) => {
+      console.error(err);
+      const detail = err.response?.data?.detail || err.message;
+      setInboxAiStatus(`AI processing failed: ${detail}`);
+      setTimeout(() => setInboxAiStatus(null), 4500);
+    },
+    onSettled: () => {
+      setInboxAiLoading(false);
     }
   });
 
@@ -562,14 +591,24 @@ function InboxContent() {
                   )}
                 </div>
               </div>
-              <button 
-                onClick={() => syncMutation.mutate()}
-                disabled={syncLoading}
-                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-zinc-100 text-zinc-950 hover:bg-zinc-200 hover:scale-[1.02] active:scale-[0.98] transition-all cursor-pointer disabled:opacity-50 shadow-md shadow-zinc-950/25"
-              >
-                {syncLoading ? <Loader2 className="w-3 h-3 animate-spin" /> : <RefreshCw className="w-3 h-3" />}
-                Sync
-              </button>
+              <div className="flex items-center gap-2">
+                <button 
+                  onClick={() => syncMutation.mutate()}
+                  disabled={syncLoading}
+                  className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-semibold bg-zinc-100 text-zinc-950 hover:bg-zinc-200 hover:scale-[1.02] active:scale-[0.98] transition-all cursor-pointer disabled:opacity-50 shadow-md shadow-zinc-950/25 shrink-0"
+                >
+                  {syncLoading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RefreshCw className="w-3.5 h-3.5" />}
+                  {syncLoading ? 'Syncing...' : 'Sync'}
+                </button>
+                <button 
+                  onClick={() => runInboxAiMutation.mutate()}
+                  disabled={inboxAiLoading}
+                  className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-semibold bg-indigo-650 hover:bg-indigo-600 text-zinc-100 hover:scale-[1.02] active:scale-[0.98] transition-all cursor-pointer disabled:opacity-50 shadow-md shadow-indigo-950/25 border border-indigo-500/30 shrink-0"
+                >
+                  {inboxAiLoading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Sparkles className="w-3.5 h-3.5 text-indigo-400" />}
+                  {inboxAiLoading ? 'Running AI...' : 'Run AI'}
+                </button>
+              </div>
             </div>
 
             {syncStatus && (
@@ -599,6 +638,16 @@ function InboxContent() {
                     Enable API
                   </a>
                 )}
+              </div>
+            )}
+
+            {inboxAiStatus && (
+              <div className={`text-xs px-3.5 py-2.5 rounded-lg border ${
+                inboxAiStatus.includes('failed')
+                  ? 'border-red-900/30 bg-red-950/20 text-red-400' 
+                  : 'border-zinc-800 bg-zinc-900/40 text-zinc-300'
+              }`}>
+                <span>{inboxAiStatus}</span>
               </div>
             )}
 
@@ -808,7 +857,7 @@ function InboxContent() {
                       className="flex items-center gap-1.5 px-3.5 py-2 rounded-lg text-xs font-semibold bg-zinc-900 border border-zinc-800 hover:bg-zinc-850 hover:border-zinc-750 text-zinc-300 transition-all cursor-pointer disabled:opacity-50"
                     >
                       {analyzeMutation.isPending ? <Loader2 className="w-3.5 h-3.5 animate-spin text-indigo-400" /> : <Sparkles className="w-3.5 h-3.5 text-indigo-400" />}
-                      Analyze AI
+                      {analyzeMutation.isPending ? 'Running AI...' : 'Run AI'}
                     </button>
                     {selectedMessage.status === 'unread' && (
                       <button 

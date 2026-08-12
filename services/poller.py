@@ -113,11 +113,12 @@ async def start_polling() -> None:
                                     db.commit()
                                     db.refresh(db_msg)
                                     
-                                    try:
-                                        from services.ai_pipeline import process_message_ai
-                                        await process_message_ai(db, db_msg)
-                                    except Exception as e:
-                                        logger.error("Background Poller: Twitter AI pipeline failed for tweet %s: %s", tweet_id, e)
+                                    # Decoupled: AI pipeline is now triggered manually via Run AI
+                                    # try:
+                                    #     from services.ai_pipeline import process_message_ai
+                                    #     await process_message_ai(db, db_msg)
+                                    # except Exception as e:
+                                    #     logger.error("Background Poller: Twitter AI pipeline failed for tweet %s: %s", tweet_id, e)
                         except Exception as e:
                             logger.error("Background Poller: Twitter sync failed for user_id=%d: %s", user.id, e)
 
