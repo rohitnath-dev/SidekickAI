@@ -15,7 +15,9 @@ from sqlalchemy.orm import Session
 
 from agents.base_agent import BaseAgent
 from models.message import Message, MessageSource
+from services.llm import LLMClient
 from utils.prompts.planner import build_daily_briefing_prompt
+
 
 logger = logging.getLogger(__name__)
 
@@ -23,8 +25,14 @@ logger = logging.getLogger(__name__)
 class PlannerAgent(BaseAgent):
     """Creates daily briefing summaries for the user."""
 
-    def __init__(self) -> None:
-        super().__init__(agent_name="PlannerAgent")
+    def __init__(
+        self,
+        llm_client: Optional[LLMClient] = None,
+    ) -> None:
+        super().__init__(
+            agent_name="PlannerAgent",
+            llm_client=llm_client,
+        )
 
     async def generate_daily_briefing(
         self,
@@ -36,79 +44,150 @@ class PlannerAgent(BaseAgent):
         Generate an executive daily briefing.
 
         - Fetches recent messages from DB (last 24 h, limit 50).
-        - Analyses high-priority ones using PriorityAgent.
-        - Builds email summary string from top messages.
-        - Calls the LLM with the daily briefing prompt.
+        - Analyses high-priority messages using PriorityAgent.
+        - Builds email summary strings from the top messages.
+        - Calls the configured LLM with the daily briefing prompt.
         - Returns parsed JSON dict.
-
-        Args:
-            user_id: The user's ID.
-            db: SQLAlchemy session.
-            creds: Optional Google credentials (unused here; reserved for
-                   calendar integration).
-
-        Returns:
-            Parsed briefing dict or a fallback dict on failure.
         """
-        # Lazy import to avoid circular dependencies
+
+        # Lazy import to avoid circular dependencies.
         from agents.priority_agent import PriorityAgent
 
-        priority_agent = PriorityAgent()
-        today_date = datetime.utcnow().strftime("%Y-%m-%d")
+        # IMPORTANT:
+        # Use the same request-specific LLM client that PlannerAgent
+        # itself is using.
+        priority_agent = PriorityAgent(
+            llm_client=self.llm,
+        )
+
+        today_date = datetime.utcnow().strftime(
+            "%Y-%m-%d"
+        )
 
         try:
-            # ---- 1. Fetch recent messages --------------------------------
-            cutoff = datetime.utcnow() - timedelta(hours=24)
+            # ----------------------------------------------------------
+            # 1. Fetch recent messages
+            # ----------------------------------------------------------
+
+            cutoff = (
+                datetime.utcnow()
+                - timedelta(hours=24)
+            )
+
             messages: list[Message] = (
                 db.query(Message)
                 .filter(
                     Message.user_id == user_id,
                     Message.received_at >= cutoff,
                 )
-                .order_by(Message.received_at.desc())
+                .order_by(
+                    Message.received_at.desc()
+                )
                 .limit(50)
                 .all()
             )
 
-            # ---- 2. Prioritise messages ----------------------------------
+            # ----------------------------------------------------------
+            # 2. Prioritise messages
+            # ----------------------------------------------------------
+
             high_priority_items: list[dict] = []
             email_summaries: list[str] = []
 
             if messages:
-                priority_results = await priority_agent.analyze_batch(messages)
 
-                # Pair priority results correctly via mapping
-                pri_map = {pri.get("message_id"): pri for pri in priority_results if pri.get("message_id")}
+                priority_results = (
+                    await priority_agent.analyze_batch(
+                        messages
+                    )
+                )
 
-                # Build summary strings for the top 10 messages
+                # Pair priority results correctly by message ID.
+                pri_map = {
+                    pri.get("message_id"): pri
+                    for pri in priority_results
+                    if pri.get("message_id")
+                }
+
+                # Build summary strings for top 10 messages.
                 for i, msg in enumerate(messages):
+
                     if i >= 10:
                         break
-                    subject = msg.subject or "(no subject)"
-                    sender = msg.sender or "unknown"
-                    pri = pri_map.get(msg.message_id, {})
-                    score = pri.get("score", 50)
-                    snippet = msg.body[:200].replace("\n", " ") if msg.body else ""
-                    email_summaries.append(
-                        f"- [{score}/100] From: {sender} | Subject: {subject} | {snippet}"
+
+                    subject = (
+                        msg.subject
+                        or "(no subject)"
                     )
 
-                # Collect high-priority ones (score >= 70)
+                    sender = (
+                        msg.sender
+                        or "unknown"
+                    )
+
+                    pri = pri_map.get(
+                        msg.message_id,
+                        {},
+                    )
+
+                    score = pri.get(
+                        "score",
+                        50,
+                    )
+
+                    snippet = (
+                        msg.body[:200]
+                        .replace("\n", " ")
+                        if msg.body
+                        else ""
+                    )
+
+                    email_summaries.append(
+                        f"- [{score}/100] "
+                        f"From: {sender} | "
+                        f"Subject: {subject} | "
+                        f"{snippet}"
+                    )
+
+                # Collect high-priority messages.
                 for msg in messages:
-                    pri = pri_map.get(msg.message_id, {})
-                    if pri.get("score", 0) >= 70:
+
+                    pri = pri_map.get(
+                        msg.message_id,
+                        {},
+                    )
+
+                    if pri.get(
+                        "score",
+                        0,
+                    ) >= 70:
+
                         high_priority_items.append(
-                            f"- {msg.subject or '(no subject)'} from {msg.sender} "
+                            f"- "
+                            f"{msg.subject or '(no subject)'} "
+                            f"from {msg.sender} "
                             f"[score={pri.get('score', 0)}, "
                             f"reason={pri.get('reason', '')}]"
                         )
 
-            emails_summary = "\n".join(email_summaries) if email_summaries else "No recent emails."
-            high_priority_str = (
-                "\n".join(high_priority_items) if high_priority_items else "None."
+            emails_summary = (
+                "\n".join(email_summaries)
+                if email_summaries
+                else "No recent emails."
             )
 
-            # ---- 3. Build prompt ----------------------------------------
+            high_priority_str = (
+                "\n".join(
+                    high_priority_items
+                )
+                if high_priority_items
+                else "None."
+            )
+
+            # ----------------------------------------------------------
+            # 3. Build briefing prompt
+            # ----------------------------------------------------------
+
             prompt = build_daily_briefing_prompt(
                 today_date=today_date,
                 emails_summary=emails_summary,
@@ -116,33 +195,101 @@ class PlannerAgent(BaseAgent):
                 outstanding_items=None,
                 high_priority_messages=high_priority_str,
             )
-            self.logger.info("PlannerAgent: Prompt prepared. Character count = %d", len(prompt))
 
-            # ---- 4. Call LLM --------------------------------------------
-            self.logger.info("PlannerAgent: Requesting briefing from OpenRouter LLM...")
-            raw = await self._call_llm(prompt, user_id=user_id)
-            self.logger.info("PlannerAgent: Received raw LLM response (first 250 chars): %s", raw[:250] if raw else "")
-            result = self.parse_json_response(raw)
+            self.logger.info(
+                "PlannerAgent: Prompt prepared. "
+                "Character count = %d",
+                len(prompt),
+            )
 
-            if not isinstance(result, dict) or "executive_summary" not in result:
-                return self._fallback_briefing(today_date, len(messages))
+            # ----------------------------------------------------------
+            # 4. Call configured LLM
+            # ----------------------------------------------------------
+
+            self.logger.info(
+                "PlannerAgent: Requesting daily briefing "
+                "from configured LLM provider=%s model=%s",
+                getattr(
+                    self.llm,
+                    "provider",
+                    "unknown",
+                ),
+                getattr(
+                    self.llm,
+                    "_active_model",
+                    lambda: "unknown",
+                )(),
+            )
+
+            raw = await self._call_llm(
+                prompt,
+                user_id=user_id,
+            )
+
+            self.logger.info(
+                "PlannerAgent: Received raw LLM response "
+                "(first 250 chars): %s",
+                raw[:250] if raw else "",
+            )
+
+            result = self.parse_json_response(
+                raw
+            )
+
+            if (
+                not isinstance(result, dict)
+                or "executive_summary" not in result
+            ):
+                return self._fallback_briefing(
+                    today_date,
+                    len(messages),
+                )
 
             return result
+
         except Exception as exc:
-            self.logger.error("Daily briefing generation failed: %s", exc, exc_info=True)
-            return self._fallback_briefing(today_date, 0)
+
+            self.logger.error(
+                "Daily briefing generation failed: %s",
+                exc,
+                exc_info=True,
+            )
+
+            return self._fallback_briefing(
+                today_date,
+                0,
+            )
 
     # ------------------------------------------------------------------
     # Helpers
     # ------------------------------------------------------------------
 
-    def _fallback_briefing(self, today_date: str, message_count: int) -> dict:
+    def _fallback_briefing(
+        self,
+        today_date: str,
+        message_count: int,
+    ) -> dict:
         """Return a minimal fallback briefing when LLM parsing fails."""
-        msg_word = "message" if message_count == 1 else "messages"
-        summary = (
-            f"You have {message_count} {msg_word} in the last 24 hours. "
-            "AI briefing generation failed — please try again."
-        ) if message_count > 0 else "No new messages in the last 24 hours. AI briefing generation failed."
+
+        msg_word = (
+            "message"
+            if message_count == 1
+            else "messages"
+        )
+
+        if message_count > 0:
+            summary = (
+                f"You have {message_count} "
+                f"{msg_word} in the last 24 hours. "
+                "AI briefing generation failed — "
+                "please try again."
+            )
+        else:
+            summary = (
+                "No new messages in the last 24 hours. "
+                "AI briefing generation failed."
+            )
+
         return {
             "date": today_date,
             "executive_summary": summary,
@@ -151,5 +298,7 @@ class PlannerAgent(BaseAgent):
             "upcoming_deadlines": [],
             "recommended_priorities": [],
             "risks": [],
-            "next_actions": ["Review recent emails manually."],
+            "next_actions": [
+                "Review recent emails manually."
+            ],
         }

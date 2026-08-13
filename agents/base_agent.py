@@ -3,10 +3,10 @@ Base agent for Sidekick AI.
 
 Provides shared functionality for all agents:
 - Logging infrastructure
-- LLM access (async)
-- Retry logic with exponential backoff (async)
+- LLM access
+- Retry logic with exponential backoff
 - JSON parsing helper
-- Common error handling
+- Common response formatting
 """
 
 from __future__ import annotations
@@ -19,33 +19,47 @@ from abc import ABC
 from datetime import datetime
 from typing import Any, Optional
 
-from services.llm import llm
+from services.llm import LLMClient, llm
+
 
 logger = logging.getLogger(__name__)
 
 
 class BaseAgent(ABC):
     """
-    Abstract base class for all AI agents in Sidekick AI.
+    Abstract base class for all Sidekick AI agents.
 
-    Provides:
-    - Centralized logging
-    - Async LLM access
-    - Async retry logic with exponential backoff
-    - JSON parsing with markdown fence stripping
-    - Standardized response formatting
+    Agents can optionally receive a request-specific LLMClient.
+
+    If no client is supplied, the application's default global
+    LLM client is used. This keeps existing code backward compatible.
     """
 
-    def __init__(self, agent_name: str = "BaseAgent"):
+    def __init__(
+        self,
+        agent_name: str = "BaseAgent",
+        llm_client: Optional[LLMClient] = None,
+    ) -> None:
         self.agent_name = agent_name
-        self.llm = llm
-        self.logger = logging.getLogger(f"agents.{agent_name}")
+
+        # Use a request-specific client when supplied.
+        # Otherwise use the application's default LLM client.
+        self.llm = llm_client or llm
+
+        self.logger = logging.getLogger(
+            f"agents.{agent_name}"
+        )
+
         self.created_at = datetime.utcnow()
-        self.logger.info("Initialized %s", agent_name)
+
+        self.logger.info(
+            "Initialized %s using provider=%s",
+            agent_name,
+            getattr(self.llm, "provider", "unknown"),
+        )
 
     # ------------------------------------------------------------------
     # Async LLM helper
-    
     # ------------------------------------------------------------------
 
     async def _call_llm(
@@ -58,8 +72,15 @@ class BaseAgent(ABC):
         caller: Optional[str] = None,
         **kwargs,
     ) -> str:
-        """Call the LLM and return the generated text without catching exceptions."""
+        """
+        Call the configured LLM client.
+
+        The agent does not need to know whether the provider is
+        OpenRouter, Ollama, or another supported provider.
+        """
+
         caller_name = caller or self.__class__.__name__
+
         return await self.llm.generate(
             prompt=prompt,
             system_prompt=system_prompt,
@@ -69,6 +90,7 @@ class BaseAgent(ABC):
             caller=caller_name,
         )
 
+    # ------------------------------------------------------------------
     # Async retry with exponential backoff
     # ------------------------------------------------------------------
 
@@ -82,22 +104,9 @@ class BaseAgent(ABC):
         **kwargs,
     ) -> Any:
         """
-        Execute an async coroutine function with exponential backoff retry.
-
-        Args:
-            coro_func: Async function to call.
-            *args: Positional arguments for the function.
-            max_retries: Maximum retry attempts.
-            initial_delay: Initial delay in seconds.
-            backoff_factor: Multiplier for delay between retries.
-            **kwargs: Keyword arguments for the function.
-
-        Returns:
-            Result of the coroutine.
-
-        Raises:
-            Exception: If all retries fail.
+        Execute an async coroutine function with exponential backoff.
         """
+
         delay = initial_delay
         last_exception: Optional[Exception] = None
 
@@ -108,72 +117,95 @@ class BaseAgent(ABC):
                     self.agent_name,
                     attempt + 1,
                     max_retries + 1,
-                    getattr(coro_func, "__name__", str(coro_func)),
+                    getattr(
+                        coro_func,
+                        "__name__",
+                        str(coro_func),
+                    ),
                 )
-                return await coro_func(*args, **kwargs)
+
+                return await coro_func(
+                    *args,
+                    **kwargs,
+                )
+
             except Exception as exc:
                 last_exception = exc
+
                 if attempt == max_retries:
                     self.logger.error(
-                        "%s: all %d retries exhausted for %s: %s",
+                        "%s: all retries exhausted for %s: %s",
                         self.agent_name,
-                        max_retries,
-                        getattr(coro_func, "__name__", str(coro_func)),
+                        getattr(
+                            coro_func,
+                            "__name__",
+                            str(coro_func),
+                        ),
                         exc,
                     )
                     raise
+
                 self.logger.warning(
-                    "%s: attempt %d failed, retrying in %.1fs: %s",
+                    "%s: attempt %d failed; retrying in %.1fs: %s",
                     self.agent_name,
                     attempt + 1,
                     delay,
                     exc,
                 )
+
                 await asyncio.sleep(delay)
                 delay *= backoff_factor
 
         if last_exception:
             raise last_exception
 
+        raise RuntimeError(
+            f"{self.agent_name}: retry operation failed unexpectedly."
+        )
+
     # ------------------------------------------------------------------
     # JSON parsing helper
     # ------------------------------------------------------------------
 
-    def parse_json_response(self, text: str) -> dict | list:
+    def parse_json_response(
+        self,
+        text: str,
+    ) -> dict | list:
         """
-        Parse a JSON response from the LLM.
+        Parse JSON returned by an LLM.
 
-        - Strips markdown code fences (```json ... ``` or ``` ... ```)
-        - Calls json.loads
-        - Returns {} or [] on failure (preserving the expected shape)
-
-        Returns:
-            Parsed dict or list, or {} on failure.
+        Supports normal JSON and markdown fenced JSON responses.
+        Returns an empty dict when parsing fails.
         """
+
         if not text or not isinstance(text, str):
-            self.logger.warning("%s: empty or non-string LLM response", self.agent_name)
+            self.logger.warning(
+                "%s: empty or invalid LLM response",
+                self.agent_name,
+            )
             return {}
 
         cleaned = text.strip()
 
-        # Strip markdown fences
+        # Remove ```json ... ``` or ``` ... ``` fences.
         fence_match = re.match(
             r"^```(?:json)?\s*(.*?)\s*```$",
             cleaned,
             flags=re.DOTALL,
         )
+
         if fence_match:
             cleaned = fence_match.group(1).strip()
 
         if not cleaned:
-            self.logger.warning("%s: empty content after stripping fences", self.agent_name)
             return {}
 
         try:
             return json.loads(cleaned)
+
         except (json.JSONDecodeError, TypeError) as exc:
             self.logger.error(
-                "%s: JSON parse failed: %s | raw: %s",
+                "%s: JSON parsing failed: %s | raw=%s",
                 self.agent_name,
                 exc,
                 cleaned[:200],
@@ -190,7 +222,10 @@ class BaseAgent(ABC):
         data: Any = None,
         error: Optional[str] = None,
     ) -> dict:
-        """Return a standardized response envelope."""
+        """
+        Return a standardized agent response.
+        """
+
         return {
             "success": success,
             "agent": self.agent_name,
