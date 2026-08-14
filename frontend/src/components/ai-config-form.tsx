@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { Eye, EyeOff, Loader2, CheckCircle2, AlertCircle, ExternalLink } from 'lucide-react';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { Eye, EyeOff, Loader2, AlertCircle, ExternalLink } from 'lucide-react';
 import { apiClient } from '@/lib/api-client';
 
 interface AIConfigFormProps {
@@ -43,11 +43,8 @@ export default function AIConfigForm({ onSaveSuccess, isSettingsMode = false }: 
   const [customOllamaModel, setCustomOllamaModel] = useState('');
 
   // Status states
-  const [testStatus, setTestStatus] = useState<'idle' | 'testing' | 'success' | 'failed'>('idle');
-  const [testError, setTestError] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
-  const [hasTestedSuccessfully, setHasTestedSuccessfully] = useState(false);
 
   // Fetch existing config (if any)
   const { data: existingConfig, isLoading: isLoadingConfig } = useQuery({
@@ -86,16 +83,12 @@ export default function AIConfigForm({ onSaveSuccess, isSettingsMode = false }: 
           setCustomOllamaModel(existingConfig.model);
         }
       }
-      setHasTestedSuccessfully(true); // Treat existing config as pre-verified
     }
   }, [existingConfig]);
 
-  // Reset verification status if fields change
   const handleFieldChange = (setter: any, value: any) => {
     setter(value);
-    setHasTestedSuccessfully(false);
-    setTestStatus('idle');
-    setTestError(null);
+    setSaveError(null);
   };
 
   const getActiveModel = () => {
@@ -103,32 +96,6 @@ export default function AIConfigForm({ onSaveSuccess, isSettingsMode = false }: 
       return openRouterModel === 'custom' ? customOpenRouterModel : openRouterModel;
     } else {
       return ollamaModel === 'custom' ? customOllamaModel : ollamaModel;
-    }
-  };
-
-  const handleTestConnection = async () => {
-    setTestStatus('testing');
-    setTestError(null);
-    try {
-      const activeModel = getActiveModel();
-      if (!activeModel.trim()) {
-        throw new Error('Model name is required.');
-      }
-
-      await apiClient.post('/settings/ai-config/test', {
-        provider,
-        model: activeModel,
-        api_key: provider === 'openrouter' ? apiKey : null,
-        base_url: provider === 'ollama' ? baseUrl : null,
-      });
-
-      setTestStatus('success');
-      setHasTestedSuccessfully(true);
-    } catch (err: any) {
-      console.error(err);
-      setTestStatus('failed');
-      setHasTestedSuccessfully(false);
-      setTestError(err.response?.data?.detail || err.message || 'Connection test failed.');
     }
   };
 
@@ -362,42 +329,6 @@ export default function AIConfigForm({ onSaveSuccess, isSettingsMode = false }: 
             )}
           </div>
         )}
-
-        {/* Test Connection Actions and Results */}
-        <div className="pt-2 border-t border-zinc-900/60 flex flex-col gap-3">
-          <div className="flex items-center justify-between gap-4">
-            <span className="text-[10px] text-zinc-500">
-              Test connection before saving.
-            </span>
-            <button
-              type="button"
-              onClick={handleTestConnection}
-              disabled={testStatus === 'testing'}
-              className="px-3.5 py-2 bg-zinc-950 hover:bg-zinc-900 border border-zinc-850 hover:border-zinc-700 rounded-lg text-xs font-semibold text-zinc-300 transition-all flex items-center gap-1.5 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              {testStatus === 'testing' && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
-              {testStatus === 'testing' ? 'Testing...' : 'Test Connection'}
-            </button>
-          </div>
-
-          {/* Test results alert */}
-          {testStatus === 'success' && (
-            <div className="flex items-start gap-2.5 rounded-lg border border-emerald-900/30 bg-emerald-950/15 p-3.5 text-xs text-emerald-400">
-              <CheckCircle2 className="h-4 w-4 shrink-0 text-emerald-500 mt-0.5" />
-              <span>Connection successful! Click save/continue to use this provider.</span>
-            </div>
-          )}
-
-          {testStatus === 'failed' && testError && (
-            <div className="flex items-start gap-2.5 rounded-lg border border-red-900/30 bg-red-950/15 p-3.5 text-xs text-red-400">
-              <AlertCircle className="h-4 w-4 shrink-0 text-red-500 mt-0.5" />
-              <div>
-                <span className="font-semibold block">Connection failed</span>
-                <span className="mt-0.5 block">{testError}</span>
-              </div>
-            </div>
-          )}
-        </div>
       </div>
 
       {saveError && (
@@ -411,7 +342,7 @@ export default function AIConfigForm({ onSaveSuccess, isSettingsMode = false }: 
       <div className="pt-2 flex justify-end">
         <button
           type="submit"
-          disabled={isSaving || !hasTestedSuccessfully}
+          disabled={isSaving}
           className="flex items-center justify-center gap-1.5 px-6 py-2.5 rounded-lg bg-zinc-100 hover:bg-zinc-200 text-xs font-semibold text-zinc-950 transition-all cursor-pointer disabled:opacity-40 disabled:hover:bg-zinc-100 disabled:cursor-not-allowed shadow-md"
         >
           {isSaving && <Loader2 className="w-3.5 h-3.5 animate-spin" />}

@@ -62,7 +62,7 @@ apiClient.interceptors.response.use(
     }
     
     // Check if 401 and request wasn't already retried
-    if (error.response && error.response.status === 401 && !originalRequest._retry) {
+    if (error.response && error.response.status === 401 && originalRequest && !originalRequest._retry) {
       // Avoid redirecting if we are already on login or register pages
       if (typeof window !== 'undefined' && (window.location.pathname.startsWith('/login') || window.location.pathname.startsWith('/register'))) {
         return Promise.reject(error);
