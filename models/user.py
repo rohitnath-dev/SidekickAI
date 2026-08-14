@@ -44,7 +44,7 @@ class User(Base):
     memory_items: Mapped[list["MemoryItem"]] = relationship(  # noqa: F821
         "MemoryItem", back_populates="user", cascade="all, delete-orphan"
     )
-    ai_config: Optional[Mapped["UserAIConfig"]] = relationship(  # noqa: F821
+    ai_config: Mapped[Optional["UserAIConfig"]] = relationship(  # noqa: F821
         "UserAIConfig", back_populates="user", cascade="all, delete-orphan", uselist=False
     )
 
