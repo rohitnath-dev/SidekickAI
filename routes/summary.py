@@ -65,6 +65,7 @@ async def generate_summary(
         result = await SummaryAgent().generate_summary(
             email_content=request.email_content,
             context=request.context,
+            user_id=current_user.id,
         )
     except Exception as exc:
         logger.error("Summary generation failed: %s", exc)
@@ -89,7 +90,7 @@ async def summarize_thread(
     from agents.summary_agent import SummaryAgent
 
     try:
-        result = await SummaryAgent().summarize_thread(thread_content=request.thread_content)
+        result = await SummaryAgent().summarize_thread(thread_content=request.thread_content, user_id=current_user.id)
     except Exception as exc:
         logger.error("Thread summary failed: %s", exc)
         raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(exc))
@@ -106,7 +107,7 @@ async def extract_action_items(
     from agents.summary_agent import SummaryAgent
 
     try:
-        result = await SummaryAgent().extract_action_items(email_content=request.email_content)
+        result = await SummaryAgent().extract_action_items(email_content=request.email_content, user_id=current_user.id)
     except Exception as exc:
         logger.error("Action items extraction failed: %s", exc)
         raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(exc))
@@ -129,7 +130,7 @@ async def summarize_stored_message(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Message not found.")
 
     try:
-        result = await SummaryAgent().generate_summary(email_content=msg.to_context_string())
+        result = await SummaryAgent().generate_summary(email_content=msg.to_context_string(), user_id=current_user.id)
     except Exception as exc:
         logger.error("Message summary failed for msg %d: %s", message_id, exc)
         raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(exc))

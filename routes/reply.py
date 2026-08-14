@@ -61,6 +61,7 @@ async def generate_reply(
             context=request.context,
             tone=request.tone,
             language=request.language,
+            user_id=current_user.id,
         )
     except Exception as exc:
         logger.error("Reply generation failed: %s", exc)
@@ -87,6 +88,7 @@ async def improve_reply(
         result = await ReplyAgent().improve_reply(
             original_email=request.original_email,
             reply_draft=request.reply_draft,
+            user_id=current_user.id,
         )
     except Exception as exc:
         logger.error("Reply improvement failed: %s", exc)
@@ -110,6 +112,7 @@ async def regenerate_reply(
             context=request.context,
             tone=request.tone,
             language=request.language,
+            user_id=current_user.id,
         )
     except Exception as exc:
         logger.error("Reply regeneration failed: %s", exc)
@@ -139,6 +142,7 @@ async def reply_to_stored_message(
             email_content=msg.to_context_string(),
             tone=tone,
             language=language,
+            user_id=current_user.id,
         )
     except Exception as exc:
         logger.error("Reply for message %d failed: %s", message_id, exc)

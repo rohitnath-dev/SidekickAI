@@ -19,10 +19,14 @@ import {
   Power,
   ShieldAlert,
   Disc,
-  Trash2
+  Trash2,
+  Sparkles,
+  BrainCircuit,
+  AlertCircle
 } from 'lucide-react';
 import SidebarLayout from '@/components/layout';
 import { apiClient } from '@/lib/api-client';
+import AIConfigForm from '@/components/ai-config-form';
 
 // Validation Schemas
 const profileSchema = zod.object({
@@ -74,6 +78,18 @@ export default function SettingsPage() {
       return response.data;
     },
   });
+
+  // Fetch user AI config
+  const { data: aiConfig, isLoading: isAiConfigLoading } = useQuery({
+    queryKey: ['user-ai-config'],
+    queryFn: async () => {
+      const response = await apiClient.get('/settings/ai-config');
+      return response.data;
+    },
+  });
+
+  const [isEditingAI, setIsEditingAI] = useState(false);
+  const [aiSuccess, setAiSuccess] = useState<string | null>(null);
 
   const connectedServices = preferences?.connected_services || [];
   const googlePref = connectedServices.find((s: any) => s.provider === 'google');
@@ -618,6 +634,99 @@ export default function SettingsPage() {
                   Save Changes
                 </button>
               </form>
+            </div>
+
+            {/* AI / LLM Configuration */}
+            <div className="bg-zinc-900/20 border border-zinc-900 rounded-xl p-6 space-y-6">
+              <div className="flex items-center gap-2 border-b border-zinc-900 pb-3">
+                <BrainCircuit className="w-4 h-4 text-zinc-400" />
+                <h2 className="text-sm font-semibold text-zinc-200 uppercase tracking-wider">AI / LLM Settings</h2>
+              </div>
+
+              {aiSuccess && (
+                <div className="flex items-start gap-2.5 rounded-lg border border-emerald-900/30 bg-emerald-950/20 p-4 text-xs text-emerald-400">
+                  <CheckCircle2 className="h-4 w-4 shrink-0 text-emerald-500 mt-0.5" />
+                  <span>{aiSuccess}</span>
+                </div>
+              )}
+
+              {isEditingAI ? (
+                <div>
+                  <AIConfigForm
+                    isSettingsMode={true}
+                    onSaveSuccess={() => {
+                      setIsEditingAI(false);
+                      setAiSuccess('AI configuration updated successfully.');
+                      setTimeout(() => setAiSuccess(null), 4050);
+                    }}
+                  />
+                  <div className="mt-3 flex justify-start">
+                    <button
+                      type="button"
+                      onClick={() => setIsEditingAI(false)}
+                      className="px-4 py-2 border border-zinc-800 hover:border-zinc-700 rounded-lg text-xs font-semibold text-zinc-400 hover:text-zinc-200 transition-all cursor-pointer"
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <div className="space-y-4">
+                  {isAiConfigLoading ? (
+                    <div className="py-4 flex justify-center text-zinc-500">
+                      <Loader2 className="w-6 h-6 animate-spin text-zinc-400" />
+                    </div>
+                  ) : aiConfig?.configured ? (
+                    <div className="space-y-4">
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div className="p-4 bg-zinc-950/40 border border-zinc-900 rounded-lg space-y-1">
+                          <span className="text-[10px] uppercase font-semibold text-zinc-500 tracking-wider">Provider</span>
+                          <span className="block text-sm font-semibold text-zinc-200 capitalize">
+                            {aiConfig.provider}
+                          </span>
+                        </div>
+                        <div className="p-4 bg-zinc-950/40 border border-zinc-900 rounded-lg space-y-1">
+                          <span className="text-[10px] uppercase font-semibold text-zinc-500 tracking-wider">Model</span>
+                          <span className="block text-sm font-semibold text-zinc-200 font-mono">
+                            {aiConfig.model}
+                          </span>
+                        </div>
+                      </div>
+                      
+                      {aiConfig.provider === 'ollama' && aiConfig.base_url && (
+                        <div className="p-4 bg-zinc-950/40 border border-zinc-900 rounded-lg space-y-1">
+                          <span className="text-[10px] uppercase font-semibold text-zinc-500 tracking-wider">Base URL</span>
+                          <span className="block text-xs text-zinc-350 font-mono">
+                            {aiConfig.base_url}
+                          </span>
+                        </div>
+                      )}
+
+                      <button
+                        type="button"
+                        onClick={() => setIsEditingAI(true)}
+                        className="flex items-center justify-center px-4 py-2.5 rounded-lg bg-zinc-900 hover:bg-zinc-800 border border-zinc-850 hover:border-zinc-700 text-xs font-semibold text-zinc-50 transition-all cursor-pointer shadow-sm"
+                      >
+                        Change AI Configuration
+                      </button>
+                    </div>
+                  ) : (
+                    <div className="space-y-4">
+                      <div className="flex items-start gap-2.5 rounded-lg border border-amber-900/30 bg-amber-950/15 p-4 text-xs text-amber-400">
+                        <AlertCircle className="h-4 w-4 shrink-0 text-amber-500 mt-0.5" />
+                        <span>AI provider is not configured. Sidekick requires an AI provider configuration to run messaging pipeline, summaries, and executive planner.</span>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => setIsEditingAI(true)}
+                        className="flex items-center justify-center px-4 py-2.5 rounded-lg bg-zinc-100 hover:bg-zinc-200 text-xs font-semibold text-zinc-950 transition-all cursor-pointer shadow-md"
+                      >
+                        Configure AI Provider
+                      </button>
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
 
             {/* Password Change */}

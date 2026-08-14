@@ -296,3 +296,214 @@ async def sync_all_integrations(
             "details": synced_results,
             "errors": errors
         }
+
+
+# ---------------------------------------------------------------------------
+# User AI/LLM Config Endpoints
+# ---------------------------------------------------------------------------
+
+class AIConfigResponse(BaseModel):
+    configured: bool
+    provider: str | None = None
+    model: str | None = None
+    base_url: str | None = None
+    has_api_key: bool = False
+
+
+class AIConfigSaveRequest(BaseModel):
+    provider: str  # "openrouter" or "ollama"
+    model: str
+    api_key: str | None = None
+    base_url: str | None = None
+
+
+class AIConfigTestRequest(BaseModel):
+    provider: str
+    model: str
+    api_key: str | None = None
+    base_url: str | None = None
+
+
+@router.get("/ai-config", response_model=AIConfigResponse)
+async def get_user_ai_config(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Retrieve the current user's AI provider configuration."""
+    from models.ai_config import UserAIConfig
+
+    config = db.query(UserAIConfig).filter_by(user_id=current_user.id).first()
+    if not config:
+        return AIConfigResponse(configured=False)
+
+    return AIConfigResponse(
+        configured=True,
+        provider=config.provider,
+        model=config.model,
+        base_url=config.base_url,
+        has_api_key=bool(config.api_key and config.api_key.strip() != ""),
+    )
+
+
+@router.post("/ai-config")
+async def save_user_ai_config(
+    request: AIConfigSaveRequest,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Save or update the user's AI provider configuration."""
+    from models.ai_config import UserAIConfig
+
+    if request.provider not in ("openrouter", "ollama"):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid provider. Must be either 'openrouter' or 'ollama'."
+        )
+
+    if not request.model.strip():
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Model name cannot be empty."
+        )
+
+    config = db.query(UserAIConfig).filter_by(user_id=current_user.id).first()
+    if not config:
+        config = UserAIConfig(user_id=current_user.id)
+        db.add(config)
+
+    config.provider = request.provider
+    config.model = request.model.strip()
+
+    if request.provider == "openrouter":
+        config.base_url = None
+        # Only update the API key if a new non-empty, non-placeholder one is provided
+        if request.api_key and not request.api_key.startswith("•••"):
+            config.api_key = request.api_key.strip()
+        elif not config.api_key:
+            # If no API key was saved before and none is provided now
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="API Key is required for OpenRouter configuration."
+            )
+    else:  # ollama
+        config.api_key = None
+        config.base_url = (request.base_url or "http://localhost:11434").strip().rstrip("/")
+
+    db.commit()
+    logger.info("Saved AI configuration for user_id=%d, provider=%s", current_user.id, request.provider)
+    return {"status": "success", "message": "AI configuration saved successfully."}
+
+
+@router.post("/ai-config/test")
+async def test_user_ai_config_connection(
+    request: AIConfigTestRequest,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Verify provider connectivity with the specified settings."""
+    from services.llm import LLMException, LLMConnectionError, LLMAuthenticationError
+    import httpx
+
+    provider = request.provider
+    model = request.model
+    api_key = request.api_key
+    base_url = request.base_url
+
+    if provider not in ("openrouter", "ollama"):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid provider. Must be either 'openrouter' or 'ollama'."
+        )
+
+    if not model.strip():
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Model name cannot be empty."
+        )
+
+    # If it is OpenRouter and API key is placeholder/empty, look up existing saved key
+    if provider == "openrouter":
+        if not api_key or api_key.startswith("•••"):
+            from models.ai_config import UserAIConfig
+            config = db.query(UserAIConfig).filter_by(user_id=current_user.id).first()
+            if config and config.api_key:
+                api_key = config.api_key
+            else:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="API key is required."
+                )
+    
+    # Perform connection test
+    if provider == "openrouter":
+        headers = {
+            "Authorization": f"Bearer {api_key}",
+            "Content-Type": "application/json",
+            "HTTP-Referer": "https://sidekick.ai",
+            "X-Title": "Sidekick AI",
+        }
+        payload = {
+            "model": model,
+            "messages": [{"role": "user", "content": "ping"}],
+            "max_tokens": 1
+        }
+        try:
+            async with httpx.AsyncClient(timeout=15.0) as client:
+                response = await client.post(
+                    "https://openrouter.ai/api/v1/chat/completions",
+                    json=payload,
+                    headers=headers
+                )
+                if response.status_code != 200:
+                    status_code = response.status_code
+                    try:
+                        body = response.json()
+                    except Exception:
+                        body = response.text
+                    
+                    if status_code == 401:
+                        raise LLMAuthenticationError("Authentication failed. Please verify your OpenRouter API key.")
+                    raise LLMException(f"OpenRouter returned error status {status_code}: {body}")
+        except httpx.ConnectError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_502_BAD_GATEWAY,
+                detail="Failed to connect to OpenRouter. Please check your internet connection."
+            )
+        except LLMAuthenticationError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail=str(exc)
+            )
+        except Exception as exc:
+            raise HTTPException(
+                status_code=status.HTTP_502_BAD_GATEWAY,
+                detail=f"OpenRouter test connection failed: {exc}"
+            )
+    else:  # ollama
+        url = (base_url or "http://localhost:11434").strip().rstrip("/")
+        full_url = f"{url}/v1/chat/completions"
+        payload = {
+            "model": model,
+            "messages": [{"role": "user", "content": "ping"}],
+            "max_tokens": 1
+        }
+        try:
+            async with httpx.AsyncClient(timeout=10.0) as client:
+                response = await client.post(full_url, json=payload)
+                if response.status_code != 200:
+                    body = response.text
+                    if "model" in str(body).lower() and "not found" in str(body).lower():
+                        raise LLMException(f"Model '{model}' is not found in your Ollama installation. Please pull it first using 'ollama pull {model}'.")
+                    raise LLMException(f"Ollama returned error status {response.status_code}")
+        except (httpx.ConnectError, httpx.TimeoutException) as exc:
+            raise HTTPException(
+                status_code=status.HTTP_502_BAD_GATEWAY,
+                detail="Couldn't connect to Ollama. Make sure Ollama is running and the configured URL is correct."
+            )
+        except Exception as exc:
+            raise HTTPException(
+                status_code=status.HTTP_502_BAD_GATEWAY,
+                detail=str(exc)
+            )
+
+    return {"status": "success", "message": "Connection successful"}

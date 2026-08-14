@@ -132,6 +132,7 @@ class WhatsAppAgent(BaseAgent):
         message_content: str,
         context: Optional[str] = None,
         tone: str = "professional",
+        user_id: Optional[int] = None,
     ) -> str:
         """
         Generate a WhatsApp reply using the LLM.
@@ -145,5 +146,5 @@ class WhatsAppAgent(BaseAgent):
             context=context,
             tone=tone,
         )
-        reply = await self._call_llm(prompt)
+        reply = await self._call_llm(prompt, user_id=user_id)
         return reply.strip()

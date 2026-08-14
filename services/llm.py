@@ -209,6 +209,40 @@ class LLMClient:
         if not messages:
             raise LLMException("Cannot send an empty messages list.")
 
+        # Check if user has their own AI configuration
+        if user_id is not None:
+            from database import SessionLocal
+            from models.ai_config import UserAIConfig
+            db = SessionLocal()
+            try:
+                config = db.query(UserAIConfig).filter_by(user_id=user_id).first()
+                if config:
+                    logger.info(
+                        "LLM request (user config): provider=%s caller=%s user_id=%s model=%s",
+                        config.provider,
+                        caller or "chat",
+                        user_id,
+                        model or config.model,
+                    )
+                    # Dynamically instantiate a client configured for this user
+                    user_client = LLMClient(
+                        provider=config.provider,
+                        api_key=config.api_key,
+                        base_url=config.base_url,
+                        model=config.model,
+                        timeout=self.timeout,
+                    )
+                    return await user_client.chat(
+                        messages=messages,
+                        temperature=temperature,
+                        max_tokens=max_tokens,
+                        model=model,
+                        user_id=None,  # Prevent recursion
+                        caller=caller or "chat_user",
+                    )
+            finally:
+                db.close()
+
         logger.info(
             "LLM request: provider=%s caller=%s user_id=%s model=%s",
             self.provider,

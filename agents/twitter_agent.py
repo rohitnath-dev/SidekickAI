@@ -310,6 +310,7 @@ class TwitterAgent(BaseAgent):
         post_content: str,
         author_handle: str,
         context: Optional[str] = None,
+        user_id: Optional[int] = None,
     ) -> str:
         """
         Generate a reply text for a tweet using the LLM.
@@ -322,7 +323,7 @@ class TwitterAgent(BaseAgent):
             post_content=post_content,
             context=context,
         )
-        reply = await self._call_llm(prompt)
+        reply = await self._call_llm(prompt, user_id=user_id)
         reply = reply.strip()
         # Enforce Twitter character limit
         if len(reply) > 280:

@@ -150,6 +150,29 @@ app.add_middleware(
 
 
 # ---------------------------------------------------------------------------
+# Caching Control Middleware
+# ---------------------------------------------------------------------------
+
+@app.middleware("http")
+async def add_cache_control_headers(request, call_next):
+    response = await call_next(request)
+    path = request.url.path
+    # Prevent aggressive browser caching of frontend static pages and bundles
+    if (
+        path.startswith("/_next")
+        or path.startswith("/static")
+        or path in ("/", "/privacy", "/terms")
+        or path.endswith(".html")
+        or path.endswith(".js")
+        or path.endswith(".css")
+    ):
+        response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
+        response.headers["Pragma"] = "no-cache"
+        response.headers["Expires"] = "0"
+    return response
+
+
+# ---------------------------------------------------------------------------
 # Routes
 # ---------------------------------------------------------------------------
 

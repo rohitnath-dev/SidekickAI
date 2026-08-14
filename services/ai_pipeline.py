@@ -117,7 +117,8 @@ async def process_message_ai(
 
         summary_result = (
             await summary_agent.generate_summary(
-                message.body
+                email_content=message.body,
+                user_id=message.user_id,
             )
         )
 
@@ -150,7 +151,8 @@ async def process_message_ai(
 
         action_result = (
             await summary_agent.extract_action_items(
-                message.body
+                email_content=message.body,
+                user_id=message.user_id,
             )
         )
 
@@ -196,6 +198,7 @@ async def process_message_ai(
             await reply_agent.generate_reply(
                 recipient_name=sender_name,
                 email_content=message.body,
+                user_id=message.user_id,
             )
         )
 

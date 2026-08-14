@@ -15,6 +15,7 @@ from services.llm import LLMClient
 from utils.prompts.summary import (
     build_summary_prompt,
     build_action_items_prompt,
+    build_thread_summary_prompt,
 )
 
 
@@ -35,30 +36,24 @@ class SummaryAgent(BaseAgent):
 
     async def generate_summary(
         self,
-        content: str,
+        email_content: str,
+        context: str | None = None,
+        user_id: Optional[int] = None,
     ) -> dict:
         """
-        Generate a concise summary with sentiment and category.
+        Generate a structured JSON summary of an email.
+
+        Args:
+            email_content: The raw email body text.
+            context: Optional additional context for the LLM.
+            user_id: Optional user ID for custom AI settings.
 
         Returns:
-            {
-                "summary": str,
-                "sentiment": str,
-                "category": str
-            }
+            Parsed summary dict or {} on failure.
         """
-
-        prompt = build_summary_prompt(
-            content,
-        )
-
-        raw = await self._call_llm(
-            prompt,
-        )
-
-        result = self.parse_json_response(
-            raw,
-        )
+        prompt = build_summary_prompt(email_content, context)
+        raw = await self._call_llm(prompt, user_id=user_id)
+        result = self.parse_json_response(raw)
 
         if not isinstance(result, dict):
             self.logger.warning(
@@ -72,44 +67,47 @@ class SummaryAgent(BaseAgent):
             }
 
         return {
-            "summary": result.get(
-                "summary",
-                "",
-            ),
-            "sentiment": result.get(
-                "sentiment",
-                "",
-            ),
-            "category": result.get(
-                "category",
-                "",
-            ),
+            "summary": result.get("summary", ""),
+            "sentiment": result.get("sentiment", ""),
+            "category": result.get("category", ""),
         }
 
-    async def extract_action_items(
-        self,
-        content: str,
-    ) -> dict:
+    async def summarize_thread(self, thread_content: str, user_id: Optional[int] = None) -> dict:
         """
-        Extract actionable tasks from a message.
+        Generate a structured JSON summary of an email thread.
+
+        Args:
+            thread_content: The full thread text.
+            user_id: Optional user ID for custom AI settings.
 
         Returns:
-            {
-                "action_items": [...]
-            }
+            Parsed thread summary dict or {} on failure.
         """
+        prompt = build_thread_summary_prompt(thread_content)
+        raw = await self._call_llm(prompt, user_id=user_id)
+        result = self.parse_json_response(raw)
+        if not isinstance(result, dict):
+            self.logger.warning(
+                "SummaryAgent.summarize_thread: "
+                "invalid LLM response"
+            )
+            return {}
+        return result
 
-        prompt = build_action_items_prompt(
-            content,
-        )
+    async def extract_action_items(self, email_content: str, user_id: Optional[int] = None) -> dict:
+        """
+        Extract action items from an email.
 
-        raw = await self._call_llm(
-            prompt,
-        )
+        Args:
+            email_content: The raw email body text.
+            user_id: Optional user ID for custom AI settings.
 
-        result = self.parse_json_response(
-            raw,
-        )
+        Returns:
+            Parsed action items dict or {} on failure.
+        """
+        prompt = build_action_items_prompt(email_content)
+        raw = await self._call_llm(prompt, user_id=user_id)
+        result = self.parse_json_response(raw)
 
         if not isinstance(result, dict):
             self.logger.warning(
@@ -120,15 +118,8 @@ class SummaryAgent(BaseAgent):
                 "action_items": [],
             }
 
-        action_items = result.get(
-            "action_items",
-            [],
-        )
-
-        if not isinstance(
-            action_items,
-            list,
-        ):
+        action_items = result.get("action_items", [])
+        if not isinstance(action_items, list):
             action_items = []
 
         return {

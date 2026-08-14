@@ -5,6 +5,7 @@ from models.message import Message, MessageSource, MessagePriority, MessageStatu
 from models.token import OAuthToken
 from models.memory_item import MemoryItem
 from models.session import UserSession
+from models.ai_config import UserAIConfig
 
 __all__ = [
     "User",
@@ -15,5 +16,6 @@ __all__ = [
     "OAuthToken",
     "MemoryItem",
     "UserSession",
+    "UserAIConfig",
 ]
 

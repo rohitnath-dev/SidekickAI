@@ -38,8 +38,11 @@ export default function SidebarLayout({ children }: SidebarProps) {
     const checkAuth = async () => {
       try {
         console.log("[App Layout] Checking user session status...");
-        await apiClient.get('/auth/me');
+        const response = await apiClient.get('/auth/me');
         setIsAuthenticated(true);
+        if (response.data && response.data.has_ai_config === false) {
+          router.push('/onboarding/ai');
+        }
       } catch (err) {
         console.log("[App Layout] User not authenticated.");
         setIsAuthenticated(false);

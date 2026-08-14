@@ -336,6 +336,7 @@ async def generate_reply(
             post_content=request.post_content,
             author_handle=request.author_handle,
             context=request.context,
+            user_id=current_user.id,
         )
     except Exception as exc:
         logger.error("Twitter reply generation failed for user_id=%d: %s", current_user.id, exc)
@@ -373,6 +374,7 @@ async def post_reply(
             post_content=request.post_content,
             author_handle=request.author_handle,
             context=request.context,
+            user_id=current_user.id,
         )
         
         # Post reply using user's OAuth 2.0 token

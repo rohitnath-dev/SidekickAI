@@ -50,6 +50,7 @@ class UserResponse(BaseModel):
     is_active: bool
     is_admin: bool
     created_at: datetime
+    has_ai_config: bool
 
 
 class UpdateProfileRequest(BaseModel):
@@ -171,8 +172,13 @@ async def login(
 
 
 @router.get("/me", response_model=UserResponse)
-async def get_me(current_user: User = Depends(get_current_user)):
+async def get_me(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
     """Return the profile of the current logged-in user."""
+    from models.ai_config import UserAIConfig
+    ai_config = db.query(UserAIConfig).filter_by(user_id=current_user.id).first()
     return UserResponse(
         id=current_user.id,
         email=current_user.email,
@@ -180,6 +186,7 @@ async def get_me(current_user: User = Depends(get_current_user)):
         is_active=current_user.is_active,
         is_admin=current_user.is_admin,
         created_at=current_user.created_at,
+        has_ai_config=ai_config is not None,
     )
 
 
@@ -215,6 +222,9 @@ async def update_me(
     if updates:
         current_user = UserRepository.update(db, current_user, **updates)
 
+    from models.ai_config import UserAIConfig
+    ai_config = db.query(UserAIConfig).filter_by(user_id=current_user.id).first()
+
     return UserResponse(
         id=current_user.id,
         email=current_user.email,
@@ -222,6 +232,7 @@ async def update_me(
         is_active=current_user.is_active,
         is_admin=current_user.is_admin,
         created_at=current_user.created_at,
+        has_ai_config=ai_config is not None,
     )
 
 

@@ -473,6 +473,7 @@ async def generate_reply(
             sender_name=request.sender_name,
             message_content=request.message_content,
             context=request.context,
+            user_id=current_user.id,
         )
     except Exception as exc:
         logger.error("WhatsApp reply generation failed: %s", exc)
@@ -516,6 +517,7 @@ async def send_reply(
             sender_name=request.sender_name,
             message_content=request.message_content,
             context=request.context,
+            user_id=current_user.id,
         )
         result = await agent.send_message(
             api_token=api_token,
