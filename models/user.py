@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime
+from typing import Optional
 
 from sqlalchemy import Boolean, DateTime, Integer, String
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -43,7 +44,7 @@ class User(Base):
     memory_items: Mapped[list["MemoryItem"]] = relationship(  # noqa: F821
         "MemoryItem", back_populates="user", cascade="all, delete-orphan"
     )
-    ai_config: Mapped["UserAIConfig" | None] = relationship(  # noqa: F821
+    ai_config: Optional[Mapped["UserAIConfig"]] = relationship(  # noqa: F821
         "UserAIConfig", back_populates="user", cascade="all, delete-orphan", uselist=False
     )
 
