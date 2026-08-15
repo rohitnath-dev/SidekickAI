@@ -40,11 +40,14 @@ export default function LoginPage() {
       const params = new URLSearchParams();
       params.append('username', data.email);
       params.append('password', data.password);
-      await apiClient.post('/auth/login', params, {
+      const response = await apiClient.post('/auth/login', params, {
         headers: {
           'Content-Type': 'application/x-www-form-urlencoded',
         },
       });
+      if (response.data && response.data.access_token) {
+        localStorage.setItem('access_token', response.data.access_token);
+      }
       router.push('/');
     } catch (err: any) {
       console.error(err);
