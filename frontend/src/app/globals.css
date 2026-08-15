@@ -176,3 +176,64 @@ body {
 .animate-blob-3 {
   animation: float-blob-3 22s infinite ease-in-out;
 }
+
+/* Legal / Policy Markdown Rendering Styles */
+.legal-content h2 {
+  font-size: 1.125rem;
+  font-weight: 700;
+  color: #f4f4f5; /* zinc-100 */
+  margin-top: 1.75rem;
+  margin-bottom: 0.75rem;
+}
+.legal-content h3 {
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: #e4e4e7; /* zinc-200 */
+  margin-top: 1.25rem;
+  margin-bottom: 0.5rem;
+}
+.legal-content p {
+  margin-bottom: 1rem;
+  color: #d4d4d8; /* zinc-300 */
+}
+.legal-content ul {
+  list-style-type: disc;
+  padding-left: 1.25rem;
+  margin-bottom: 1rem;
+  color: #a1a1aa; /* zinc-400 */
+}
+.legal-content ul ul {
+  list-style-type: circle;
+  padding-left: 1.5rem;
+  margin-top: 0.25rem;
+  color: #71717a; /* zinc-500 */
+}
+.legal-content li {
+  margin-bottom: 0.25rem;
+}
+.legal-content li strong {
+  color: #f4f4f5; /* zinc-100 */
+  font-weight: 600;
+}
+.legal-content code {
+  color: #e4e4e7; /* zinc-200 */
+  background-color: rgba(24, 24, 27, 0.6);
+  padding: 0.125rem 0.25rem;
+  border-radius: 0.25rem;
+  font-size: 0.75rem;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+}
+.legal-content a {
+  color: #818cf8; /* indigo-400 */
+  text-decoration: underline;
+  transition: color 0.2s;
+}
+.legal-content a:hover {
+  color: #a5b4fc; /* indigo-300 */
+}
+.legal-content hr {
+  border: 0;
+  border-top: 1px solid rgba(255, 255, 255, 0.05);
+  margin: 1.5rem 0;
+}
+

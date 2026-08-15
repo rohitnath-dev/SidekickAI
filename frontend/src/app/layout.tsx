@@ -2,12 +2,14 @@ import type { Metadata } from "next";
 import "./globals.css";
 import Providers from "@/components/providers";
 import PwaRegister from "@/components/pwa-register";
+import { BRANDING } from "@/config/branding";
 
 export const metadata: Metadata = {
-  title: "SidekickAI — Premium AI Executive Assistant",
-  description: "An AI-powered executive assistant that prioritises messages, generates smart replies, remembers context, and helps you stay organised.",
+  title: `${BRANDING.name} — Premium AI Executive Assistant`,
+  description: BRANDING.description,
   manifest: "/manifest.json",
 };
+
 
 export default function RootLayout({
   children,

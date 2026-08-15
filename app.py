@@ -215,6 +215,56 @@ if not os.path.exists(next_dir):
 app.mount("/_next", StaticFiles(directory=next_dir), name="next")
 
 
+@app.get("/logo.png", tags=["Static"])
+async def serve_logo():
+    """Serve the canonical logo.png file."""
+    paths = [
+        os.path.join("frontend", "out", "logo.png"),
+        os.path.join("frontend", "public", "logo.png"),
+    ]
+    for p in paths:
+        if os.path.exists(p):
+            return FileResponse(p)
+    return HTMLResponse(status_code=404, content="Logo not found")
+
+@app.get("/manifest.json", tags=["Static"])
+async def serve_manifest():
+    """Serve the manifest.json file."""
+    paths = [
+        os.path.join("frontend", "out", "manifest.json"),
+        os.path.join("frontend", "public", "manifest.json"),
+    ]
+    for p in paths:
+        if os.path.exists(p):
+            return FileResponse(p)
+    return HTMLResponse(status_code=404, content="Manifest not found")
+
+@app.get("/favicon.ico", tags=["Static"])
+async def serve_favicon():
+    """Serve the favicon.ico file."""
+    paths = [
+        os.path.join("frontend", "out", "favicon.ico"),
+        os.path.join("frontend", "public", "favicon.ico"),
+        os.path.join("frontend", "src", "app", "favicon.ico"),
+    ]
+    for p in paths:
+        if os.path.exists(p):
+            return FileResponse(p)
+    return HTMLResponse(status_code=404, content="Favicon not found")
+
+@app.get("/sw.js", tags=["Static"])
+async def serve_sw():
+    """Serve the service worker sw.js file."""
+    paths = [
+        os.path.join("frontend", "out", "sw.js"),
+        os.path.join("frontend", "public", "sw.js"),
+    ]
+    for p in paths:
+        if os.path.exists(p):
+            return FileResponse(p, media_type="application/javascript")
+    return HTMLResponse(status_code=404, content="Service worker not found")
+
+
 @app.get("/", tags=["Root"])
 async def serve_frontend():
     """Serve the frontend user interface index.html file at root URL."""
@@ -232,6 +282,120 @@ async def serve_frontend():
         "status": "running",
         "docs": "/docs",
     }
+
+
+# ---------------------------------------------------------------------------
+# Legal / Static route fallback content generators
+# ---------------------------------------------------------------------------
+
+def markdown_to_html(md_path: str) -> tuple[str, str, str]:
+    """Parses a simple markdown file and returns (title, effective_date, content_html)."""
+    import re
+    if not os.path.exists(md_path):
+        return "", "", ""
+        
+    with open(md_path, "r", encoding="utf-8") as f:
+        content = f.read()
+
+    lines = content.splitlines()
+    title = ""
+    effective_date = ""
+    html_parts = []
+    
+    in_list = False
+    in_sub_list = False
+    
+    bold_pat = re.compile(r'\*\*(.*?)\*\*')
+    code_pat = re.compile(r'`(.*?)`')
+    link_pat = re.compile(r'\[(.*?)\]\((.*?)\)')
+
+    def clean_inline(text: str) -> str:
+        text = bold_pat.sub(r'<strong>\1</strong>', text)
+        text = code_pat.sub(r'<code>\1</code>', text)
+        text = link_pat.sub(r'<a href="\2">\1</a>', text)
+        return text
+
+    for line in lines:
+        stripped = line.strip()
+        
+        if line.startswith("# ") and not title:
+            title = line[2:].strip()
+            continue
+            
+        if "Effective Date:" in line or "effective date" in line.lower():
+            date_match = re.search(r'\*\*Effective Date:\*\*\s*(.*)', line, re.IGNORECASE)
+            if date_match:
+                effective_date = date_match.group(1).strip()
+                continue
+            
+        if not stripped:
+            continue
+            
+        if stripped == "---":
+            if in_sub_list:
+                html_parts.append("  </ul>")
+                in_sub_list = False
+            if in_list:
+                html_parts.append("</ul>")
+                in_list = False
+            html_parts.append("<hr />")
+            continue
+            
+        if stripped.startswith("## "):
+            if in_sub_list:
+                html_parts.append("  </ul>")
+                in_sub_list = False
+            if in_list:
+                html_parts.append("</ul>")
+                in_list = False
+            html_parts.append(f"<h2>{clean_inline(stripped[3:])}</h2>")
+            continue
+            
+        if stripped.startswith("### "):
+            if in_sub_list:
+                html_parts.append("  </ul>")
+                in_sub_list = False
+            if in_list:
+                html_parts.append("</ul>")
+                in_list = False
+            html_parts.append(f"<h3>{clean_inline(stripped[4:])}</h3>")
+            continue
+            
+        if stripped.startswith("* ") or stripped.startswith("- "):
+            indent = len(line) - len(line.lstrip())
+            item_text = clean_inline(stripped[2:])
+            
+            if indent >= 2:
+                if not in_sub_list:
+                    html_parts.append("  <ul>")
+                    in_sub_list = True
+                html_parts.append(f"    <li>{item_text}</li>")
+            else:
+                if in_sub_list:
+                    html_parts.append("  </ul>")
+                    in_sub_list = False
+                if not in_list:
+                    html_parts.append("<ul>")
+                    in_list = True
+                html_parts.append(f"  <li>{item_text}</li>")
+            continue
+            
+        if in_sub_list:
+            html_parts.append("  </ul>")
+            in_sub_list = False
+        if in_list:
+            html_parts.append("</ul>")
+            in_list = False
+            
+        html_parts.append(f"<p>{clean_inline(stripped)}</p>")
+        
+    if in_sub_list:
+        html_parts.append("  </ul>")
+    if in_list:
+        html_parts.append("</ul>")
+        
+    return title, effective_date, "\n".join(html_parts)
+
 
 
 # ---------------------------------------------------------------------------
@@ -372,12 +536,7 @@ def get_legal_page_html(title: str, effective_date: str, content_html: str) -> s
 <body>
     <header class="header">
         <a href="/" class="logo-container">
-            <svg width="24" height="24" viewBox="0 0 40 40" fill="none" xmlns="http://www.w3.org/2000/svg">
-                <circle cx="20" cy="20" r="18" stroke="currentColor" stroke-width="1.5" stroke-dasharray="6 3" opacity="0.4" />
-                <path d="M 6.5,20 A 13.5,13.5 0 1,0 33.5,20 A 13.5,13.5 0 1,0 6.5,20" stroke="currentColor" stroke-width="2" stroke-linecap="round" opacity="0.7" />
-                <circle cx="20" cy="20" r="4.5" fill="currentColor" />
-                <circle cx="31" cy="11" r="2.5" fill="currentColor" />
-            </svg>
+            <img src="/logo.png" alt="SidekickAI Logo" style="width:24px; height:24px; object-fit:contain; border-radius:4px;" />
             <span>Sidekick<span style="color:#a1a1aa; font-weight:400;">AI</span></span>
         </a>
         <a href="/" class="back-link">Back to App</a>
@@ -414,93 +573,13 @@ async def serve_privacy():
         if os.path.exists(p):
             return FileResponse(p)
             
-    # Fallback HTML content rendering PRIVACY.md
-    privacy_content = """
-    <p>SidekickAI ("we," "our," or "us") is committed to protecting your privacy. This Privacy Policy explains how we collect, use, disclose, and safeguard your information when you use our web application located at <a href="https://sidekickai.onrender.com" style="color: var(--accent-color); text-decoration: none;">https://sidekickai.onrender.com</a> (the "Service").</p>
-    <p>By accessing or using our Service, you agree to the collection and use of information in accordance with this Privacy Policy. If you do not agree with any terms of this policy, please do not use the Service.</p>
-
-    <h2>1. Information Collection</h2>
-    <p>We collect several types of information to provide and improve our Service:</p>
-    
-    <h3>A. Information You Provide Directly</h3>
-    <ul>
-        <li><strong>Account Information:</strong> When you register for an account, we collect your full name, email address, password (stored securely using industry-standard hashing algorithms), and user preferences.</li>
-        <li><strong>Communications:</strong> If you contact us directly, we may collect your email address, message contents, and any attachments you send.</li>
-    </ul>
-
-    <h3>B. Third-Party Integrations & OAuth Authorized Data</h3>
-    <p>To deliver our AI assistant functionalities, SidekickAI connects with external platforms via OAuth protocol. We access only the permissions you explicitly grant during authentication:</p>
-    <ul>
-        <li><strong>Google Workspace APIs (Gmail & Calendar):</strong>
-            <ul>
-                <li><em>Gmail Scopes:</em> We access Gmail messages (read, modify, send, and compose permissions) to pull email history, synthesize summaries, detect priority threads, and generate draft responses.</li>
-                <li><em>Google Calendar Scopes:</em> We access calendar events (read and write permissions) to retrieve your schedule timeline, update calendar entries, and compile your daily executive briefing.</li>
-                <li><em>OAuth Tokens:</em> We receive and securely store encrypted Google refresh and access tokens to synchronize your data in the background.</li>
-            </ul>
-        </li>
-        <li><strong>LinkedIn API:</strong>
-            <ul>
-                <li><em>Scopes Used:</em> We request profile information access and post-sharing scopes (<code>w_member_social</code>).</li>
-                <li><em>Access Limitations:</em> The API only allows us to synchronize your profile metadata and share auto-generated professional posts. We do not (and cannot) read LinkedIn messages, direct chats, or private inbox content.</li>
-            </ul>
-        </li>
-        <li><strong>WhatsApp Cloud API:</strong>
-            <ul>
-                <li><em>Embedded Signup flow:</em> Integrates strictly with Meta's official WhatsApp Business Platform. We access your registered WhatsApp Business Account (WABA) ID, connected phone numbers, and customer chats.</li>
-                <li><em>Access Limitations:</em> This integration requires a dedicated business number. It <strong>cannot</strong> connect personal WhatsApp profiles, read personal chats, or sync standard private numbers.</li>
-            </ul>
-        </li>
-    </ul>
-
-    <h2>2. How We Use Your Information</h2>
-    <p>We use the collected information for various purposes, including to:</p>
-    <ul>
-        <li>Operate the Service: Sync email lists, calendar schedules, WhatsApp customer chats, and LinkedIn profiles.</li>
-        <li>Generate AI Assist Capabilities: Analyze email headers and body texts using LLMs to prioritize threads, draft proposed reply templates, and build your Daily Briefing.</li>
-        <li>Improve & Personalize: Track application performance, resolve configuration bugs, and enhance user experience layouts.</li>
-        <li>Security & Authentication: Verify user accounts, secure API sessions, and maintain OAuth credential token rotations.</li>
-    </ul>
-
-    <h2>3. Data Sharing & Disclosure</h2>
-    <p>We do not sell, trade, or rent your personal information to third parties. We may disclose data under the following circumstances:</p>
-    <ul>
-        <li><strong>With Service Providers:</strong> We share content with verified sub-processors (such as LLM endpoint providers like OpenRouter) solely to process your prompts and draft summaries. These providers are bound by strict confidentiality obligations and do not use your data to train their public models.</li>
-        <li><strong>Legal Requirements:</strong> If required by law, subpoena, or government regulation, we may disclose information to comply with valid legal processes.</li>
-        <li><strong>Business Transfers:</strong> If SidekickAI undergoes a merger, acquisition, or asset sale, your personal information may be transferred. We will notify you before your data becomes subject to a different policy.</li>
-    </ul>
-
-    <h2>4. Data Security</h2>
-    <p>We implement robust administrative, technical, and physical security measures to safeguard your credentials and data:</p>
-    <ul>
-        <li><strong>Encryption:</strong> All OAuth credentials (tokens) are stored in our database using strong AES-256 encryption. All network communications use secure HTTPS/TLS transport protocols.</li>
-        <li><strong>Access Control:</strong> System database sessions are restricted to authenticated service layers. Database engines are isolated from direct external internet access.</li>
-        <li><strong>No Cache Retention for LLMs:</strong> When we send email or chat content to LLM endpoints for synthesis, the data is passed securely and is not cached or used for training.</li>
-    </ul>
-
-    <h2>5. User Rights</h2>
-    <p>Depending on your jurisdiction (such as under GDPR or CCPA), you may have the following rights regarding your data:</p>
-    <ul>
-        <li><strong>Access & Sync:</strong> You can view all linked data and integrations directly on the dashboard.</li>
-        <li><strong>Data Rectification:</strong> You can modify your profile details and connection settings at any time in the Settings portal.</li>
-        <li><strong>Data Erasure:</strong> You can delete your account or disconnect specific integrations. Disconnecting a service instantly deletes the corresponding OAuth credentials, synced messages, and cached indexes from our database.</li>
-        <li><strong>Contact:</strong> To request complete account erasure or export your details, email us at <a href="mailto:humammoin09@gmail.com" style="color: var(--accent-color); text-decoration: none;">humammoin09@gmail.com</a>.</li>
-    </ul>
-
-    <h2>6. Cookies & Tracking Technologies</h2>
-    <p>We use basic HTTP cookies and local storage tokens to manage user sessions and login authentication states:</p>
-    <ul>
-        <li><strong>Auth Cookies:</strong> Secure JWT cookie tokens are stored in your browser to maintain your session state.</li>
-        <li><strong>Preferences Storage:</strong> Local storage is used to save theme states and interface layouts.</li>
-        <li><strong>No Third-Party Ad Trackers:</strong> We do not host third-party advertisement trackers, analytics beacons, or retargeting scripts.</li>
-    </ul>
-
-    <h2>7. Changes to This Privacy Policy</h2>
-    <p>We may update our Privacy Policy from time to time. We will notify you of any changes by posting the new Privacy Policy on this page and updating the "Effective Date" at the top.</p>
-
-    <h2>8. Contact Us</h2>
-    <p>If you have any questions or suggestions about our Privacy Policy, please contact us at <a href="mailto:humammoin09@gmail.com" style="color: var(--accent-color); text-decoration: none;">humammoin09@gmail.com</a>.</p>
-    """
-    return HTMLResponse(content=get_legal_page_html("Privacy Policy", "August 3, 2026", privacy_content))
+    # Fallback dynamic rendering of PRIVACY.md
+    title, effective_date, content_html = markdown_to_html("PRIVACY.md")
+    if not title:
+        title = "Privacy Policy"
+        effective_date = "August 3, 2026"
+        content_html = "<p>Privacy Policy could not be loaded from PRIVACY.md.</p>"
+    return HTMLResponse(content=get_legal_page_html(title, effective_date, content_html))
 
 
 @app.get("/terms", tags=["Static"])
@@ -517,66 +596,13 @@ async def serve_terms():
         if os.path.exists(p):
             return FileResponse(p)
             
-    # Fallback HTML content rendering TERMS.md
-    terms_content = """
-    <p>Welcome to SidekickAI!</p>
-    <p>These Terms of Service ("Terms") govern your access to and use of the SidekickAI website and web application located at <a href="https://sidekickai.onrender.com" style="color: var(--accent-color); text-decoration: none;">https://sidekickai.onrender.com</a> (the "Service" or "Platform").</p>
-    <p>By accessing or using the Service, you agree to be bound by these Terms. If you disagree with any part of the terms, you may not access or use the Service.</p>
-
-    <h2>1. Description of Service</h2>
-    <p>SidekickAI is an AI-powered executive assistant platform designed to assist users in prioritizing communications, drafting replies, and coordinating schedules across connected systems (including Gmail, Google Calendar, WhatsApp Business, and LinkedIn).</p>
-
-    <h2>2. Account Registration & Security</h2>
-    <p>To use the Service, you must create a user profile. You agree to:</p>
-    <ul>
-        <li>Provide accurate, current, and complete registration information.</li>
-        <li>Maintain the confidentiality of your password and account credentials.</li>
-        <li>Accept responsibility for all actions that occur under your account session.</li>
-        <li>Immediately notify us of any unauthorized use or security breaches by contacting <a href="mailto:humammoin09@gmail.com" style="color: var(--accent-color); text-decoration: none;">humammoin09@gmail.com</a>.</li>
-    </ul>
-
-    <h2>3. Third-Party Integrations & Scope Boundaries</h2>
-    <p>SidekickAI utilizes API access to sync and write data on your behalf. By authorizing integrations, you acknowledge their specific functional scopes:</p>
-    <ul>
-        <li><strong>Google OAuth:</strong> SidekickAI is granted read/write permissions for Gmail messages and Calendar schedules to generate briefs, categorize priorities, and draft or send email replies.</li>
-        <li><strong>Meta WhatsApp Cloud API:</strong> Serves only registered business accounts (WABA). Connection requires a business phone number; personal accounts cannot be linked.</li>
-        <li><strong>LinkedIn Profile Sync:</strong> Restricted solely to profile metadata sync and post sharing (<code>w_member_social</code>). The Service cannot read or sync LinkedIn private DMs.</li>
-    </ul>
-    <p>We are not liable for any service interruptions, API deprecations, or policy changes implemented by Google, Meta, LinkedIn, or other third-party provider platforms.</p>
-
-    <h2>4. User Responsibilities & Acceptable Use</h2>
-    <p>You agree that you will not use the Service to:</p>
-    <ul>
-        <li>Violate any applicable local, state, national, or international laws.</li>
-        <li>Distribute unsolicited promotional materials, spam, or bulk marketing messages.</li>
-        <li>Inject malicious code, trojans, worms, or attempt unauthorized entry into the database.</li>
-        <li>Impersonate any entity or forge email/message headers.</li>
-        <li>Interfere with or disrupt the servers or networks connected to the Service.</li>
-    </ul>
-
-    <h2>5. Intellectual Property Rights</h2>
-    <p>Unless otherwise stated, SidekickAI and/or its licensors own all intellectual property rights for the design, code, graphics, branding, and workflows on the Platform. All rights are reserved. You are granted a limited, non-exclusive, non-transferable license to access the interface for personal or standard business assistant operations.</p>
-
-    <h2>6. Disclaimer of Warranties</h2>
-    <p>The Service is provided on an "AS IS" and "AS AVAILABLE" basis. SidekickAI makes no representations or warranties of any kind, express or implied, as to the operation of the Service, the accuracy of AI-generated email/chat drafts, or the completeness of the briefings.</p>
-    <p>We do not warrant that the Service will function uninterrupted, secure, or available at any specific time or location; that any errors or bugs in the software will be corrected immediately; or that the AI-generated drafts are free of errors. <strong>Users must review all draft replies before approving and sending.</strong></p>
-
-    <h2>7. Limitation of Liability</h2>
-    <p>To the maximum extent permitted by law, in no event shall SidekickAI, nor its directors, employees, partners, agents, or suppliers, be liable for any indirect, incidental, special, consequential, or punitive damages—including loss of profits, data, goodwill, or other intangible losses—resulting from your access to or use of (or inability to use) the Service; any conduct or content of any third party on the Service; or unauthorized access, use, or alteration of your transmissions or database content.</p>
-
-    <h2>8. Suspension & Termination</h2>
-    <p>We reserve the right to suspend or terminate your account and restrict access to the Service at our sole discretion, without prior notice or liability, for any reason, including if you breach these Terms. Upon termination, your right to use the Service will cease immediately, and all linked OAuth connections and data will be erased.</p>
-
-    <h2>9. Governing Law</h2>
-    <p>These Terms shall be governed and construed in accordance with the laws of the jurisdiction in which SidekickAI operates, without regard to its conflict of law provisions.</p>
-
-    <h2>10. Modifications to Terms</h2>
-    <p>We reserve the right to modify or replace these Terms at any time. If a revision is material, we will provide at least 15 days' notice before the new terms take effect. By continuing to access or use the Service after those revisions become effective, you agree to be bound by the updated terms.</p>
-
-    <h2>11. Contact Us</h2>
-    <p>If you have any questions about these Terms, please contact us at <a href="mailto:humammoin09@gmail.com" style="color: var(--accent-color); text-decoration: none;">humammoin09@gmail.com</a>.</p>
-    """
-    return HTMLResponse(content=get_legal_page_html("Terms of Service", "August 3, 2026", terms_content))
+    # Fallback dynamic rendering of TERMS.md
+    title, effective_date, content_html = markdown_to_html("TERMS.md")
+    if not title:
+        title = "Terms of Service"
+        effective_date = "August 3, 2026"
+        content_html = "<p>Terms of Service could not be loaded from TERMS.md.</p>"
+    return HTMLResponse(content=get_legal_page_html(title, effective_date, content_html))
 
 @app.get("/health", tags=["Health"])
 async def health():
