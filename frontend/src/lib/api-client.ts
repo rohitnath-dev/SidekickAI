@@ -22,7 +22,7 @@ export const apiClient = axios.create({
 
 apiClient.interceptors.request.use(
   (config) => {
-    const token = Cookies.get('access_token');
+    const token = Cookies && typeof Cookies.get === 'function' ? Cookies.get('access_token') : undefined;
     if (token && config.headers) {
       config.headers.Authorization = `Bearer ${token}`;
     }
@@ -62,7 +62,7 @@ apiClient.interceptors.response.use(
     }
     
     // Check if 401 and request wasn't already retried
-    if (error.response && error.response.status === 401 && originalRequest && !originalRequest._retry) {
+    if (error.response && error.response.status === 401 && !originalRequest._retry) {
       // Avoid redirecting if we are already on login or register pages
       if (typeof window !== 'undefined' && (window.location.pathname.startsWith('/login') || window.location.pathname.startsWith('/register'))) {
         return Promise.reject(error);
@@ -95,7 +95,9 @@ apiClient.interceptors.response.use(
         processQueue(refreshError);
         
         // Remove access_token cookie as backup
-        Cookies.remove('access_token');
+        if (Cookies && typeof Cookies.remove === 'function') {
+          Cookies.remove('access_token');
+        }
         
         if (typeof window !== 'undefined') {
           window.location.href = '/login';

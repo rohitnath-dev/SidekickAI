@@ -13,12 +13,7 @@ import {
   Settings, 
   LogOut,
   Menu,
-  X,
-  User,
-  Activity,
-  AlertCircle,
-  RefreshCw,
-  Loader2
+  X
 } from 'lucide-react';
 
 import Logo from './logo';
@@ -34,75 +29,38 @@ export default function SidebarLayout({ children }: SidebarProps) {
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [isAuthenticated, setIsAuthenticated] = useState<boolean>(false);
   const [isMounted, setIsMounted] = useState<boolean>(false);
-  const [authError, setAuthError] = useState<string | null>(null);
 
-  const checkAuth = async () => {
-    setAuthError(null);
-    try {
-      console.log("[App Layout] Checking user session status...");
-      const response = await apiClient.get('/auth/me', { timeout: 5000 });
-      setIsAuthenticated(true);
-      if (response.data && response.data.has_ai_config === false) {
-        router.push('/onboarding/ai');
-      }
-    } catch (err: any) {
-      console.error("[App Layout] Auth check failed:", err);
-      const isTimeout = err.code === 'ECONNABORTED' || err.message?.includes('timeout');
-      const isNetworkError = !err.response;
+  // Set mounted status on client asynchronously to avoid linter/hydration warnings
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setIsMounted(true);
+    }, 0);
+    return () => clearTimeout(timer);
+  }, []);
 
-      if (isTimeout || isNetworkError) {
-        setAuthError(
-          isTimeout 
-            ? 'Connection timed out. The server might be booting up or sleeping.' 
-            : 'Could not connect to the backend server. Please verify your connection.'
-        );
-      } else {
+  // Fetch session status once the component is mounted
+  useEffect(() => {
+    if (!isMounted) return;
+
+    const checkAuth = async () => {
+      try {
+        console.log("[App Layout] Checking user session status...");
+        const response = await apiClient.get('/auth/me');
+        setIsAuthenticated(true);
+        if (response.data && response.data.has_ai_config === false) {
+          router.push('/onboarding/ai');
+        }
+      } catch (err) {
         console.log("[App Layout] User not authenticated.");
         setIsAuthenticated(false);
         router.push('/login');
       }
-    }
-  };
-
-  useEffect(() => {
-    setIsMounted(true);
+    };
+    
     checkAuth();
-  }, [router]);
+  }, [isMounted, router]);
 
-  if (authError) {
-    return (
-      <div className="flex h-screen w-screen flex-col items-center justify-center bg-zinc-950 relative overflow-hidden">
-        {/* Background Grid */}
-        <div className="absolute inset-0 tech-grid pointer-events-none opacity-40"></div>
-        {/* Glowing Ambient Spot */}
-        <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[25rem] h-[25rem] rounded-full bg-indigo-500/10 blur-[100px]"></div>
-        
-        <div className="relative z-10 max-w-sm w-full bg-zinc-900/40 border border-zinc-900 rounded-xl p-6 md:p-8 shadow-2xl backdrop-blur-md space-y-6 text-center">
-          <div className="flex flex-col items-center gap-3">
-            <div className="w-12 h-12 rounded-full bg-amber-500/10 border border-amber-500/20 flex items-center justify-center">
-              <AlertCircle className="w-6 h-6 text-amber-500" />
-            </div>
-            <h2 className="text-lg font-bold tracking-tight text-zinc-150">
-              Connection Issue
-            </h2>
-            <p className="text-zinc-400 text-xs leading-relaxed">
-              {authError}
-            </p>
-          </div>
-
-          <button
-            onClick={() => checkAuth()}
-            className="flex w-full items-center justify-center gap-2 rounded-lg bg-zinc-100 px-4 py-2.5 text-xs font-semibold text-zinc-950 hover:bg-zinc-200 transition-all cursor-pointer shadow-md"
-          >
-            <RefreshCw className="w-3.5 h-3.5" />
-            Retry Connection
-          </button>
-        </div>
-      </div>
-    );
-  }
-
-  if (!isMounted || (!isAuthenticated && !authError)) {
+  if (!isMounted) {
     return (
       <div className="flex h-screen w-screen flex-col items-center justify-center bg-zinc-950 relative overflow-hidden">
         {/* Background Grid */}
@@ -112,10 +70,15 @@ export default function SidebarLayout({ children }: SidebarProps) {
         
         <div className="relative z-10 flex flex-col items-center">
           <Logo size={48} className="animate-pulse" />
-          <p className="mt-4 text-xs font-mono text-zinc-550 tracking-widest uppercase animate-pulse">Initializing assistant</p>
+          <p className="mt-4 text-xs font-mono text-zinc-500 tracking-widest uppercase animate-pulse">Initializing assistant</p>
         </div>
       </div>
     );
+  }
+
+  // Once mounted, if not authenticated, render blank white transitioning/redirecting
+  if (!isAuthenticated) {
+    return null;
   }
 
   const navItems = [
@@ -134,8 +97,8 @@ export default function SidebarLayout({ children }: SidebarProps) {
     } catch (err) {
       console.error("Logout request failed:", err);
     }
-    const c = (Cookies as any).default || Cookies;
-    if (typeof c.remove === 'function') {
+    const c = Cookies && ((Cookies as any).default || Cookies);
+    if (c && typeof c.remove === 'function') {
       c.remove('access_token');
     }
     router.push('/login');

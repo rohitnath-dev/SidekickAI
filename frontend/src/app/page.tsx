@@ -1,5 +1,4 @@
 'use client';
-// Rebuild trigger: 2026-08-14T20:50:00+05:30
 
 import React, { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
@@ -280,7 +279,7 @@ export default function DashboardPage() {
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-zinc-900/60 pb-6">
           <div>
             <h1 className="text-3xl font-extrabold tracking-tight bg-gradient-to-r from-zinc-50 via-zinc-100 to-zinc-400 bg-clip-text text-transparent">
-              Welcome back{user?.full_name ? `, ${user.full_name.split(' ')[0]}` : ''}
+              Welcome back{user?.full_name && typeof user.full_name === 'string' ? `, ${user.full_name.split(' ')[0]}` : ''}
             </h1>
             <p className="text-sm text-zinc-400 mt-1">
               Here is your executive status report and daily briefing.
