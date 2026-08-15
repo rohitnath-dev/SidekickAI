@@ -4,7 +4,7 @@
   "private": true,
   "scripts": {
     "dev": "python ../scripts/generate_assets.py && next dev",
-    "build": "python ../scripts/generate_assets.py && next build",
+    "build": "next build",
     "start": "next start",
     "lint": "eslint"
   },
