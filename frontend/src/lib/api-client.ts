@@ -20,10 +20,20 @@ export const apiClient = axios.create({
   },
 });
 
+apiClient.interceptors.request.use((config) => {
+  if (typeof window !== 'undefined') {
+    const token = localStorage.getItem('access_token');
+    if (token && config.headers) {
+      config.headers.Authorization = `Bearer ${token}`;
+    }
+  }
+  return config;
+});
+
 apiClient.interceptors.request.use(
   (config) => {
     const token = Cookies && typeof Cookies.get === 'function' ? Cookies.get('access_token') : undefined;
-    if (token && config.headers) {
+    if (token && config.headers && !config.headers.Authorization) {
       config.headers.Authorization = `Bearer ${token}`;
     }
     return config;
@@ -86,7 +96,10 @@ apiClient.interceptors.response.use(
       
       try {
         console.log("[Auth Interceptor] 401 encountered. Attempting silent token refresh...");
-        await apiClient.post('/auth/refresh');
+        const refreshResponse = await apiClient.post('/auth/refresh');
+        if (refreshResponse.data?.access_token) {
+          localStorage.setItem('access_token', refreshResponse.data.access_token);
+        }
         isRefreshing = false;
         processQueue(null);
         return apiClient(originalRequest);
@@ -95,7 +108,10 @@ apiClient.interceptors.response.use(
         isRefreshing = false;
         processQueue(refreshError);
         
-        // Remove access_token cookie as backup
+        // Remove access_token cookie/localStorage as backup
+        if (typeof window !== 'undefined') {
+          localStorage.removeItem('access_token');
+        }
         if (Cookies && typeof Cookies.remove === 'function') {
           Cookies.remove('access_token');
         }

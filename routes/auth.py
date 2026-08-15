@@ -325,7 +325,7 @@ async def refresh_session(
     )
     
     logger.info("Successfully refreshed session for user_id=%d", user.id)
-    return {"status": "success", "user_id": user.id, "email": user.email}
+    return {"status": "success", "user_id": user.id, "email": user.email, "access_token": new_access}
 
 
 @router.post("/logout")

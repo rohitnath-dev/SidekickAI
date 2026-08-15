@@ -43,6 +43,12 @@ export default function RegisterPage() {
         password: data.password,
         full_name: data.fullName,
       });
+
+      // SAVE TOKEN TO LOCALSTORAGE — this is the critical missing piece
+      if (response.data?.access_token) {
+        localStorage.setItem('access_token', response.data.access_token);
+      }
+
       router.push('/');
 
     } catch (err: any) {
