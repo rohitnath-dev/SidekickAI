@@ -12,22 +12,45 @@ export default function AIOnboardingPage() {
   const [checkingAuth, setCheckingAuth] = useState(true);
 
   useEffect(() => {
-    const checkAuth = async () => {
+    let isCancelled = false;
+    let timeoutId: any;
+
+    const verifyAuth = async () => {
       try {
+        timeoutId = setTimeout(() => {
+          if (!isCancelled) {
+            console.warn('[Auth Timeout] AI Onboarding auth check took too long, redirecting to login');
+            window.location.href = '/login';
+          }
+        }, 4000); // 4 seconds max wait
+
         console.log('[AI Onboarding] Verifying session and AI configuration status...');
         const response = await apiClient.get('/auth/me');
-        if (response.data && response.data.has_ai_config === true) {
-          console.log('[AI Onboarding] AI provider already configured. Redirecting to dashboard.');
-          router.push('/');
-        } else {
-          setCheckingAuth(false);
+
+        if (!isCancelled) {
+          clearTimeout(timeoutId);
+          if (response.data && response.data.has_ai_config === true) {
+            console.log('[AI Onboarding] AI provider already configured. Redirecting to dashboard.');
+            router.push('/');
+          } else {
+            setCheckingAuth(false);
+          }
         }
       } catch (err) {
-        console.log('[AI Onboarding] Session verification failed. Redirecting to login.');
-        router.push('/login');
+        if (!isCancelled) {
+          clearTimeout(timeoutId);
+          console.log('[AI Onboarding] Session verification failed. Redirecting to login.', err);
+          window.location.href = '/login';
+        }
       }
     };
-    checkAuth();
+
+    verifyAuth();
+
+    return () => {
+      isCancelled = true;
+      clearTimeout(timeoutId);
+    };
   }, [router]);
 
   if (checkingAuth) {

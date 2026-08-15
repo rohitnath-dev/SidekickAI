@@ -42,22 +42,44 @@ export default function SidebarLayout({ children }: SidebarProps) {
   useEffect(() => {
     if (!isMounted) return;
 
+    let isCancelled = false;
+    let timeoutId: any;
+
     const checkAuth = async () => {
       try {
+        timeoutId = setTimeout(() => {
+          if (!isCancelled) {
+            console.warn('[Auth Timeout] SidebarLayout auth check took too long, redirecting to login');
+            window.location.href = '/login';
+          }
+        }, 4000); // 4 seconds max wait
+
         console.log("[App Layout] Checking user session status...");
         const response = await apiClient.get('/auth/me');
-        setIsAuthenticated(true);
-        if (response.data && response.data.has_ai_config === false) {
-          router.push('/onboarding/ai');
+
+        if (!isCancelled) {
+          clearTimeout(timeoutId);
+          setIsAuthenticated(true);
+          if (response.data && response.data.has_ai_config === false) {
+            router.push('/onboarding/ai');
+          }
         }
       } catch (err) {
-        console.log("[App Layout] User not authenticated.");
-        setIsAuthenticated(false);
-        router.push('/login');
+        if (!isCancelled) {
+          clearTimeout(timeoutId);
+          console.log("[App Layout] User not authenticated.", err);
+          setIsAuthenticated(false);
+          window.location.href = '/login';
+        }
       }
     };
     
     checkAuth();
+
+    return () => {
+      isCancelled = true;
+      clearTimeout(timeoutId);
+    };
   }, [isMounted, router]);
 
   if (!isMounted) {
