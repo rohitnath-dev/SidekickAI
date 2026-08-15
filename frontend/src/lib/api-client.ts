@@ -22,10 +22,7 @@ export const apiClient = axios.create({
 
 apiClient.interceptors.request.use(
   (config) => {
-    let token: string | null = null;
-    if (typeof window !== 'undefined') {
-      token = localStorage.getItem('access_token');
-    }
+    const token = Cookies && typeof Cookies.get === 'function' ? Cookies.get('access_token') : undefined;
     if (token && config.headers) {
       config.headers.Authorization = `Bearer ${token}`;
     }
@@ -98,10 +95,7 @@ apiClient.interceptors.response.use(
         isRefreshing = false;
         processQueue(refreshError);
         
-        // Remove access_token from localStorage and cookies as backup
-        if (typeof window !== 'undefined') {
-          localStorage.removeItem('access_token');
-        }
+        // Remove access_token cookie as backup
         if (Cookies && typeof Cookies.remove === 'function') {
           Cookies.remove('access_token');
         }

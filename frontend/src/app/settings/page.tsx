@@ -550,9 +550,6 @@ export default function SettingsPage() {
     try {
       await apiClient.delete('/auth/me');
       await apiClient.post('/auth/logout').catch(() => {});
-      if (typeof window !== 'undefined') {
-        localStorage.removeItem('access_token');
-      }
       Cookies.remove('access_token');
       router.push('/login');
     } catch (err: any) {

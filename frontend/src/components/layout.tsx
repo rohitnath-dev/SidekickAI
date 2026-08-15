@@ -119,9 +119,6 @@ export default function SidebarLayout({ children }: SidebarProps) {
     } catch (err) {
       console.error("Logout request failed:", err);
     }
-    if (typeof window !== 'undefined') {
-      localStorage.removeItem('access_token');
-    }
     const c = Cookies && ((Cookies as any).default || Cookies);
     if (c && typeof c.remove === 'function') {
       c.remove('access_token');
