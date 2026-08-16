@@ -2,8 +2,8 @@ const CACHE_NAME = 'sidekick-cache-v1';
 const ASSETS_TO_CACHE = [
   '/',
   '/manifest.json',
-  '/icon.jpg',
-  '/favicon.ico',
+  '/logo.png',
+  '/logo.png',
 ];
 
 self.addEventListener('install', (event) => {
