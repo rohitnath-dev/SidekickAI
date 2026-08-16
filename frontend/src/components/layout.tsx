@@ -7,7 +7,6 @@ import Cookies from 'js-cookie';
 import { 
   LayoutDashboard, 
   Inbox, 
-  MessageSquare, 
   CalendarDays, 
   BrainCircuit, 
   Settings, 
@@ -106,7 +105,6 @@ export default function SidebarLayout({ children }: SidebarProps) {
   const navItems = [
     { name: 'Dashboard', href: '/', icon: LayoutDashboard },
     { name: 'Inbox', href: '/inbox', icon: Inbox },
-    { name: 'Direct Messages', href: '/messages', icon: MessageSquare },
     { name: 'AI Planner', href: '/planner', icon: CalendarDays },
     { name: 'Long-term Memory', href: '/memory', icon: BrainCircuit },
     { name: 'Settings & Integrations', href: '/settings', icon: Settings },
