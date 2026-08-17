@@ -51,6 +51,7 @@ class MessageResponse(BaseModel):
     recipient: Optional[str]
     subject: Optional[str]
     body: str
+    html_body: Optional[str] = None
     priority: str
     status: str
     requires_reply: bool

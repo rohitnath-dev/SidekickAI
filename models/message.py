@@ -70,6 +70,7 @@ class Message(Base):
     recipient: Mapped[str | None] = mapped_column(String(512), nullable=True)
     subject: Mapped[str | None] = mapped_column(String(1000), nullable=True)
     body: Mapped[str] = mapped_column(Text, nullable=False)
+    html_body: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     # AI-generated fields
     priority: Mapped[MessagePriority] = mapped_column(
@@ -160,6 +161,7 @@ class Message(Base):
             "recipient": self.recipient,
             "subject": self.subject,
             "body": self.body,
+            "html_body": self.html_body,
             "priority": self.priority.value,
             "status": self.status.value,
             "requires_reply": self.requires_reply,

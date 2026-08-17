@@ -116,13 +116,13 @@ class GmailAgent(BaseAgent):
 
         Returns dict with keys:
             message_id, thread_id, sender, recipient, subject,
-            received_at (datetime), body (str)
+            received_at (datetime), body (str), html_body (str | None)
         """
         if not gmail_raw:
             return {}
         payload = gmail_raw.get("payload", {})
         headers = self._extract_headers(payload)
-        body = self._extract_body(payload)
+        body, html_body = self._extract_body_and_html(payload)
         # Extract category from labelIds (normalize to uppercase for safety)
         label_ids = [label.upper() for label in gmail_raw.get("labelIds", [])]
         category = "primary"  # default
@@ -145,6 +145,7 @@ class GmailAgent(BaseAgent):
             "subject": headers.get("Subject", ""),
             "received_at": self._parse_date(headers.get("Date", "")),
             "body": body,
+            "html_body": html_body,
             "category": category,
         }
 
@@ -157,9 +158,9 @@ class GmailAgent(BaseAgent):
             if name in ("From", "To", "Subject", "Date"):
                 headers[name] = value
         return headers
-    def _extract_body(self, payload: dict) -> str:
+    def _extract_body_and_html(self, payload: dict) -> tuple[str, Optional[str]]:
         """
-        Recursively extract and combine the text/plain or text/html bodies
+        Recursively extract and combine the text/plain and text/html bodies
         from a Gmail message payload.
         """
         plain_text_parts = []
@@ -182,17 +183,22 @@ class GmailAgent(BaseAgent):
 
         recurse(payload)
 
-        # Prefer plain text if found, otherwise convert HTML to plain text
-        if plain_text_parts:
+        html_body = None
+        if html_text_parts:
+            html_body = "\n".join(html_text_parts).strip()
+
+        # If HTML content is available, we generate the plain text body from the HTML.
+        # This keeps the plain text body clean and free of ugly email client formatting artifacts,
+        # while preserving hyperlink targets so the AI can analyze them accurately.
+        if html_body:
+            body = self._strip_html(html_body)
+        elif plain_text_parts:
             body = "\n".join(plain_text_parts).strip()
-        elif html_text_parts:
-            combined_html = "\n".join(html_text_parts).strip()
-            body = self._strip_html(combined_html)
         else:
             body = ""
             
-        self.logger.info("Email body length: %d chars", len(body))
-        return body
+        self.logger.info("Email body length: %d chars, HTML body length: %d chars", len(body), len(html_body) if html_body else 0)
+        return body, html_body
 
     def _decode_base64(self, data: str) -> str:
         """Decode a Gmail base64url-encoded string to UTF-8 text."""
@@ -204,7 +210,7 @@ class GmailAgent(BaseAgent):
             self.logger.warning("GmailAgent._decode_base64 failed: %s", exc)
             return ""
     def _strip_html(self, html_content: str) -> str:
-        """Remove HTML tags and decode HTML entities from a string, preserving spacing."""
+        """Remove HTML tags and decode HTML entities from a string, preserving spacing and hyperlink targets."""
         import html
         from html.parser import HTMLParser
 
@@ -215,6 +221,9 @@ class GmailAgent(BaseAgent):
                 self.ignore_tags = {"script", "style", "head", "title", "meta", "link"}
                 self.current_tag = None
                 self.ignore_depth = 0
+                self.in_link = False
+                self.link_href = None
+                self.link_text_buffer = []
 
             def handle_starttag(self, tag, attrs):
                 self.current_tag = tag.lower()
@@ -223,6 +232,11 @@ class GmailAgent(BaseAgent):
                 if self.current_tag in {"p", "div", "br", "h1", "h2", "h3", "h4", "h5", "h6", "tr", "li"}:
                     if self.text_parts and not self.text_parts[-1].endswith("\n"):
                         self.text_parts.append("\n")
+                if self.current_tag == "a":
+                    self.in_link = True
+                    attrs_dict = dict(attrs)
+                    self.link_href = attrs_dict.get("href")
+                    self.link_text_buffer = []
 
             def handle_endtag(self, tag):
                 tag_lower = tag.lower()
@@ -231,9 +245,19 @@ class GmailAgent(BaseAgent):
                 if tag_lower in {"p", "div", "h1", "h2", "h3", "h4", "h5", "h6", "tr", "li"}:
                     if self.text_parts and not self.text_parts[-1].endswith("\n"):
                         self.text_parts.append("\n")
+                if tag_lower == "a":
+                    self.in_link = False
+                    link_text = "".join(self.link_text_buffer).strip()
+                    href = self.link_href.strip() if self.link_href else ""
+                    if href and link_text and href != link_text and not href.startswith("mailto:"):
+                        self.text_parts.append(f" ({href})")
+                    self.link_href = None
+                    self.link_text_buffer = []
 
             def handle_data(self, data):
                 if self.ignore_depth == 0:
+                    if self.in_link:
+                        self.link_text_buffer.append(data)
                     self.text_parts.append(data)
 
             def get_text(self) -> str:
@@ -314,8 +338,16 @@ class GmailAgent(BaseAgent):
                             parsed_msg = self.parse_message(raw_msg)
                             if parsed_msg:
                                 new_cat = parsed_msg.get("category", "primary")
+                                needs_update = False
                                 if new_cat != msg.category:
                                     msg.category = new_cat
+                                    needs_update = True
+                                if parsed_msg.get("html_body") and not msg.html_body:
+                                    msg.html_body = parsed_msg.get("html_body")
+                                    msg.body = parsed_msg.get("body")
+                                    needs_update = True
+                                
+                                if needs_update:
                                     db.add(msg)
                                     backfilled_count += 1
                     except HttpError as exc:
@@ -403,6 +435,9 @@ class GmailAgent(BaseAgent):
                 .first()
             )
             if existing:
+                needs_update = False
+                
+                # Check if category needs update
                 if not existing.category or existing.category == "primary":
                     try:
                         raw = self.get_message(creds, message_id)
@@ -412,9 +447,18 @@ class GmailAgent(BaseAgent):
                                 new_cat = parsed.get("category", "primary")
                                 if new_cat != existing.category:
                                     existing.category = new_cat
+                                    needs_update = True
+                                
+                                # Backfill html_body & body if not already stored
+                                if parsed.get("html_body") and not existing.html_body:
+                                    existing.html_body = parsed.get("html_body")
+                                    existing.body = parsed.get("body")
+                                    needs_update = True
+                                    
+                                if needs_update:
                                     db.add(existing)
                                     db.commit()
-                                    self.logger.info("Updated existing email %s category to %s during sync", message_id, new_cat)
+                                    self.logger.info("Updated existing email %s details during sync", message_id)
                     except HttpError as exc:
                         if exc.resp.status == 404:
                             self.logger.info("Email %s not found in Gmail (404) during inline check. Deleting from database.", message_id)
@@ -422,6 +466,20 @@ class GmailAgent(BaseAgent):
                             db.commit()
                         else:
                             raise exc
+                # If category is already updated, check if we just need to backfill html_body
+                elif not existing.html_body:
+                    try:
+                        raw = self.get_message(creds, message_id)
+                        if raw:
+                            parsed = self.parse_message(raw)
+                            if parsed and parsed.get("html_body"):
+                                existing.html_body = parsed.get("html_body")
+                                existing.body = parsed.get("body")
+                                db.add(existing)
+                                db.commit()
+                                self.logger.info("Backfilled html_body for existing email %s during sync", message_id)
+                    except Exception as exc:
+                        self.logger.warning("Failed to backfill html_body for existing email %s: %s", message_id, exc)
                 continue
 
             try:
@@ -448,6 +506,7 @@ class GmailAgent(BaseAgent):
                 recipient=parsed.get("recipient"),
                 subject=parsed.get("subject"),
                 body=parsed.get("body", ""),
+                html_body=parsed.get("html_body"),
                 category=parsed.get("category", "primary"),
                 priority=MessagePriority.MEDIUM,
                 status=MessageStatus.UNREAD,

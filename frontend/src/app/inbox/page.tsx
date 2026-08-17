@@ -24,6 +24,7 @@ import {
 } from 'lucide-react';
 import SidebarLayout from '@/components/layout';
 import { apiClient } from '@/lib/api-client';
+import DOMPurify from 'dompurify';
 
 function InboxContent() {
   const router = useRouter();
@@ -965,17 +966,33 @@ function InboxContent() {
                                     {tmsg.received_at ? new Date(tmsg.received_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : ''}
                                   </span>
                                 </div>
-                                <p className="text-xs text-zinc-200 leading-relaxed whitespace-pre-wrap break-words font-sans font-normal">
-                                  {sanitizeEmailBody(tmsg.body)}
-                                </p>
+                                <div className="text-xs text-zinc-200 leading-relaxed break-words font-sans font-normal">
+                                  {tmsg.html_body ? (
+                                    <div 
+                                      className="prose prose-invert max-w-none text-zinc-200"
+                                      style={{ color: 'inherit' }}
+                                      dangerouslySetInnerHTML={{ __html: typeof window !== 'undefined' ? DOMPurify.sanitize(tmsg.html_body) : tmsg.html_body }}
+                                    />
+                                  ) : (
+                                    <p className="whitespace-pre-wrap">{sanitizeEmailBody(tmsg.body)}</p>
+                                  )}
+                                </div>
                               </div>
                             );
                           })}
                         </div>
                       </div>
                     ) : (
-                      <div className="glass-panel rounded-xl p-5 text-sm text-zinc-300 font-normal leading-relaxed whitespace-pre-wrap font-sans overflow-x-auto">
-                        {sanitizeEmailBody(selectedMessage.body)}
+                      <div className="glass-panel rounded-xl p-5 text-sm text-zinc-300 font-normal leading-relaxed font-sans overflow-x-auto">
+                        {selectedMessage.html_body ? (
+                          <div 
+                            className="prose prose-invert max-w-none text-zinc-300"
+                            style={{ color: 'inherit' }}
+                            dangerouslySetInnerHTML={{ __html: typeof window !== 'undefined' ? DOMPurify.sanitize(selectedMessage.html_body) : selectedMessage.html_body }}
+                          />
+                        ) : (
+                          <div className="whitespace-pre-wrap break-words">{sanitizeEmailBody(selectedMessage.body)}</div>
+                        )}
                       </div>
                     )}                  </div>
 
