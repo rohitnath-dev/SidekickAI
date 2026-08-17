@@ -444,6 +444,7 @@ class LLMClient:
         payload: dict[str, Any] = {
             "model": model or self.openrouter_model,
             "messages": messages,
+            "max_tokens": max_tokens or 4096,
         }
 
         logger.info(
@@ -455,9 +456,6 @@ class LLMClient:
 
         if temperature is not None:
             payload["temperature"] = temperature
-
-        if max_tokens is not None:
-            payload["max_tokens"] = max_tokens
 
         try:
             async with httpx.AsyncClient(
