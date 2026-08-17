@@ -58,6 +58,22 @@ async def lifespan(app: FastAPI):
         Base.metadata.create_all(bind=engine)
         logger.info("Database tables ready.")
 
+        # Fallback safety: Verify and add html_body column if missing
+        try:
+            from sqlalchemy import inspect, text
+            inspector = inspect(engine)
+            columns = [col["name"] for col in inspector.get_columns("messages")]
+            if "html_body" not in columns:
+                logger.info("Database fallback safety: Column 'html_body' not found in table 'messages'. Attempting to add it dynamically.")
+                with engine.begin() as conn:
+                    # SQLite and PostgreSQL both support this syntax
+                    conn.execute(text("ALTER TABLE messages ADD COLUMN html_body TEXT"))
+                logger.info("Database fallback safety: Successfully added 'html_body' column to 'messages' table.")
+            else:
+                logger.info("Database check: 'html_body' column exists in 'messages' table.")
+        except Exception as err:
+            logger.error("Database fallback safety: Failed to verify or add 'html_body' column: %s", err, exc_info=True)
+
         # Backfill category = "primary" for existing messages where category is None
         try:
             from database import SessionLocal
@@ -84,7 +100,7 @@ async def lifespan(app: FastAPI):
             command.upgrade(alembic_cfg, "head")
             logger.info("Alembic database migrations applied successfully on startup.")
         except Exception as exc:
-            logger.error("Failed to run Alembic migrations automatically on startup: %s", exc)
+            logger.error("Failed to run Alembic migrations automatically on startup: %s", exc, exc_info=True)
 
         # Start background poller task
         import asyncio

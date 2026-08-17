@@ -148,6 +148,14 @@ class Settings(BaseSettings):
     # ------------------------------------------------------------------ #
     ALLOWED_ORIGINS: list[str] = ["*"]
 
+    from pydantic import model_validator
+
+    @model_validator(mode="after")
+    def fix_postgres_url(self) -> "Settings":
+        if self.DATABASE_URL and self.DATABASE_URL.startswith("postgres://"):
+            self.DATABASE_URL = self.DATABASE_URL.replace("postgres://", "postgresql://", 1)
+        return self
+
     # ------------------------------------------------------------------ #
     # Pydantic config
     # ------------------------------------------------------------------ #
