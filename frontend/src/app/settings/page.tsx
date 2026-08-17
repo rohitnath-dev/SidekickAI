@@ -54,9 +54,7 @@ export default function SettingsPage() {
   const [passwordError, setPasswordError] = useState<string | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
 
-  // Google OAuth popup polling reference
   const [isGoogleConnecting, setIsGoogleConnecting] = useState(false);
-  const [isWhatsAppConnecting, setIsWhatsAppConnecting] = useState(false);
   const [isLinkedInConnecting, setIsLinkedInConnecting] = useState(false);
   const pollingInterval = useRef<any>(null);
   const activePopup = useRef<any>(null);
@@ -94,10 +92,8 @@ export default function SettingsPage() {
   const connectedServices = preferences?.connected_services || [];
   const googlePref = connectedServices.find((s: any) => s.provider === 'google');
   const twitterPref = connectedServices.find((s: any) => s.provider === 'twitter');
-  const whatsappPref = connectedServices.find((s: any) => s.provider === 'whatsapp');
   const linkedinPref = connectedServices.find((s: any) => s.provider === 'linkedin');
   const telegramPref = connectedServices.find((s: any) => s.provider === 'telegram');
-  const discordPref = connectedServices.find((s: any) => s.provider === 'discord');
 
 
   const [telegramApiId, setTelegramApiId] = useState('');
@@ -110,7 +106,7 @@ export default function SettingsPage() {
   const [telegramAuthState, setTelegramAuthState] = useState<'idle' | 'code_sent' | 'requires_password'>('idle');
   const [telegramOtpLoading, setTelegramOtpLoading] = useState(false);
   const [telegramOtpError, setTelegramOtpError] = useState<string | null>(null);
-  const [isDiscordConnecting, setIsDiscordConnecting] = useState(false);
+
   const {
     register: registerProfile,
     handleSubmit: handleSubmitProfile,
@@ -151,19 +147,7 @@ export default function SettingsPage() {
         }
         queryClient.invalidateQueries({ queryKey: ['preferences-settings'] });
         queryClient.invalidateQueries({ queryKey: ['preferences'] });
-      } else if (event.data === 'whatsapp-connected') {
-        setIsWhatsAppConnecting(false);
-        if (pollingInterval.current) clearInterval(pollingInterval.current);
-        if (activePopup.current) {
-          activePopup.current.close();
-          activePopup.current = null;
-        }
-        queryClient.invalidateQueries({ queryKey: ['preferences-settings'] });
-        queryClient.invalidateQueries({ queryKey: ['preferences'] });
-      } else if (event.data && event.data.type === 'whatsapp-connection-error') {
-        setIsWhatsAppConnecting(false);
-        if (pollingInterval.current) clearInterval(pollingInterval.current);
-        alert(`WhatsApp Business Account connection failed:\n\n${event.data.message}\n\nPlease ensure you have a WhatsApp Business Account (WABA) with a registered business phone number.`);
+
       } else if (event.data === 'linkedin-connected') {
         setIsLinkedInConnecting(false);
         if (pollingInterval.current) clearInterval(pollingInterval.current);
@@ -412,49 +396,7 @@ export default function SettingsPage() {
     }
   };
 
-  const handleConnectWhatsApp = async () => {
-    setIsWhatsAppConnecting(true);
-    try {
-      const response = await apiClient.get('/whatsapp/authorize');
-      const { authorization_url } = response.data;
-      
 
-
-      const width = 500;
-      const height = 650;
-      const left = window.screenX + (window.innerWidth - width) / 2;
-      const top = window.screenY + (window.innerHeight - height) / 2;
-      const popup = window.open(
-        authorization_url,
-        'WhatsApp Authorization',
-        `width=${width},height=${height},left=${left},top=${top}`
-      );
-      activePopup.current = popup;
-
-      if (pollingInterval.current) clearInterval(pollingInterval.current);
-      pollingInterval.current = setInterval(async () => {
-        try {
-          const prefCheck = await apiClient.get('/settings/preferences');
-          const whatsappStatus = prefCheck.data.connected_services.find((s: any) => s.provider === 'whatsapp')?.connected;
-          
-          if (whatsappStatus) {
-            clearInterval(pollingInterval.current);
-            setIsWhatsAppConnecting(false);
-            if (popup) popup.close();
-            queryClient.invalidateQueries({ queryKey: ['preferences-settings'] });
-            queryClient.invalidateQueries({ queryKey: ['preferences'] });
-          }
-        } catch (e) {
-          console.error(e);
-        }
-      }, 2500);
-
-    } catch (err: any) {
-      console.error(err);
-      alert(err.response?.data?.detail || 'Failed to initialize WhatsApp authorization.');
-      setIsWhatsAppConnecting(false);
-    }
-  };
 
   const handleConnectLinkedIn = async () => {
     setIsLinkedInConnecting(true);
@@ -499,48 +441,7 @@ export default function SettingsPage() {
     }
   };
 
-  const handleConnectDiscord = async () => {
-    setIsDiscordConnecting(true);
-    try {
-      const response = await apiClient.get(`/discord/login?t=${Date.now()}`);
-      const { authorization_url } = response.data;
-      
 
-      const width = 500;
-      const height = 650;
-      const left = window.screenX + (window.innerWidth - width) / 2;
-      const top = window.screenY + (window.innerHeight - height) / 2;
-      const popup = window.open(
-        authorization_url,
-        'Discord Authorization',
-        `width=${width},height=${height},left=${left},top=${top}`
-      );
-      activePopup.current = popup;
-
-      if (pollingInterval.current) clearInterval(pollingInterval.current);
-      pollingInterval.current = setInterval(async () => {
-        try {
-          const prefCheck = await apiClient.get('/settings/preferences');
-          const discordStatus = prefCheck.data.connected_services.find((s: any) => s.provider === 'discord')?.connected;
-          
-          if (discordStatus) {
-            clearInterval(pollingInterval.current);
-            setIsDiscordConnecting(false);
-            if (popup) popup.close();
-            queryClient.invalidateQueries({ queryKey: ['preferences-settings'] });
-            queryClient.invalidateQueries({ queryKey: ['preferences'] });
-          }
-        } catch (e) {
-          console.error(e);
-        }
-      }, 2500);
-
-    } catch (err: any) {
-      console.error(err);
-      alert(err.response?.data?.detail || 'Failed to initialize Discord authorization.');
-      setIsDiscordConnecting(false);
-    }
-  };
 
   const handleDeactivateAccount = async () => {
     if (!confirm('Are you absolutely sure you want to deactivate your assistant profile? This action is irreversible.')) {
@@ -949,52 +850,7 @@ export default function SettingsPage() {
                     )}
                   </div>
 
-                  {/* WhatsApp Card */}
-                  <div className="space-y-3 pt-4 border-t border-zinc-900">
-                    <div className="flex items-center justify-between">
-                      <div>
-                        <h3 className="text-xs font-bold text-zinc-200">WhatsApp Business Account</h3>
-                        <p className="text-[10px] text-zinc-500">Business contacts, Customer messages</p>
-                      </div>
-                      <span className={`text-[10px] font-mono px-2 py-0.5 rounded ${
-                        whatsappPref?.connected ? 'bg-emerald-950/20 text-emerald-400 border border-emerald-900/30' : 'bg-zinc-900 text-zinc-500'
-                      }`}>
-                        {whatsappPref?.connected ? 'Active' : 'Offline'}
-                      </span>
-                    </div>
-                    {whatsappPref?.connected ? (
-                      <button
-                        onClick={() => disconnectMutation.mutate('whatsapp')}
-                        className="w-full text-center py-2 bg-zinc-950 hover:bg-red-950/20 hover:text-red-400 rounded text-xs font-semibold text-zinc-400 border border-zinc-850 hover:border-red-900/20 transition-all cursor-pointer"
-                      >
-                        Disconnect Service
-                      </button>
-                    ) : (
-                      <>
-                        <button
-                          onClick={handleConnectWhatsApp}
-                          disabled={isWhatsAppConnecting}
-                          className="w-full flex items-center justify-center gap-1.5 py-2 bg-zinc-900 hover:bg-zinc-800 rounded text-xs font-semibold text-zinc-50 border border-zinc-850 hover:border-zinc-700 transition-all cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
-                        >
-                          {isWhatsAppConnecting ? (
-                            <>
-                              <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                              Connecting popup...
-                            </>
-                          ) : (
-                            <>
-                              Connect your WhatsApp Business Account
-                              <ExternalLink className="w-3.5 h-3.5" />
-                            </>
-                          )}
-                        </button>
-                        <div className="text-[10px] text-zinc-450 bg-zinc-900/40 border border-zinc-900/80 rounded-lg p-2.5 mt-2 leading-relaxed">
-                          <span className="text-amber-500 font-semibold block mb-0.5">Platform Requirement:</span>
-                          Requires an existing WhatsApp Business Account (WABA) with a registered business phone number. Personal WhatsApp numbers are not supported.
-                        </div>
-                      </>
-                    )}
-                  </div>
+
 
                   {/* LinkedIn Card */}
                   <div className="space-y-3 pt-4 border-t border-zinc-900">
@@ -1246,45 +1102,7 @@ export default function SettingsPage() {
                       </div>
                     )}
                   </div>
-                  {/* Discord Card */}
-                  <div className="space-y-3 pt-4 border-t border-zinc-900">
-                    <div className="flex items-center justify-between">
-                      <div>
-                        <h3 className="text-xs font-bold text-zinc-200">Discord Integration</h3>
-                        <p className="text-[10px] text-zinc-500">Monitor personal DMs and servers consolidated</p>
-                      </div>
-                      <span className={`text-[10px] font-mono px-2 py-0.5 rounded ${
-                        discordPref?.connected ? 'bg-emerald-950/20 text-emerald-400 border border-emerald-900/30' : 'bg-zinc-900 text-zinc-500'
-                      }`}>
-                        {discordPref?.connected ? 'Active' : 'Offline'}
-                      </span>
-                    </div>
-                    {discordPref?.connected ? (
-                      <button
-                        onClick={() => disconnectMutation.mutate('discord')}
-                        className="w-full text-center py-2 bg-zinc-950 hover:bg-red-950/20 hover:text-red-400 rounded text-xs font-semibold text-zinc-400 border border-zinc-850 hover:border-red-900/20 transition-all cursor-pointer"
-                      >
-                        Disconnect Discord
-                      </button>
-                    ) : (
-                      <button
-                        onClick={handleConnectDiscord}
-                        disabled={isDiscordConnecting}
-                        className="w-full py-2 bg-indigo-600 hover:bg-indigo-500 text-xs font-bold text-white rounded-lg flex items-center justify-center gap-2 border border-indigo-500 hover:border-indigo-400 transition-all cursor-pointer disabled:opacity-50"
-                      >
-                        {isDiscordConnecting ? (
-                          <>
-                            <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                            Connecting Discord...
-                          </>
-                        ) : (
-                          <>
-                            Connect with Discord
-                          </>
-                        )}
-                      </button>
-                    )}
-                  </div>
+
                 </div>
               )}
 

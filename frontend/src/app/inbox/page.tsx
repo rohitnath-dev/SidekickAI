@@ -39,7 +39,6 @@ function InboxContent() {
 
   const [searchQuery, setSearchQuery] = useState('');
   const [sourceFilter, setSourceFilter] = useState('all');
-  const [discordTypeFilter, setDiscordTypeFilter] = useState('all');
   const [unreadOnly, setUnreadOnly] = useState(false);
   const [syncLoading, setSyncLoading] = useState(false);
   const [syncStatus, setSyncStatus] = useState<string | { message: string, isError: boolean, action?: string, actionUrl?: string } | null>(null);
@@ -208,15 +207,7 @@ function InboxContent() {
       
       const isTelegramConnected = connectedServices.some((s: any) => s.provider === 'telegram' && s.connected);
       const isGoogleConnected = connectedServices.some((s: any) => s.provider === 'google' && s.connected);
-      const isDiscordConnected = connectedServices.some((s: any) => s.provider === 'discord' && s.connected);
       const isTwitterConnected = connectedServices.some((s: any) => s.provider === 'twitter' && s.connected);
-      const isWhatsappConnected = connectedServices.some((s: any) => s.provider === 'whatsapp' && s.connected);
-
-      if (sourceFilter === 'whatsapp') {
-        setSyncStatus('Refreshing WhatsApp chats...');
-        await new Promise((resolve) => setTimeout(resolve, 800));
-        return { synced: 0, source: 'whatsapp' };
-      }
       
       if (sourceFilter === 'telegram') {
         if (!isTelegramConnected) {
@@ -227,14 +218,7 @@ function InboxContent() {
         return { ...response.data, source: 'telegram' };
       }
       
-      if (sourceFilter === 'discord') {
-        if (!isDiscordConnected) {
-          throw new Error('Discord is not connected. Connect it in Settings.');
-        }
-        setSyncStatus('Syncing Discord channel logs...');
-        const response = await apiClient.post('/discord/sync');
-        return { ...response.data, source: 'discord' };
-      }
+
       
       if (sourceFilter === 'twitter') {
         if (!isTwitterConnected) {
@@ -277,14 +261,7 @@ function InboxContent() {
               .catch(err => ({ source: 'telegram', error: err }))
           );
         }
-        if (isDiscordConnected) {
-          activeSources.push('discord');
-          syncPromises.push(
-            apiClient.post('/discord/sync')
-              .then(res => ({ source: 'discord', synced: res.data.synced || 0 }))
-              .catch(err => ({ source: 'discord', error: err }))
-          );
-        }
+
         if (isTwitterConnected) {
           activeSources.push('twitter');
           syncPromises.push(
@@ -326,12 +303,8 @@ function InboxContent() {
       }
       setLastSyncedAt(now);
 
-      if (data.source === 'whatsapp') {
-        setSyncStatus({ message: 'WhatsApp chats refreshed (Meta webhook real-time sync active).', isError: false });
-      } else if (data.source === 'telegram') {
+      if (data.source === 'telegram') {
         setSyncStatus({ message: `Synced ${data.synced} Telegram chat updates! (AI processing active)`, isError: false });
-      } else if (data.source === 'discord') {
-        setSyncStatus({ message: `Synced ${data.synced} Discord messages! (AI processing active)`, isError: false });
       } else if (data.source === 'twitter') {
         setSyncStatus({ message: `Synced ${data.synced} new Twitter mentions!`, isError: false });
       } else if (data.source === 'gmail') {
@@ -519,14 +492,7 @@ function InboxContent() {
       (msg.body?.toLowerCase() || '').includes(query);
     if (!matchQuery) return false;
 
-    if (sourceFilter === 'discord' && discordTypeFilter !== 'all') {
-      if (discordTypeFilter === 'dm') {
-        return msg.subject === 'Personal DM';
-      }
-      if (discordTypeFilter === 'server') {
-        return msg.subject?.startsWith('Server:');
-      }
-    }
+
     return true;
   }) || [];
 
@@ -672,10 +638,8 @@ function InboxContent() {
               >
                 <option value="all">All Sources</option>
                 <option value="gmail">Gmail</option>
-                <option value="whatsapp">WhatsApp</option>
                 <option value="twitter">Twitter</option>
                 <option value="telegram">Telegram</option>
-                <option value="discord">Discord</option>
               </select>
               <select
                 value={gmailCategoryFilter}
@@ -689,17 +653,7 @@ function InboxContent() {
                 <option value="updates">Updates</option>
               </select>
 
-              {sourceFilter === 'discord' && (
-                <select
-                  value={discordTypeFilter}
-                  onChange={(e) => setDiscordTypeFilter(e.target.value)}
-                  className="bg-zinc-900/40 border border-zinc-800 rounded-lg px-2.5 py-1 text-zinc-400 focus:text-zinc-100 outline-none cursor-pointer hover:border-zinc-700/80 transition-colors"
-                >
-                  <option value="all">All Discord</option>
-                  <option value="dm">Personal DMs</option>
-                  <option value="server">Server Messages</option>
-                </select>
-              )}
+
               <button 
                 onClick={() => setUnreadOnly(!unreadOnly)}
                 className={`px-2.5 py-1 rounded-lg border transition-all duration-300 cursor-pointer ${

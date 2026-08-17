@@ -43,12 +43,10 @@ async def start_polling() -> None:
                     
                     tokens = TokenRepository.list_by_user(db, user.id)
                     has_telegram = any(t.provider == "telegram" and t.access_token and t.access_token != "disabled" for t in tokens)
-                    has_whatsapp = any(t.provider == "whatsapp" and t.access_token and t.access_token != "disabled" for t in tokens)
-                    has_discord = any(t.provider == "discord" and t.access_token and t.access_token != "disabled" for t in tokens)
                     has_twitter = any(t.provider == "twitter" and t.access_token and t.access_token != "disabled" for t in tokens)
 
                     # If NO integrations are connected for a user, SKIP the entire poll cycle for that user.
-                    if not (has_gmail or has_telegram or has_whatsapp or has_discord or has_twitter):
+                    if not (has_gmail or has_telegram or has_twitter):
                         logger.info("Poller skipped: No integrations connected for user %d", user.id)
                         continue
                         
@@ -134,17 +132,7 @@ async def start_polling() -> None:
                         except Exception as e:
                             logger.error("Background Poller: Telegram sync failed for user_id=%d: %s", user.id, e)
 
-                    # 4. Discord Ingestion Polling
-                    if has_discord:
-                        try:
-                            from routes.discord import sync_discord
-                            logger.info("Background Poller: Syncing Discord for user_id=%d", user.id)
-                            res = await sync_discord(current_user=user, db=db)
-                            synced_count = getattr(res, "synced", 0) if hasattr(res, "synced") else (res.get("synced", 0) if isinstance(res, dict) else 0)
-                            if synced_count == 0:
-                                logger.info("Poller skipped: 0 messages found, skipping AI pipeline for Discord user_id=%d", user.id)
-                        except Exception as e:
-                            logger.error("Background Poller: Discord sync failed for user_id=%d: %s", user.id, e)
+
 
         except Exception as e:
             logger.error("Background Poller loop encountered an error: %s", e)

@@ -38,11 +38,7 @@ const PROVIDER_METADATA: Record<string, { name: string; dotClass: string; contai
     dotClass: 'bg-zinc-100',
     containerClass: 'bg-zinc-500/20 border-zinc-500/30'
   },
-  whatsapp: {
-    name: 'WhatsApp API',
-    dotClass: 'bg-green-500',
-    containerClass: 'bg-green-500/20 border-green-500/30'
-  },
+
   linkedin: {
     name: 'LinkedIn Profile',
     dotClass: 'bg-blue-500',
@@ -115,7 +111,7 @@ export default function DashboardPage() {
     mutationFn: async () => {
       setAiLoading(true);
       setAiStatus('Running AI...');
-      const response = await apiClient.post('/ai/run');
+      const response = await apiClient.post('/ai/run', {});
       return response.data;
     },
     onSuccess: (data) => {
@@ -257,7 +253,7 @@ export default function DashboardPage() {
   const connectedServices = preferences?.connected_services || [];
   const isGoogleConnected = connectedServices.find((s: any) => s.provider === 'google')?.connected;
   const isTwitterConnected = connectedServices.find((s: any) => s.provider === 'twitter')?.connected;
-  const isWhatsAppConnected = connectedServices.find((s: any) => s.provider === 'whatsapp')?.connected;
+
 
   return (
     <SidebarLayout>

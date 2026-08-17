@@ -14,7 +14,6 @@ from utils.prompts.planner import build_daily_briefing_prompt
 from utils.prompts.gmail import build_gmail_sync_prompt
 from utils.prompts.calendar import build_calendar_summary_prompt
 from utils.prompts.contacts import build_contact_summary_prompt
-from utils.prompts.whatsapp import build_whatsapp_reply_prompt
 from utils.prompts.twitter import build_twitter_reply_prompt
 from utils.prompts.notification import build_notification_prompt
 from utils.prompts.personality import build_personality_context
@@ -33,7 +32,6 @@ __all__ = [
     "build_gmail_sync_prompt",
     "build_calendar_summary_prompt",
     "build_contact_summary_prompt",
-    "build_whatsapp_reply_prompt",
     "build_twitter_reply_prompt",
     "build_notification_prompt",
     "build_personality_context",

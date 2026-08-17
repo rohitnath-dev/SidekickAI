@@ -134,22 +134,6 @@ class Settings(BaseSettings):
     TWITTER_ACCESS_SECRET: str = ""
     TWITTER_USER_ID: str = ""
 
-    # ------------------------------------------------------------------ #
-    # WhatsApp (Meta Cloud API)
-    # ------------------------------------------------------------------ #
-    WHATSAPP_API_TOKEN: str = ""
-    WHATSAPP_PHONE_NUMBER_ID: str = ""
-    WHATSAPP_VERIFY_TOKEN: str = ""
-    WHATSAPP_APP_SECRET: str = ""
-    WHATSAPP_API_BASE_URL: str = (
-        "https://graph.facebook.com/v19.0"
-    )
-    META_APP_ID: str = ""
-    META_APP_SECRET: str = ""
-    WHATSAPP_CONFIG_ID: str = ""
-    WHATSAPP_REDIRECT_URI: str = (
-        "http://localhost:8000/api/v1/whatsapp/callback"
-    )
 
     # ------------------------------------------------------------------ #
     # Telegram
@@ -158,15 +142,6 @@ class Settings(BaseSettings):
     TELEGRAM_API_HASH: str = "mock_api_hash_value"
     TELEGRAM_SESSION_ENCRYPTION_KEY: str = ""
 
-    # ------------------------------------------------------------------ #
-    # Discord OAuth & Bot
-    # ------------------------------------------------------------------ #
-    DISCORD_CLIENT_ID: str = ""
-    DISCORD_CLIENT_SECRET: str = ""
-    DISCORD_BOT_TOKEN: str = ""
-    DISCORD_REDIRECT_URI: str = (
-        "http://localhost:8000/api/discord/callback"
-    )
 
     # ------------------------------------------------------------------ #
     # CORS

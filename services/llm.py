@@ -72,14 +72,35 @@ class LLMClient:
         base_url: Optional[str] = None,
         model: Optional[str] = None,
         timeout: Optional[float] = None,
+        user_id: Optional[int] = None,
     ) -> None:
 
+        self._config_resolved = False
+
+        # Load user configuration if user_id is provided
+        user_config = None
+        if user_id is not None:
+            from database import SessionLocal
+            from models.ai_config import UserAIConfig
+            db = SessionLocal()
+            try:
+                user_config = db.query(UserAIConfig).filter_by(user_id=user_id).first()
+                if user_config:
+                    self._config_resolved = True
+            except Exception as e:
+                logger.error("Failed to load user AI config in LLMClient: %s", e)
+            finally:
+                db.close()
+
         # ---------------------------------------------------------------
-        # Provider
+        # Provider precedence: request-specific -> user config -> default
         # ---------------------------------------------------------------
+        provider_val = provider
+        if not provider_val and user_config:
+            provider_val = user_config.provider
 
         self.provider = (
-            provider
+            provider_val
             or os.getenv("LLM_PROVIDER")
             or getattr(settings, "LLM_PROVIDER", None)
             or "openrouter"
@@ -92,20 +113,34 @@ class LLMClient:
             )
 
         # ---------------------------------------------------------------
+        # Precedence values for API Key, Model, and Base URL
+        # ---------------------------------------------------------------
+        model_val = model
+        if not model_val and user_config:
+            model_val = user_config.model
+
+        api_key_val = api_key
+        if not api_key_val and user_config:
+            api_key_val = user_config.api_key
+
+        base_url_val = base_url
+        if not base_url_val and user_config:
+            base_url_val = user_config.base_url
+
+        # ---------------------------------------------------------------
         # Ollama configuration
         # ---------------------------------------------------------------
-
         self.ollama_base_url = (
-            base_url
-            if self.provider == "ollama" and base_url
+            base_url_val
+            if self.provider == "ollama" and base_url_val
             else os.getenv("OLLAMA_BASE_URL")
             or getattr(settings, "OLLAMA_BASE_URL", None)
             or "http://localhost:11434"
         ).rstrip("/")
 
         self.ollama_model = (
-            model
-            if self.provider == "ollama" and model
+            model_val
+            if self.provider == "ollama" and model_val
             else os.getenv("OLLAMA_MODEL")
             or getattr(settings, "OLLAMA_MODEL", None)
             or "llama3.2"
@@ -114,9 +149,8 @@ class LLMClient:
         # ---------------------------------------------------------------
         # OpenRouter configuration
         # ---------------------------------------------------------------
-
         self.openrouter_api_key = (
-            api_key
+            api_key_val
             or os.getenv("OPENROUTER_API_KEY")
             or getattr(settings, "OPENROUTER_API_KEY", None)
             or ""
@@ -129,8 +163,8 @@ class LLMClient:
         ).rstrip("/")
 
         self.openrouter_model = (
-            model
-            if self.provider == "openrouter" and model
+            model_val
+            if self.provider == "openrouter" and model_val
             else os.getenv("OPENROUTER_MODEL")
             or getattr(settings, "OPENROUTER_MODEL", None)
             or "openrouter/free"
@@ -139,7 +173,6 @@ class LLMClient:
         # ---------------------------------------------------------------
         # Common configuration
         # ---------------------------------------------------------------
-
         try:
             self.timeout = timeout or float(
                 os.getenv("LLM_TIMEOUT")
@@ -210,7 +243,7 @@ class LLMClient:
             raise LLMException("Cannot send an empty messages list.")
 
         # Check if user has their own AI configuration
-        if user_id is not None:
+        if user_id is not None and not getattr(self, "_config_resolved", False):
             from database import SessionLocal
             from models.ai_config import UserAIConfig
             db = SessionLocal()
@@ -231,6 +264,7 @@ class LLMClient:
                         base_url=config.base_url,
                         model=config.model,
                         timeout=self.timeout,
+                        user_id=user_id,
                     )
                     return await user_client.chat(
                         messages=messages,
@@ -411,6 +445,13 @@ class LLMClient:
             "model": model or self.openrouter_model,
             "messages": messages,
         }
+
+        logger.info(
+            "OpenRouter Request details: model=%s, messages_count=%d, has_api_key=%s",
+            model or self.openrouter_model,
+            len(messages),
+            bool(self.openrouter_api_key),
+        )
 
         if temperature is not None:
             payload["temperature"] = temperature

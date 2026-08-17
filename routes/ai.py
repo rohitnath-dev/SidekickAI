@@ -149,57 +149,27 @@ class RunAIRequest(
 # LLM helpers
 # ============================================================================
 
-def _create_llm_client(
+def _get_request_llm(
     config: LLMConfigRequest,
+    user_id: int,
 ) -> LLMClient:
     """
-    Create a request-specific LLMClient.
-
-    API keys are never logged.
+    Return a request-specific LLM client, resolving configurations in precedence order:
+    request-specific config -> saved user config -> application defaults.
     """
-
     try:
         return LLMClient(
             provider=config.provider,
             api_key=config.api_key,
             model=config.model,
             base_url=config.base_url,
+            user_id=user_id,
         )
-
     except ValueError as exc:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=str(exc),
         ) from exc
-
-
-def _get_request_llm(
-    config: LLMConfigRequest,
-) -> LLMClient:
-    """
-    Return a request-specific LLM client when the
-    request provides configuration.
-
-    Otherwise return the application's default
-    global LLM client.
-    """
-
-    has_request_config = any(
-        value is not None
-        for value in (
-            config.provider,
-            config.api_key,
-            config.model,
-            config.base_url,
-        )
-    )
-
-    if not has_request_config:
-        return llm
-
-    return _create_llm_client(
-        config
-    )
 
 
 def _llm_http_error(
@@ -322,7 +292,8 @@ async def ai_test(
     """
 
     client = _get_request_llm(
-        request
+        request,
+        user_id=current_user.id,
     )
 
     prompt = (
@@ -411,7 +382,8 @@ async def analyze_messages(
         )
 
     client = _get_request_llm(
-        request
+        request,
+        user_id=current_user.id,
     )
 
     async with lock:
@@ -584,7 +556,8 @@ async def run_ai_pipeline(
         )
 
     client = _get_request_llm(
-        request
+        request,
+        user_id=current_user.id,
     )
 
     async with lock:

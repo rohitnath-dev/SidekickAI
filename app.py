@@ -27,11 +27,9 @@ from routes.memory import router as memory_router
 from routes.planner import router as planner_router
 from routes.calendar import router as calendar_router
 from routes.twitter import router as twitter_router
-from routes.whatsapp import router as whatsapp_router
 from routes.settings import router as settings_router
 from routes.linkedin import router as linkedin_router
 from routes.telegram import router as telegram_router
-from routes.discord import router as discord_router, discord_callback
 from routes.ai import router as ai_router
 
 # ---------------------------------------------------------------------------
@@ -187,19 +185,10 @@ app.include_router(memory_router,   prefix=API_PREFIX)
 app.include_router(planner_router,  prefix=API_PREFIX)
 app.include_router(calendar_router, prefix=API_PREFIX)
 app.include_router(twitter_router,  prefix=API_PREFIX)
-app.include_router(whatsapp_router, prefix=API_PREFIX)
 app.include_router(settings_router, prefix=API_PREFIX)
 app.include_router(linkedin_router, prefix=API_PREFIX)
 app.include_router(telegram_router, prefix=API_PREFIX)
-app.include_router(discord_router, prefix=API_PREFIX)
-app.include_router(discord_router, prefix="/api")
-app.include_router(discord_router, prefix="")
 app.include_router(ai_router,      prefix=API_PREFIX)
-
-# Direct callback route registrations for Discord to prevent any router prefix translation / 404 issues
-app.get("/api/discord/callback", tags=["Discord"])(discord_callback)
-app.get("/api/v1/discord/callback", tags=["Discord"])(discord_callback)
-app.get("/discord/callback", tags=["Discord"])(discord_callback)
 
 # ---------------------------------------------------------------------------
 # Root / Frontend UI + Health

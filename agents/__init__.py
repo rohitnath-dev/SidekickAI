@@ -13,7 +13,6 @@ from agents.memory_agent import MemoryAgent
 from agents.planner_agent import PlannerAgent
 from agents.calendar_agent import CalendarAgent
 from agents.twitter_agent import TwitterAgent
-from agents.whatsapp_agent import WhatsAppAgent
 
 __all__ = [
     "BaseAgent",
@@ -25,5 +24,4 @@ __all__ = [
     "PlannerAgent",
     "CalendarAgent",
     "TwitterAgent",
-    "WhatsAppAgent",
 ]

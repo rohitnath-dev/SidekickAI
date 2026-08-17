@@ -44,7 +44,7 @@ class PreferencesResponse(BaseModel):
 # Endpoints
 # ---------------------------------------------------------------------------
 
-KNOWN_PROVIDERS = ["google", "twitter", "whatsapp", "linkedin", "telegram", "discord"]
+KNOWN_PROVIDERS = ["google", "twitter", "linkedin", "telegram"]
 
 
 @router.get("/preferences", response_model=PreferencesResponse)
@@ -71,8 +71,7 @@ async def get_preferences(
                 connected_at = token.created_at.isoformat() if token.created_at else None
         elif provider == "twitter" and settings.TWITTER_BEARER_TOKEN:
             is_connected = True
-        elif provider == "whatsapp" and settings.WHATSAPP_API_TOKEN and settings.WHATSAPP_PHONE_NUMBER_ID:
-            is_connected = True
+
 
         services.append(
             ConnectedService(
@@ -109,8 +108,7 @@ async def list_connected_services(
                 connected_at = token.created_at.isoformat() if token.created_at else None
         elif provider == "twitter" and settings.TWITTER_BEARER_TOKEN:
             is_connected = True
-        elif provider == "whatsapp" and settings.WHATSAPP_API_TOKEN and settings.WHATSAPP_PHONE_NUMBER_ID:
-            is_connected = True
+
             
         if is_connected:
             services.append(
@@ -139,9 +137,7 @@ async def disconnect_service(
 
     from config import settings
     has_system_fallback = False
-    if provider == "whatsapp" and settings.WHATSAPP_API_TOKEN and settings.WHATSAPP_PHONE_NUMBER_ID:
-        has_system_fallback = True
-    elif provider == "twitter" and settings.TWITTER_BEARER_TOKEN:
+    if provider == "twitter" and settings.TWITTER_BEARER_TOKEN:
         has_system_fallback = True
 
     if has_system_fallback:
@@ -217,9 +213,7 @@ async def sync_all_integrations(
         if any(t.provider == "telegram" and t.access_token and t.access_token != "disabled" for t in tokens):
             connected_providers.add("telegram")
 
-        # Check Discord
-        if any(t.provider == "discord" and t.access_token and t.access_token != "disabled" for t in tokens):
-            connected_providers.add("discord")
+
 
         # Check Twitter
         if settings.TWITTER_BEARER_TOKEN and settings.TWITTER_USER_ID:
@@ -260,15 +254,7 @@ async def sync_all_integrations(
                 logger.error("Sync API: Telegram sync failed for user %d: %s", current_user.id, e)
                 errors.append(f"Telegram: {str(e)}")
 
-        # 3. Discord
-        if "discord" in connected_providers:
-            try:
-                from routes.discord import sync_discord
-                res = await sync_discord(current_user=current_user, db=db)
-                synced_results["discord"] = getattr(res, "synced", 0) if hasattr(res, "synced") else (res.get("synced", 0) if isinstance(res, dict) else 0)
-            except Exception as e:
-                logger.error("Sync API: Discord sync failed for user %d: %s", current_user.id, e)
-                errors.append(f"Discord: {str(e)}")
+
 
         # 4. Twitter
         if "twitter" in connected_providers:

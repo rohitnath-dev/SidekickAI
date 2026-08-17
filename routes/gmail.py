@@ -240,12 +240,6 @@ def get_active_providers(user_id: int, db: Session) -> set[str]:
         disabled_token = next((t for t in tokens if t.provider == "twitter"), None)
         if not (disabled_token and disabled_token.access_token == "disabled"):
             connected.add("twitter")
-            
-    if settings.WHATSAPP_API_TOKEN and settings.WHATSAPP_PHONE_NUMBER_ID and "whatsapp" not in connected:
-        # Check if user explicitly disabled it
-        disabled_token = next((t for t in tokens if t.provider == "whatsapp"), None)
-        if not (disabled_token and disabled_token.access_token == "disabled"):
-            connected.add("whatsapp")
     return connected
 
 
