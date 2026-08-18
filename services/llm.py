@@ -444,7 +444,7 @@ class LLMClient:
         payload: dict[str, Any] = {
             "model": model or self.openrouter_model,
             "messages": messages,
-            "max_tokens": max_tokens or 2000,
+            "max_tokens": max_tokens or 1000,
         }
 
         logger.info(
