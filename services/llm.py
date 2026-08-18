@@ -151,8 +151,8 @@ class LLMClient:
         # ---------------------------------------------------------------
         self.openrouter_api_key = (
             api_key_val
-            or os.getenv("OPENROUTER_API_KEY")
             or getattr(settings, "OPENROUTER_API_KEY", None)
+            or os.getenv("OPENROUTER_API_KEY")
             or ""
         )
 
