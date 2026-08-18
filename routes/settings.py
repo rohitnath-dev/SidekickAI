@@ -44,7 +44,7 @@ class PreferencesResponse(BaseModel):
 # Endpoints
 # ---------------------------------------------------------------------------
 
-KNOWN_PROVIDERS = ["google", "twitter", "telegram"]
+KNOWN_PROVIDERS = ["google", "twitter", "telegram", "slack"]
 
 
 @router.get("/preferences", response_model=PreferencesResponse)
@@ -213,6 +213,11 @@ async def sync_all_integrations(
         if any(t.provider == "telegram" and t.access_token and t.access_token != "disabled" for t in tokens):
             connected_providers.add("telegram")
 
+        # Check Slack
+        slack_token = next((t for t in tokens if t.provider == "slack"), None)
+        if slack_token and slack_token.access_token and slack_token.access_token != "disabled":
+            connected_providers.add("slack")
+
 
 
         # Check Twitter
@@ -253,6 +258,22 @@ async def sync_all_integrations(
             except Exception as e:
                 logger.error("Sync API: Telegram sync failed for user %d: %s", current_user.id, e)
                 errors.append(f"Telegram: {str(e)}")
+
+        # 3. Slack
+        if "slack" in connected_providers:
+            try:
+                from agents.slack_agent import SlackAgent
+                agent = SlackAgent()
+                res = await agent.sync_slack(
+                    access_token=slack_token.access_token,
+                    db=db,
+                    user_id=current_user.id,
+                    limit=20
+                )
+                synced_results["slack"] = res.get("synced", 0) if isinstance(res, dict) else 0
+            except Exception as e:
+                logger.error("Sync API: Slack sync failed for user %d: %s", current_user.id, e)
+                errors.append(f"Slack: {str(e)}")
 
 
 

@@ -44,9 +44,10 @@ async def start_polling() -> None:
                     tokens = TokenRepository.list_by_user(db, user.id)
                     has_telegram = any(t.provider == "telegram" and t.access_token and t.access_token != "disabled" for t in tokens)
                     has_twitter = any(t.provider == "twitter" and t.access_token and t.access_token != "disabled" for t in tokens)
+                    has_slack = any(t.provider == "slack" and t.access_token and t.access_token != "disabled" for t in tokens)
 
                     # If NO integrations are connected for a user, SKIP the entire poll cycle for that user.
-                    if not (has_gmail or has_telegram or has_twitter):
+                    if not (has_gmail or has_telegram or has_twitter or has_slack):
                         logger.info("Poller skipped: No integrations connected for user %d", user.id)
                         continue
                         
@@ -131,6 +132,25 @@ async def start_polling() -> None:
                                 logger.info("Poller skipped: 0 messages found, skipping AI pipeline for Telegram user_id=%d", user.id)
                         except Exception as e:
                             logger.error("Background Poller: Telegram sync failed for user_id=%d: %s", user.id, e)
+
+                    # 4. Slack Ingestion Polling
+                    if has_slack:
+                        try:
+                            from agents.slack_agent import SlackAgent
+                            logger.info("Background Poller: Syncing Slack for user_id=%d", user.id)
+                            slack_tok = next((t for t in tokens if t.provider == "slack"), None)
+                            if slack_tok and slack_tok.access_token:
+                                res = await SlackAgent().sync_slack(
+                                    access_token=slack_tok.access_token,
+                                    db=db,
+                                    user_id=user.id,
+                                    limit=50,
+                                )
+                                synced_count = res.get("synced", 0) if isinstance(res, dict) else 0
+                                if synced_count == 0:
+                                    logger.info("Poller skipped: 0 messages found, skipping AI pipeline for Slack user_id=%d", user.id)
+                        except Exception as e:
+                            logger.error("Background Poller: Slack sync failed for user_id=%d: %s", user.id, e)
 
 
 

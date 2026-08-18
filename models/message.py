@@ -71,8 +71,8 @@ class Message(Base):
     subject: Mapped[str | None] = mapped_column(String(1000), nullable=True)
     body: Mapped[str] = mapped_column(Text, nullable=False)
     html_body: Mapped[str | None] = mapped_column(Text, nullable=True)
+    channel_info: Mapped[str | None] = mapped_column(String(512), nullable=True)
 
-    # AI-generated fields
     priority: Mapped[MessagePriority] = mapped_column(
         SQLEnum(MessagePriority), nullable=False, default=MessagePriority.MEDIUM
     )
@@ -162,6 +162,7 @@ class Message(Base):
             "subject": self.subject,
             "body": self.body,
             "html_body": self.html_body,
+            "channel_info": self.channel_info,
             "priority": self.priority.value,
             "status": self.status.value,
             "requires_reply": self.requires_reply,

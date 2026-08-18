@@ -29,6 +29,7 @@ from routes.calendar import router as calendar_router
 from routes.twitter import router as twitter_router
 from routes.settings import router as settings_router
 from routes.telegram import router as telegram_router
+from routes.slack import router as slack_router
 from routes.ai import router as ai_router
 
 # ---------------------------------------------------------------------------
@@ -68,6 +69,11 @@ async def lifespan(app: FastAPI):
                     # SQLite and PostgreSQL both support this syntax
                     conn.execute(text("ALTER TABLE messages ADD COLUMN html_body TEXT"))
                 logger.info("Database fallback safety: Successfully added 'html_body' column to 'messages' table.")
+            if "channel_info" not in columns:
+                logger.info("Database fallback safety: Column 'channel_info' not found in table 'messages'. Attempting to add it dynamically.")
+                with engine.begin() as conn:
+                    conn.execute(text("ALTER TABLE messages ADD COLUMN channel_info VARCHAR(512)"))
+                logger.info("Database fallback safety: Successfully added 'channel_info' column to 'messages' table.")
             else:
                 logger.info("Database check: 'html_body' column exists in 'messages' table.")
         except Exception as err:
@@ -202,6 +208,7 @@ app.include_router(calendar_router, prefix=API_PREFIX)
 app.include_router(twitter_router,  prefix=API_PREFIX)
 app.include_router(settings_router, prefix=API_PREFIX)
 app.include_router(telegram_router, prefix=API_PREFIX)
+app.include_router(slack_router,    prefix=API_PREFIX)
 app.include_router(ai_router,      prefix=API_PREFIX)
 
 # ---------------------------------------------------------------------------
