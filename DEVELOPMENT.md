@@ -138,6 +138,3 @@ Ensure all feature work and integrations adhere to the following hard API constr
 - **No Personal Accounts**: Personal WhatsApp numbers and accounts are not supported by Meta's API and cannot be synced or read.
 - **Message Types**: Supports template messages and customer session messages initiated by customers.
 
-### LinkedIn Integration (OAuth 2.0)
-- **Profile & Sharing Only**: Uses the `w_member_social` scope. It is strictly limited to syncing profile information and sharing posts.
-- **No DM/Inbox Access**: The LinkedIn API does not expose read/write access for personal messages or DMs to third-party applications.

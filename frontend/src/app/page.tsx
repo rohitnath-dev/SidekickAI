@@ -37,12 +37,6 @@ const PROVIDER_METADATA: Record<string, { name: string; dotClass: string; contai
     name: 'Twitter / X',
     dotClass: 'bg-zinc-100',
     containerClass: 'bg-zinc-500/20 border-zinc-500/30'
-  },
-
-  linkedin: {
-    name: 'LinkedIn Profile',
-    dotClass: 'bg-blue-500',
-    containerClass: 'bg-blue-500/20 border-blue-500/30'
   }
 };
 

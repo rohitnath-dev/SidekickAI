@@ -22,11 +22,6 @@ export const LEGAL_CONTENT = {
     <li><strong>Google Calendar Scopes:</strong> We access calendar events (read and write permissions) to retrieve your schedule timeline, update calendar entries, and compile your daily executive briefing.</li>
     <li><strong>OAuth Tokens:</strong> We receive and securely store encrypted Google refresh and access tokens to synchronize your data in the background.</li>
   </ul>
-  <li><strong>LinkedIn API:</strong></li>
-  <ul>
-    <li><strong>Scopes Used:</strong> We request profile information access and post-sharing scopes (<code>w_member_social</code>).</li>
-    <li><strong>Access Limitations:</strong> The API only allows us to synchronize your profile metadata and share auto-generated professional posts. We do not (and cannot) read LinkedIn messages, direct chats, or private inbox content.</li>
-  </ul>
   <li><strong>WhatsApp Cloud API:</strong></li>
   <ul>
     <li><strong>Embedded Signup flow:</strong> Integrates strictly with Meta's official WhatsApp Business Platform. We access your registered WhatsApp Business Account (WABA) ID, connected phone numbers, and customer chats.</li>
@@ -37,7 +32,7 @@ export const LEGAL_CONTENT = {
 <h2>2. How We Use Your Information</h2>
 <p>We use the collected information for various purposes, including to:</p>
 <ul>
-  <li><strong>Operate the Service:</strong> Sync email lists, calendar schedules, WhatsApp customer chats, and LinkedIn profiles.</li>
+  <li><strong>Operate the Service:</strong> Sync email lists, calendar schedules, and WhatsApp customer chats.</li>
   <li><strong>Generate AI Assist Capabilities:</strong> Analyze email headers and body texts using LLMs to prioritize threads, draft proposed reply templates, and build your Daily Briefing.</li>
   <li><strong>Improve & Personalize:</strong> Track application performance, resolve configuration bugs, and enhance user experience layouts.</li>
   <li><strong>Security & Authentication:</strong> Verify user accounts, secure API sessions, and maintain OAuth credential token rotations.</li>
@@ -94,7 +89,7 @@ export const LEGAL_CONTENT = {
 <p>By accessing or using the Service, you agree to be bound by these Terms. If you disagree with any part of the terms, you may not access or use the Service.</p>
 <hr />
 <h2>1. Description of Service</h2>
-<p>SidekickAI is an AI-powered executive assistant platform designed to assist users in prioritizing communications, drafting replies, and coordinating schedules across connected systems (including Gmail, Google Calendar, WhatsApp Business, and LinkedIn).</p>
+<p>SidekickAI is an AI-powered executive assistant platform designed to assist users in prioritizing communications, drafting replies, and coordinating schedules across connected systems (including Gmail, Google Calendar, and WhatsApp Business).</p>
 <hr />
 <h2>2. Account Registration & Security</h2>
 <p>To use the Service, you must create a user profile. You agree to:</p>
@@ -110,9 +105,8 @@ export const LEGAL_CONTENT = {
 <ul>
   <li><strong>Google OAuth:</strong> SidekickAI is granted read/write permissions for Gmail messages and Calendar schedules to generate briefs, categorize priorities, and draft or send email replies.</li>
   <li><strong>Meta WhatsApp Cloud API:</strong> Serves only registered business accounts (WABA). Connection requires a business phone number; personal accounts cannot be linked.</li>
-  <li><strong>LinkedIn Profile Sync:</strong> Restricted solely to profile metadata sync and post sharing (<code>w_member_social</code>). The Service cannot read or sync LinkedIn private DMs.</li>
 </ul>
-<p>We are not liable for any service interruptions, API deprecations, or policy changes implemented by Google, Meta, LinkedIn, or other third-party provider platforms.</p>
+<p>We are not liable for any service interruptions, API deprecations, or policy changes implemented by Google, Meta, or other third-party provider platforms.</p>
 <hr />
 <h2>4. User Responsibilities & Acceptable Use</h2>
 <p>You agree that you will not use the Service to:</p>

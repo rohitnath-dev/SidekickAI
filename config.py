@@ -105,14 +105,7 @@ class Settings(BaseSettings):
         "http://localhost:8000/api/v1/gmail/callback"
     )
 
-    # ------------------------------------------------------------------ #
-    # LinkedIn OAuth
-    # ------------------------------------------------------------------ #
-    LINKEDIN_CLIENT_ID: str
-    LINKEDIN_CLIENT_SECRET: str
-    LINKEDIN_REDIRECT_URI: str = (
-        "http://localhost:8000/api/v1/linkedin/callback"
-    )
+
 
     # ------------------------------------------------------------------ #
     # Twitter / X OAuth 2.0

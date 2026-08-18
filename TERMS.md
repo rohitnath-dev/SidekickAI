@@ -12,7 +12,7 @@ By accessing or using the Service, you agree to be bound by these Terms. If you 
 
 ## 1. Description of Service
 
-SidekickAI is an AI-powered executive assistant platform designed to assist users in prioritizing communications, drafting replies, and coordinating schedules across connected systems (including Gmail, Google Calendar, WhatsApp Business, and LinkedIn).
+SidekickAI is an AI-powered executive assistant platform designed to assist users in prioritizing communications, drafting replies, and coordinating schedules across connected systems (including Gmail, Google Calendar, and WhatsApp Business).
 
 ---
 
@@ -31,9 +31,7 @@ To use the Service, you must create a user profile. You agree to:
 SidekickAI utilizes API access to sync and write data on your behalf. By authorizing integrations, you acknowledge their specific functional scopes:
 * **Google OAuth:** SidekickAI is granted read/write permissions for Gmail messages and Calendar schedules to generate briefs, categorize priorities, and draft or send email replies.
 * **Meta WhatsApp Cloud API:** Serves only registered business accounts (WABA). Connection requires a business phone number; personal accounts cannot be linked.
-* **LinkedIn Profile Sync:** Restricted solely to profile metadata sync and post sharing (`w_member_social`). The Service cannot read or sync LinkedIn private DMs.
-
-We are not liable for any service interruptions, API deprecations, or policy changes implemented by Google, Meta, LinkedIn, or other third-party provider platforms.
+We are not liable for any service interruptions, API deprecations, or policy changes implemented by Google, Meta, or other third-party provider platforms.
 
 ---
 

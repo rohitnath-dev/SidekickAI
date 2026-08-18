@@ -55,7 +55,6 @@ export default function SettingsPage() {
   const [isDeleting, setIsDeleting] = useState(false);
 
   const [isGoogleConnecting, setIsGoogleConnecting] = useState(false);
-  const [isLinkedInConnecting, setIsLinkedInConnecting] = useState(false);
   const pollingInterval = useRef<any>(null);
   const activePopup = useRef<any>(null);
 
@@ -92,7 +91,6 @@ export default function SettingsPage() {
   const connectedServices = preferences?.connected_services || [];
   const googlePref = connectedServices.find((s: any) => s.provider === 'google');
   const twitterPref = connectedServices.find((s: any) => s.provider === 'twitter');
-  const linkedinPref = connectedServices.find((s: any) => s.provider === 'linkedin');
   const telegramPref = connectedServices.find((s: any) => s.provider === 'telegram');
 
 
@@ -148,15 +146,6 @@ export default function SettingsPage() {
         queryClient.invalidateQueries({ queryKey: ['preferences-settings'] });
         queryClient.invalidateQueries({ queryKey: ['preferences'] });
 
-      } else if (event.data === 'linkedin-connected') {
-        setIsLinkedInConnecting(false);
-        if (pollingInterval.current) clearInterval(pollingInterval.current);
-        if (activePopup.current) {
-          activePopup.current.close();
-          activePopup.current = null;
-        }
-        queryClient.invalidateQueries({ queryKey: ['preferences-settings'] });
-        queryClient.invalidateQueries({ queryKey: ['preferences'] });
       }
     };
     window.addEventListener('message', handleMessage);
@@ -211,9 +200,6 @@ export default function SettingsPage() {
     mutationFn: async (provider: string) => {
       if (provider === 'google') {
         const response = await apiClient.delete('/gmail/disconnect');
-        return response.data;
-      } else if (provider === 'linkedin') {
-        const response = await apiClient.delete('/linkedin/disconnect');
         return response.data;
       } else if (provider === 'telegram') {
         const response = await apiClient.delete('/telegram/disconnect');
@@ -396,50 +382,6 @@ export default function SettingsPage() {
     }
   };
 
-
-
-  const handleConnectLinkedIn = async () => {
-    setIsLinkedInConnecting(true);
-    try {
-      const response = await apiClient.get('/linkedin/login');
-      const { authorization_url } = response.data;
-      
-
-      const width = 500;
-      const height = 650;
-      const left = window.screenX + (window.innerWidth - width) / 2;
-      const top = window.screenY + (window.innerHeight - height) / 2;
-      const popup = window.open(
-        authorization_url,
-        'LinkedIn Authorization',
-        `width=${width},height=${height},left=${left},top=${top}`
-      );
-      activePopup.current = popup;
-
-      if (pollingInterval.current) clearInterval(pollingInterval.current);
-      pollingInterval.current = setInterval(async () => {
-        try {
-          const prefCheck = await apiClient.get('/settings/preferences');
-          const linkedinStatus = prefCheck.data.connected_services.find((s: any) => s.provider === 'linkedin')?.connected;
-          
-          if (linkedinStatus) {
-            clearInterval(pollingInterval.current);
-            setIsLinkedInConnecting(false);
-            if (popup) popup.close();
-            queryClient.invalidateQueries({ queryKey: ['preferences-settings'] });
-            queryClient.invalidateQueries({ queryKey: ['preferences'] });
-          }
-        } catch (e) {
-          console.error(e);
-        }
-      }, 2500);
-
-    } catch (err: any) {
-      console.error(err);
-      alert(err.response?.data?.detail || 'Failed to initialize LinkedIn authorization.');
-      setIsLinkedInConnecting(false);
-    }
-  };
 
 
 
@@ -850,54 +792,6 @@ export default function SettingsPage() {
                     )}
                   </div>
 
-
-
-                  {/* LinkedIn Card */}
-                  <div className="space-y-3 pt-4 border-t border-zinc-900">
-                    <div className="flex items-center justify-between">
-                      <div>
-                        <h3 className="text-xs font-bold text-zinc-200">LinkedIn Integration</h3>
-                        <p className="text-[10px] text-zinc-500">Profile sync & auto-posting</p>
-                      </div>
-                      <span className={`text-[10px] font-mono px-2 py-0.5 rounded ${
-                        linkedinPref?.connected ? 'bg-emerald-950/20 text-emerald-400 border border-emerald-900/30' : 'bg-zinc-900 text-zinc-500'
-                      }`}>
-                        {linkedinPref?.connected ? 'Active' : 'Offline'}
-                      </span>
-                    </div>
-                    {linkedinPref?.connected ? (
-                      <button
-                        onClick={() => disconnectMutation.mutate('linkedin')}
-                        className="w-full text-center py-2 bg-zinc-950 hover:bg-red-950/20 hover:text-red-400 rounded text-xs font-semibold text-zinc-400 border border-zinc-850 hover:border-red-900/20 transition-all cursor-pointer"
-                      >
-                        Disconnect Service
-                      </button>
-                    ) : (
-                      <>
-                        <button
-                          onClick={handleConnectLinkedIn}
-                          disabled={isLinkedInConnecting}
-                          className="w-full flex items-center justify-center gap-1.5 py-2 bg-zinc-900 hover:bg-zinc-800 rounded text-xs font-semibold text-zinc-50 border border-zinc-850 hover:border-zinc-700 transition-all cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
-                        >
-                          {isLinkedInConnecting ? (
-                            <>
-                              <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                              Connecting popup...
-                            </>
-                          ) : (
-                            <>
-                              Authorize LinkedIn
-                              <ExternalLink className="w-3.5 h-3.5" />
-                            </>
-                          )}
-                        </button>
-                        <div className="text-[10px] text-zinc-450 bg-zinc-900/40 border border-zinc-900/80 rounded-lg p-2.5 mt-2 leading-relaxed">
-                          <span className="text-indigo-400 font-semibold block mb-0.5">Integration Access:</span>
-                          Allows profile sync and sharing auto-posts. Read access to personal DMs/inbox is not supported by the LinkedIn API.
-                        </div>
-                      </>
-                    )}
-                  </div>
 
                   {/* Telegram Card */}
                   <div className="space-y-4 pt-4 border-t border-zinc-900">

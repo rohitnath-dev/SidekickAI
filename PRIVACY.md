@@ -22,9 +22,6 @@ To deliver our AI assistant functionalities, SidekickAI connects with external p
   * **Gmail Scopes:** We access Gmail messages (read, modify, send, and compose permissions) to pull email history, synthesize summaries, detect priority threads, and generate draft responses. 
   * **Google Calendar Scopes:** We access calendar events (read and write permissions) to retrieve your schedule timeline, update calendar entries, and compile your daily executive briefing.
   * **OAuth Tokens:** We receive and securely store encrypted Google refresh and access tokens to synchronize your data in the background.
-* **LinkedIn API:**
-  * **Scopes Used:** We request profile information access and post-sharing scopes (`w_member_social`). 
-  * **Access Limitations:** The API only allows us to synchronize your profile metadata and share auto-generated professional posts. We do not (and cannot) read LinkedIn messages, direct chats, or private inbox content.
 * **WhatsApp Cloud API:**
   * **Embedded Signup flow:** Integrates strictly with Meta's official WhatsApp Business Platform. We access your registered WhatsApp Business Account (WABA) ID, connected phone numbers, and customer chats.
   * **Access Limitations:** This integration requires a dedicated business number. It **cannot** connect personal WhatsApp profiles, read personal chats, or sync standard private numbers.
@@ -34,7 +31,7 @@ To deliver our AI assistant functionalities, SidekickAI connects with external p
 ## 2. How We Use Your Information
 
 We use the collected information for various purposes, including to:
-* **Operate the Service:** Sync email lists, calendar schedules, WhatsApp customer chats, and LinkedIn profiles.
+* **Operate the Service:** Sync email lists, calendar schedules, and WhatsApp customer chats.
 * **Generate AI Assist Capabilities:** Analyze email headers and body texts using LLMs to prioritize threads, draft proposed reply templates, and build your Daily Briefing.
 * **Improve & Personalize:** Track application performance, resolve configuration bugs, and enhance user experience layouts.
 * **Security & Authentication:** Verify user accounts, secure API sessions, and maintain OAuth credential token rotations.

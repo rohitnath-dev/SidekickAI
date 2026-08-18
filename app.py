@@ -28,7 +28,6 @@ from routes.planner import router as planner_router
 from routes.calendar import router as calendar_router
 from routes.twitter import router as twitter_router
 from routes.settings import router as settings_router
-from routes.linkedin import router as linkedin_router
 from routes.telegram import router as telegram_router
 from routes.ai import router as ai_router
 
@@ -202,7 +201,6 @@ app.include_router(planner_router,  prefix=API_PREFIX)
 app.include_router(calendar_router, prefix=API_PREFIX)
 app.include_router(twitter_router,  prefix=API_PREFIX)
 app.include_router(settings_router, prefix=API_PREFIX)
-app.include_router(linkedin_router, prefix=API_PREFIX)
 app.include_router(telegram_router, prefix=API_PREFIX)
 app.include_router(ai_router,      prefix=API_PREFIX)
 

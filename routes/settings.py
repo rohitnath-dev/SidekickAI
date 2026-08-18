@@ -44,7 +44,7 @@ class PreferencesResponse(BaseModel):
 # Endpoints
 # ---------------------------------------------------------------------------
 
-KNOWN_PROVIDERS = ["google", "twitter", "linkedin", "telegram"]
+KNOWN_PROVIDERS = ["google", "twitter", "telegram"]
 
 
 @router.get("/preferences", response_model=PreferencesResponse)
