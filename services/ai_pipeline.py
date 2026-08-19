@@ -5,7 +5,13 @@ Coordinates the AI agents responsible for:
 - Message priority classification
 - Summary generation
 - Action item extraction
-- Suggested reply generation
+- Conditional suggested reply generation
+
+Reply generation is conditional:
+- If the PriorityAgent determines that a reply is required,
+  the ReplyAgent generates a suggested reply.
+- If no reply is required, ReplyAgent is not called and
+  suggested_reply remains empty.
 
 A request-specific LLMClient can be supplied so every agent in the
 pipeline uses the exact same provider, API key, and model.
@@ -43,8 +49,11 @@ async def process_message_ai(
         1. Priority classification
         2. Summary generation
         3. Action item extraction
-        4. Suggested reply generation
+        4. Conditional suggested reply generation
         5. Save all AI results to the database
+
+    Reply generation is performed only when the priority analysis
+    determines that the message requires a reply.
 
     Args:
         db:
@@ -62,7 +71,6 @@ async def process_message_ai(
             When omitted, each agent falls back to the application's
             default LLM client.
     """
-
     try:
         logger.info(
             "Running AI pipeline for message %d (source=%s)",
@@ -175,42 +183,55 @@ async def process_message_ai(
                     f"- {item}"
                     for item in items_list
                 )
+
             elif items_list:
                 action_items = str(
                     items_list
                 )
 
         # --------------------------------------------------------------
-        # 4. Suggested reply
+        # 4. Conditional suggested reply
         # --------------------------------------------------------------
-
-        reply_agent = ReplyAgent(
-            llm_client=llm_client,
-        )
-
-        sender_name = (
-            message.sender.split("<")[0].strip()
-            if message.sender
-            else "User"
-        )
-
-        reply_result = (
-            await reply_agent.generate_reply(
-                recipient_name=sender_name,
-                email_content=message.body,
-                user_id=message.user_id,
-            )
-        )
 
         suggested_reply = ""
 
-        if isinstance(
-            reply_result,
-            dict,
-        ):
-            suggested_reply = reply_result.get(
-                "reply",
-                "",
+        if requires_reply:
+            logger.debug(
+                "Reply required for message %d; generating suggested reply",
+                message.id,
+            )
+
+            reply_agent = ReplyAgent(
+                llm_client=llm_client,
+            )
+
+            sender_name = (
+                message.sender.split("<")[0].strip()
+                if message.sender
+                else "User"
+            )
+
+            reply_result = (
+                await reply_agent.generate_reply(
+                    recipient_name=sender_name,
+                    email_content=message.body,
+                    user_id=message.user_id,
+                )
+            )
+
+            if isinstance(
+                reply_result,
+                dict,
+            ):
+                suggested_reply = reply_result.get(
+                    "reply",
+                    "",
+                )
+
+        else:
+            logger.debug(
+                "Reply not required for message %d; skipping ReplyAgent",
+                message.id,
             )
 
         # --------------------------------------------------------------
@@ -260,4 +281,4 @@ async def process_message_ai(
 
         # Re-raise so the API route knows this particular message
         # actually failed.
-        raise
+        raise2
