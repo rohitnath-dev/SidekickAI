@@ -1,4 +1,4 @@
-"""Memory routes — extract, store, and query long-term facts."""
+"""Memory routes — extract, store, search, and manage long-term facts."""
 
 from __future__ import annotations
 
@@ -6,7 +6,7 @@ import logging
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from database import get_db
@@ -17,7 +17,10 @@ from repositories.message_repo import MessageRepository
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(prefix="/memory", tags=["Memory"])
+router = APIRouter(
+    prefix="/memory",
+    tags=["Memory"],
+)
 
 
 # ---------------------------------------------------------------------------
@@ -28,118 +31,274 @@ class MemoryResponse(BaseModel):
     id: int
     category: str
     content: str
-    context: Optional[str]
-    related_person: Optional[str]
-    related_project: Optional[str]
+    context: Optional[str] = None
+    related_person: Optional[str] = None
+    related_project: Optional[str] = None
     retention_value: str
     confidence: float
-    created_at: Optional[str]
+    created_at: Optional[str] = None
 
 
 class ExtractMemoryRequest(BaseModel):
-    message_content: str
+    message_content: str = Field(
+        ...,
+        min_length=1,
+        description="Text from which durable user memories should be extracted.",
+    )
 
 
 # ---------------------------------------------------------------------------
-# Helper
+# Helpers
 # ---------------------------------------------------------------------------
 
 def _item_to_response(item) -> MemoryResponse:
-    d = item.to_dict()
-    return MemoryResponse(**{k: d.get(k) for k in MemoryResponse.model_fields})
+    """Convert a MemoryItem ORM object into the API response schema."""
 
+    data = item.to_dict()
 
-# ---------------------------------------------------------------------------
-# Endpoints
-# ---------------------------------------------------------------------------
-
-@router.get("/", response_model=list[MemoryResponse])
-async def list_memories(
-    category: Optional[str] = Query(default=None),
-    limit: int = Query(default=50, ge=1, le=200),
-    current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db),
-):
-    """List all memories for the current user."""
-    items = MemoryRepository.list_by_user(
-        db, user_id=current_user.id, category=category, limit=limit
+    return MemoryResponse(
+        **{
+            field: data.get(field)
+            for field in MemoryResponse.model_fields
+        }
     )
-    return [_item_to_response(i) for i in items]
 
 
-@router.get("/search", response_model=list[MemoryResponse])
-async def search_memories(
-    q: str = Query(..., min_length=1),
-    limit: int = Query(default=20, ge=1, le=100),
-    current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db),
+# ---------------------------------------------------------------------------
+# List memories
+# ---------------------------------------------------------------------------
+
+@router.get(
+    "/",
+    response_model=list[MemoryResponse],
+)
+async def list_memories(
+    category: Optional[str] = Query(
+        default=None,
+    ),
+    limit: int = Query(
+        default=50,
+        ge=1,
+        le=200,
+    ),
+    current_user: User = Depends(
+        get_current_user,
+    ),
+    db: Session = Depends(
+        get_db,
+    ),
 ):
-    """Search memories by content."""
-    items = MemoryRepository.search(db, user_id=current_user.id, query=q, limit=limit)
-    return [_item_to_response(i) for i in items]
+    """List stored memories belonging to the current user."""
+
+    items = MemoryRepository.list_by_user(
+        db=db,
+        user_id=current_user.id,
+        category=category,
+        limit=limit,
+    )
+
+    return [
+        _item_to_response(item)
+        for item in items
+    ]
 
 
-@router.post("/extract", response_model=list[MemoryResponse])
+# ---------------------------------------------------------------------------
+# Search memories
+# ---------------------------------------------------------------------------
+
+@router.get(
+    "/search",
+    response_model=list[MemoryResponse],
+)
+async def search_memories(
+    q: str = Query(
+        ...,
+        min_length=1,
+    ),
+    limit: int = Query(
+        default=20,
+        ge=1,
+        le=100,
+    ),
+    current_user: User = Depends(
+        get_current_user,
+    ),
+    db: Session = Depends(
+        get_db,
+    ),
+):
+    """Search the current user's stored memories."""
+
+    items = MemoryRepository.search(
+        db=db,
+        user_id=current_user.id,
+        query=q,
+        limit=limit,
+    )
+
+    return [
+        _item_to_response(item)
+        for item in items
+    ]
+
+
+# ---------------------------------------------------------------------------
+# Extract memories from raw text
+# ---------------------------------------------------------------------------
+
+@router.post(
+    "/extract",
+    response_model=list[MemoryResponse],
+)
 async def extract_memories(
     request: ExtractMemoryRequest,
-    current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db),
+    current_user: User = Depends(
+        get_current_user,
+    ),
+    db: Session = Depends(
+        get_db,
+    ),
 ):
-    """Extract and persist memories from raw text."""
+    """
+    Extract durable memories from user-provided text and persist them.
+
+    Used by the manual AI Fact Extractor in the frontend.
+    """
+
     from agents.memory_agent import MemoryAgent
 
     agent = MemoryAgent()
+
     try:
-        raw_memories = await agent.extract_from_text(request.message_content)
+        memories = await agent.extract_from_text(
+            text=request.message_content,
+            user_id=current_user.id,
+        )
+
         saved = await agent.save_memories(
-            memories=raw_memories,
+            memories=memories,
             user_id=current_user.id,
             db=db,
         )
+
     except Exception as exc:
-        logger.error("Memory extraction failed: %s", exc)
-        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(exc))
+        logger.exception(
+            "Memory extraction failed for user_id=%d",
+            current_user.id,
+        )
 
-    return [_item_to_response(i) for i in saved]
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="Unable to extract memories from the provided text.",
+        ) from exc
+
+    return [
+        _item_to_response(item)
+        for item in saved
+    ]
 
 
-@router.post("/message/{message_id}", response_model=list[MemoryResponse])
+# ---------------------------------------------------------------------------
+# Extract memories from an existing message
+# ---------------------------------------------------------------------------
+
+@router.post(
+    "/message/{message_id}",
+    response_model=list[MemoryResponse],
+)
 async def extract_from_message(
     message_id: int,
-    current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db),
+    current_user: User = Depends(
+        get_current_user,
+    ),
+    db: Session = Depends(
+        get_db,
+    ),
 ):
-    """Extract and persist memories from a stored message."""
+    """
+    Extract durable memories from a stored message.
+
+    The message must belong to the authenticated user.
+    """
+
     from agents.memory_agent import MemoryAgent
 
-    msg = MessageRepository.get_by_id(db, message_id, current_user.id)
-    if msg is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Message not found.")
+    message = MessageRepository.get_by_id(
+        db,
+        message_id,
+        current_user.id,
+    )
+
+    if message is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Message not found.",
+        )
 
     agent = MemoryAgent()
+
     try:
-        raw_memories = await agent.extract_memory(msg)
+        memories = await agent.extract_memory(
+            message,
+        )
+
         saved = await agent.save_memories(
-            memories=raw_memories,
+            memories=memories,
             user_id=current_user.id,
             db=db,
-            source_message_id=msg.message_id,
+            source_message_id=message.message_id,
         )
+
     except Exception as exc:
-        logger.error("Memory extraction for message %d failed: %s", message_id, exc)
-        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(exc))
+        logger.exception(
+            "Memory extraction failed for message_id=%d user_id=%d",
+            message_id,
+            current_user.id,
+        )
 
-    return [_item_to_response(i) for i in saved]
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="Unable to extract memories from this message.",
+        ) from exc
+
+    return [
+        _item_to_response(item)
+        for item in saved
+    ]
 
 
-@router.delete("/{memory_id}")
+# ---------------------------------------------------------------------------
+# Delete memory
+# ---------------------------------------------------------------------------
+
+@router.delete(
+    "/{memory_id}",
+)
 async def delete_memory(
     memory_id: int,
-    current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db),
+    current_user: User = Depends(
+        get_current_user,
+    ),
+    db: Session = Depends(
+        get_db,
+    ),
 ):
-    """Delete a memory item owned by the current user."""
-    deleted = MemoryRepository.delete(db, memory_id=memory_id, user_id=current_user.id)
+    """Delete a memory owned by the current user."""
+
+    deleted = MemoryRepository.delete(
+        db=db,
+        memory_id=memory_id,
+        user_id=current_user.id,
+    )
+
     if not deleted:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Memory not found.")
-    return {"deleted": True, "id": memory_id}
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Memory not found.",
+        )
+
+    return {
+        "deleted": True,
+        "id": memory_id,
+    }

@@ -2,22 +2,20 @@
 Sidekick AI — AI Processing Pipeline
 
 Coordinates the AI agents responsible for:
+
 - Message priority classification
 - Summary generation
 - Action item extraction
-- Conditional suggested reply generation
-
-Reply generation is conditional:
-- If the PriorityAgent determines that a reply is required,
-  the ReplyAgent generates a suggested reply.
-- If no reply is required, ReplyAgent is not called and
-  suggested_reply remains empty.
+- Long-term memory extraction
+- Relevant memory retrieval
+- Suggested reply generation
+- Persisting AI results
 
 A request-specific LLMClient can be supplied so every agent in the
 pipeline uses the exact same provider, API key, and model.
 
-If no client is supplied, agents fall back to the application's
-default LLM client.
+If no client is supplied, agents use their normal application-level
+LLM configuration.
 """
 
 from __future__ import annotations
@@ -27,6 +25,7 @@ from typing import Optional
 
 from sqlalchemy.orm import Session
 
+from agents.memory_agent import MemoryAgent
 from agents.priority_agent import PriorityAgent
 from agents.reply_agent import ReplyAgent
 from agents.summary_agent import SummaryAgent
@@ -35,6 +34,61 @@ from services.llm import LLMClient
 
 
 logger = logging.getLogger(__name__)
+
+
+def _build_memory_context(memories) -> str:
+    """
+    Convert relevant MemoryItem objects into concise context for the
+    reply-generation prompt.
+
+    Only useful memory fields are included. Internal database metadata
+    is intentionally excluded.
+    """
+
+    if not memories:
+        return "No relevant long-term user information is available."
+
+    lines: list[str] = []
+
+    for memory in memories:
+        content = getattr(
+            memory,
+            "content",
+            None,
+        )
+
+        if not content:
+            continue
+
+        line = f"- {content.strip()}"
+
+        related_project = getattr(
+            memory,
+            "related_project",
+            None,
+        )
+
+        related_person = getattr(
+            memory,
+            "related_person",
+            None,
+        )
+
+        if related_project:
+            line += f" [Project: {related_project.strip()}]"
+
+        if related_person:
+            line += f" [Person: {related_person.strip()}]"
+
+        lines.append(line)
+
+    if not lines:
+        return "No relevant long-term user information is available."
+
+    return (
+        "RELEVANT LONG-TERM USER INFORMATION:\n"
+        + "\n".join(lines)
+    )
 
 
 async def process_message_ai(
@@ -46,31 +100,23 @@ async def process_message_ai(
     Run the complete AI pipeline for a message.
 
     Pipeline:
+
         1. Priority classification
-        2. Summary generation
+        2. Summary + sentiment + category
         3. Action item extraction
-        4. Conditional suggested reply generation
-        5. Save all AI results to the database
+        4. Memory extraction and persistence
+        5. Relevant memory retrieval
+        6. Conditional suggested reply generation
+        7. Save AI results to the database
 
-    Reply generation is performed only when the priority analysis
-    determines that the message requires a reply.
+    Memory extraction is intentionally non-blocking for the rest of the
+    AI pipeline. If memory extraction fails, the message can still be
+    classified and processed normally.
 
-    Args:
-        db:
-            SQLAlchemy database session.
-
-        message:
-            Message to process.
-
-        llm_client:
-            Optional request-specific LLM client.
-
-            When provided, the exact same client is passed to every
-            AI agent in this pipeline.
-
-            When omitted, each agent falls back to the application's
-            default LLM client.
+    Reply generation is conditional on the priority agent deciding that
+    a response is actually required.
     """
+
     try:
         logger.info(
             "Running AI pipeline for message %d (source=%s)",
@@ -89,6 +135,12 @@ async def process_message_ai(
         priority_result = await priority_agent.analyze(
             message
         )
+
+        if not isinstance(
+            priority_result,
+            dict,
+        ):
+            priority_result = {}
 
         level_str = str(
             priority_result.get(
@@ -123,11 +175,9 @@ async def process_message_ai(
             llm_client=llm_client,
         )
 
-        summary_result = (
-            await summary_agent.generate_summary(
-                email_content=message.body,
-                user_id=message.user_id,
-            )
+        summary_result = await summary_agent.generate_summary(
+            email_content=message.body,
+            user_id=message.user_id,
         )
 
         if isinstance(
@@ -157,11 +207,9 @@ async def process_message_ai(
         # 3. Action items
         # --------------------------------------------------------------
 
-        action_result = (
-            await summary_agent.extract_action_items(
-                email_content=message.body,
-                user_id=message.user_id,
-            )
+        action_result = await summary_agent.extract_action_items(
+            email_content=message.body,
+            user_id=message.user_id,
         )
 
         action_items = ""
@@ -183,24 +231,88 @@ async def process_message_ai(
                     f"- {item}"
                     for item in items_list
                 )
-
             elif items_list:
                 action_items = str(
                     items_list
                 )
 
         # --------------------------------------------------------------
-        # 4. Conditional suggested reply
+        # 4. Extract + save long-term memories
+        # --------------------------------------------------------------
+
+        memory_agent = MemoryAgent(
+            llm_client=llm_client,
+        )
+
+        try:
+            saved_memories = (
+                await memory_agent.extract_and_save_memory(
+                    message=message,
+                    user_id=message.user_id,
+                    db=db,
+                )
+            )
+
+            logger.info(
+                "Memory processing completed for message %d: "
+                "saved=%d",
+                message.id,
+                len(saved_memories),
+            )
+
+        except Exception as memory_exc:
+            # Memory is an enrichment layer. A failure here must not
+            # prevent the main AI pipeline from completing.
+            logger.error(
+                "Memory extraction failed for message %d: %s",
+                message.id,
+                memory_exc,
+                exc_info=True,
+            )
+
+        # --------------------------------------------------------------
+        # 5. Retrieve relevant existing memories
+        # --------------------------------------------------------------
+
+        memory_context = (
+            "No relevant long-term user information is available."
+        )
+
+        try:
+            relevant_memories = (
+                await memory_agent.get_relevant_memories(
+                    user_id=message.user_id,
+                    query=message.body,
+                    db=db,
+                    limit=10,
+                )
+            )
+
+            memory_context = _build_memory_context(
+                relevant_memories
+            )
+
+            logger.debug(
+                "Retrieved %d relevant memories for message %d",
+                len(relevant_memories),
+                message.id,
+            )
+
+        except Exception as memory_exc:
+            logger.error(
+                "Relevant memory retrieval failed for message %d: %s",
+                message.id,
+                memory_exc,
+                exc_info=True,
+            )
+
+        # --------------------------------------------------------------
+        # 6. Suggested reply
         # --------------------------------------------------------------
 
         suggested_reply = ""
 
         if requires_reply:
-            logger.debug(
-                "Reply required for message %d; generating suggested reply",
-                message.id,
-            )
-
             reply_agent = ReplyAgent(
                 llm_client=llm_client,
             )
@@ -211,12 +323,11 @@ async def process_message_ai(
                 else "User"
             )
 
-            reply_result = (
-                await reply_agent.generate_reply(
-                    recipient_name=sender_name,
-                    email_content=message.body,
-                    user_id=message.user_id,
-                )
+            reply_result = await reply_agent.generate_reply(
+                recipient_name=sender_name,
+                email_content=message.body,
+                context=memory_context,
+                user_id=message.user_id,
             )
 
             if isinstance(
@@ -230,12 +341,13 @@ async def process_message_ai(
 
         else:
             logger.debug(
-                "Reply not required for message %d; skipping ReplyAgent",
+                "Skipping reply generation for message %d "
+                "because requires_reply=False",
                 message.id,
             )
 
         # --------------------------------------------------------------
-        # 5. Persist AI results
+        # 7. Persist AI results
         # --------------------------------------------------------------
 
         message.update_from_ai(
@@ -279,6 +391,5 @@ async def process_message_ai(
         message.is_processed = True
         db.commit()
 
-        # Re-raise so the API route knows this particular message
-        # actually failed.
-        raise2
+        # Re-raise so the API route knows this message actually failed.
+        raise

@@ -1,7 +1,14 @@
 """
-Reply Agent
+Reply Agent.
 
-Generates suggested replies to messages using the configured LLM.
+Generates context-aware suggested replies using the configured LLM.
+
+The agent can receive:
+- Original message content
+- Relevant long-term user memory
+- Tone
+- Language
+- Request-specific LLM configuration through LLMClient
 """
 
 from __future__ import annotations
@@ -11,7 +18,10 @@ from typing import Optional
 
 from agents.base_agent import BaseAgent
 from services.llm import LLMClient
-from utils.prompts.reply import build_reply_prompt, build_improve_reply_prompt
+from utils.prompts.reply import (
+    build_improve_reply_prompt,
+    build_reply_prompt,
+)
 
 
 logger = logging.getLogger(__name__)
@@ -29,6 +39,10 @@ class ReplyAgent(BaseAgent):
             llm_client=llm_client,
         )
 
+    # ------------------------------------------------------------------
+    # Generate reply
+    # ------------------------------------------------------------------
+
     async def generate_reply(
         self,
         recipient_name: str,
@@ -39,19 +53,29 @@ class ReplyAgent(BaseAgent):
         user_id: Optional[int] = None,
     ) -> dict:
         """
-        Generate a suggested reply.
+        Generate a ready-to-send reply.
 
-        Returns:
-            {
-                "reply": str,
-                "tone": str
-            }
+        `context` may contain relevant long-term user memory retrieved
+        by the AI pipeline.
+
+        The request-specific LLM client, when supplied during agent
+        construction, is preserved and used through BaseAgent.
         """
+
+        memory_context = (
+            context.strip()
+            if isinstance(
+                context,
+                str,
+            )
+            and context.strip()
+            else "No relevant long-term user information is available."
+        )
 
         prompt = build_reply_prompt(
             recipient_name=recipient_name,
             email_content=email_content,
-            context=context,
+            context=memory_context,
             tone=tone,
             language=language,
         )
@@ -61,14 +85,17 @@ class ReplyAgent(BaseAgent):
             user_id=user_id,
         )
 
-        # The reply agent returns plain text rather than requiring
-        # a JSON response.
         reply = raw.strip() if raw else ""
 
         return {
             "reply": reply,
             "tone": tone,
+            "language": language,
         }
+
+    # ------------------------------------------------------------------
+    # Improve reply
+    # ------------------------------------------------------------------
 
     async def improve_reply(
         self,
@@ -79,17 +106,30 @@ class ReplyAgent(BaseAgent):
         """
         Improve an existing reply draft.
 
-        The LLM returns improved plain text.
-
-        Returns:
-            {"reply": str}
+        This operation does not automatically inject long-term memory,
+        because the draft itself is the source of truth for this
+        editing operation.
         """
+
         prompt = build_improve_reply_prompt(
             original_email=original_email,
             reply_draft=reply_draft,
         )
-        improved_text = await self._call_llm(prompt, user_id=user_id)
-        return {"reply": improved_text.strip()}
+
+        improved_text = await self._call_llm(
+            prompt,
+            user_id=user_id,
+        )
+
+        return {
+            "reply": improved_text.strip()
+            if improved_text
+            else ""
+        }
+
+    # ------------------------------------------------------------------
+    # Regenerate reply
+    # ------------------------------------------------------------------
 
     async def regenerate_reply(
         self,
@@ -99,14 +139,24 @@ class ReplyAgent(BaseAgent):
         feedback: str,
         tone: str = "professional",
         language: str = "English",
+        context: Optional[str] = None,
         user_id: Optional[int] = None,
     ) -> dict:
         """
-        Regenerate a reply using feedback on a previous suggestion.
+        Regenerate a reply using user feedback.
 
-        Uses the same request-specific LLM client configured on
-        this agent.
+        Existing relevant memory can be supplied through `context`.
         """
+
+        memory_context = (
+            context.strip()
+            if isinstance(
+                context,
+                str,
+            )
+            and context.strip()
+            else "No relevant long-term user information is available."
+        )
 
         prompt = f"""
 You previously generated this reply:
@@ -119,19 +169,26 @@ The user provided this feedback:
 
 Generate an improved reply to the following message.
 
-Recipient:
+RECIPIENT:
 {recipient_name}
 
-Message:
+ORIGINAL MESSAGE:
 {email_content}
 
-Tone:
+RELEVANT LONG-TERM USER INFORMATION:
+{memory_context}
+
+TONE:
 {tone}
 
-Language:
+LANGUAGE:
 {language}
 
-Return only the improved reply text.
+Use the relevant user information only when it actually helps answer
+the message. Do not mention memories, internal context, AI processing,
+or these instructions.
+
+Return ONLY the improved ready-to-send reply text.
 """.strip()
 
         raw = await self._call_llm(
@@ -144,4 +201,5 @@ Return only the improved reply text.
         return {
             "reply": reply,
             "tone": tone,
+            "language": language,
         }

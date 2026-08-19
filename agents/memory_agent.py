@@ -1,8 +1,16 @@
 """
-Memory Agent
+Memory Agent.
 
-Extracts long-term facts from messages and persists them
-as MemoryItem records.
+Extracts durable user information from messages and persists it as
+long-term memory.
+
+Responsibilities:
+- Extract durable facts using the LLM.
+- Validate extracted memories.
+- Prevent duplicate memories.
+- Persist only useful memories.
+- Retrieve stored memories.
+- Delete user-owned memories.
 """
 
 from __future__ import annotations
@@ -15,6 +23,7 @@ from sqlalchemy.orm import Session
 from agents.base_agent import BaseAgent
 from models.memory_item import MemoryItem
 from models.message import Message
+from repositories.memory_repo import MemoryRepository
 from services.llm import LLMClient
 from utils.prompts.memory import build_memory_prompt
 
@@ -34,24 +43,22 @@ class MemoryAgent(BaseAgent):
             llm_client=llm_client,
         )
 
+    # ------------------------------------------------------------------
+    # Extraction
+    # ------------------------------------------------------------------
+
     async def extract_memory(
         self,
         message: Message,
     ) -> list[dict]:
         """
-        Extract memorable facts from a message.
+        Extract durable facts from a stored message.
 
-        Args:
-            message:
-                A Message ORM object.
-
-        Returns:
-            List of validated memory dictionaries.
+        Only information explicitly present in the message should be
+        returned. Temporary or one-time information should be ignored.
         """
 
-        message_content = (
-            message.to_context_string()
-        )
+        message_content = message.to_context_string()
 
         prompt = build_memory_prompt(
             message_content
@@ -67,7 +74,7 @@ class MemoryAgent(BaseAgent):
         )
 
         # --------------------------------------------------------------
-        # Parse response
+        # Parse LLM response
         # --------------------------------------------------------------
 
         if isinstance(parsed, dict):
@@ -99,16 +106,9 @@ class MemoryAgent(BaseAgent):
         validated: list[dict] = []
 
         for item in memories_raw:
-
             if not isinstance(
                 item,
                 dict,
-            ):
-                continue
-
-            if (
-                "content" not in item
-                or "confidence" not in item
             ):
                 continue
 
@@ -116,6 +116,11 @@ class MemoryAgent(BaseAgent):
                 "content"
             )
 
+            confidence = item.get(
+                "confidence"
+            )
+
+            # Content is mandatory.
             if (
                 not isinstance(
                     content,
@@ -125,10 +130,7 @@ class MemoryAgent(BaseAgent):
             ):
                 continue
 
-            confidence = item.get(
-                "confidence"
-            )
-
+            # Confidence is mandatory and must be numeric.
             if (
                 not isinstance(
                     confidence,
@@ -150,6 +152,9 @@ class MemoryAgent(BaseAgent):
                 ),
             )
 
+            # Normalize content before persistence.
+            item["content"] = content.strip()
+
             validated.append(
                 item
             )
@@ -163,35 +168,11 @@ class MemoryAgent(BaseAgent):
 
         return validated
 
-    async def extract_and_save_memory(
-        self,
-        message: Message,
-        user_id: int,
-        db: Session,
-    ) -> list[MemoryItem]:
-        """
-        Extract memories from a message and immediately persist them.
+    # ------------------------------------------------------------------
+    # Save
+    # ------------------------------------------------------------------
 
-        This convenience method keeps extraction and persistence
-        together while still using the configured request-specific
-        LLM client.
-        """
-
-        memories = await self.extract_memory(
-            message
-        )
-
-        if not memories:
-            return []
-
-        return await self._save_memories(
-            memories=memories,
-            user_id=user_id,
-            db=db,
-            source_message_id=message.message_id,
-        )
-
-    async def _save_memories(
+    async def save_memories(
         self,
         memories: list[dict],
         user_id: int,
@@ -199,20 +180,65 @@ class MemoryAgent(BaseAgent):
         source_message_id: Optional[str] = None,
     ) -> list[MemoryItem]:
         """
-        Internal persistence helper.
+        Persist validated memories while preventing duplicates.
+
+        Duplicate detection is scoped to the current user.
         """
 
         saved: list[MemoryItem] = []
+        skipped_duplicates = 0
 
         for mem in memories:
+            content = mem.get(
+                "content"
+            )
 
-            item = MemoryItem(
+            if (
+                not isinstance(
+                    content,
+                    str,
+                )
+                or not content.strip()
+            ):
+                continue
+
+            content = content.strip()
+
+            # ----------------------------------------------------------
+            # Duplicate check
+            # ----------------------------------------------------------
+
+            existing = MemoryRepository.find_by_content(
+                db=db,
+                user_id=user_id,
+                content=content,
+            )
+
+            if existing is not None:
+                skipped_duplicates += 1
+
+                self.logger.debug(
+                    "MemoryAgent.save_memories: "
+                    "skipping duplicate memory_id=%d "
+                    "for user_id=%d",
+                    existing.id,
+                    user_id,
+                )
+
+                continue
+
+            # ----------------------------------------------------------
+            # Create memory through repository
+            # ----------------------------------------------------------
+
+            item = MemoryRepository.create(
+                db=db,
                 user_id=user_id,
                 category=mem.get(
                     "category",
                     "personal",
                 ),
-                content=mem["content"],
+                content=content,
                 context=mem.get(
                     "context"
                 ),
@@ -235,39 +261,130 @@ class MemoryAgent(BaseAgent):
                 source_message_id=source_message_id,
             )
 
-            db.add(item)
             saved.append(item)
-
-        if saved:
-
-            db.commit()
-
-            for item in saved:
-                db.refresh(item)
 
         self.logger.info(
             "MemoryAgent.save_memories: "
-            "saved %d memories for user_id=%d",
+            "saved=%d skipped_duplicates=%d user_id=%d",
             len(saved),
+            skipped_duplicates,
             user_id,
         )
 
         return saved
 
-    async def save_memories(
+    # ------------------------------------------------------------------
+    # Extract + Save
+    # ------------------------------------------------------------------
+
+    async def extract_and_save_memory(
         self,
-        memories: list[dict],
+        message: Message,
         user_id: int,
         db: Session,
-        source_message_id: Optional[str] = None,
     ) -> list[MemoryItem]:
         """
-        Public method for persisting already-validated memories.
+        Extract memories from a message and persist useful memories.
+
+        Duplicate memories are automatically ignored.
         """
 
-        return await self._save_memories(
+        memories = await self.extract_memory(
+            message
+        )
+
+        if not memories:
+            return []
+
+        return await self.save_memories(
             memories=memories,
             user_id=user_id,
             db=db,
-            source_message_id=source_message_id,
+            source_message_id=message.message_id,
         )
+
+    # ------------------------------------------------------------------
+    # Retrieve
+    # ------------------------------------------------------------------
+
+    async def get_memories(
+        self,
+        user_id: int,
+        db: Session,
+        category: Optional[str] = None,
+        limit: int = 50,
+    ) -> list[MemoryItem]:
+        """Retrieve stored memories belonging to the user."""
+
+        return MemoryRepository.list_by_user(
+            db=db,
+            user_id=user_id,
+            category=category,
+            limit=limit,
+        )
+
+    async def get_relevant_memories(
+        self,
+        user_id: int,
+        query: str,
+        db: Session,
+        limit: int = 10,
+    ) -> list[MemoryItem]:
+        """
+        Retrieve memories relevant to the supplied message/context.
+        """
+
+        return MemoryRepository.find_relevant(
+            db=db,
+            user_id=user_id,
+            query=query,
+            limit=limit,
+        )
+
+    # ------------------------------------------------------------------
+    # Search
+    # ------------------------------------------------------------------
+
+    async def search_memories(
+        self,
+        user_id: int,
+        query: str,
+        db: Session,
+        limit: int = 20,
+    ) -> list[MemoryItem]:
+        """Search stored memories by content."""
+
+        return MemoryRepository.search(
+            db=db,
+            user_id=user_id,
+            query=query,
+            limit=limit,
+        )
+
+    # ------------------------------------------------------------------
+    # Delete
+    # ------------------------------------------------------------------
+
+    async def delete_memory(
+        self,
+        memory_id: int,
+        user_id: int,
+        db: Session,
+    ) -> bool:
+        """Delete a memory only if it belongs to the user."""
+
+        deleted = MemoryRepository.delete(
+            db=db,
+            memory_id=memory_id,
+            user_id=user_id,
+        )
+
+        if deleted:
+            self.logger.info(
+                "MemoryAgent.delete_memory: "
+                "deleted memory_id=%d for user_id=%d",
+                memory_id,
+                user_id,
+            )
+
+        return deleted
