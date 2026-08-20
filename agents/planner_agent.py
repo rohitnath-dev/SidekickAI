@@ -49,6 +49,26 @@ class PlannerAgent(BaseAgent):
         - Calls the configured LLM with the daily briefing prompt.
         - Returns parsed JSON dict.
         """
+        # Dynamically fetch user AI config to strictly use their API key and prevent any fallbacks
+        from models.ai_config import UserAIConfig
+        from services.llm import LLMClient
+
+        config = db.query(UserAIConfig).filter_by(user_id=user_id).first()
+        if not config:
+            raise ValueError(f"No AI configuration found for user_id={user_id}")
+        if config.provider == "openrouter" and (not config.api_key or not config.api_key.strip()):
+            raise ValueError(f"No OpenRouter API key configured for user_id={user_id}")
+
+        self.llm = LLMClient(
+            provider=config.provider,
+            api_key=config.api_key,
+            base_url=config.base_url,
+            model=config.model,
+            user_id=user_id,
+        )
+        # Strictly override to avoid any fallback inside LLMClient
+        if config.provider == "openrouter":
+            self.llm.openrouter_api_key = config.api_key or ""
 
         # Lazy import to avoid circular dependencies.
         from agents.priority_agent import PriorityAgent

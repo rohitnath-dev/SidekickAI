@@ -49,6 +49,31 @@ class PriorityAgent(BaseAgent):
             - requires_reply
             - reason
         """
+        # Dynamically fetch user AI config to strictly use their API key and prevent any fallbacks
+        from database import SessionLocal
+        from models.ai_config import UserAIConfig
+        from services.llm import LLMClient
+
+        db = SessionLocal()
+        try:
+            config = db.query(UserAIConfig).filter_by(user_id=message.user_id).first()
+            if not config:
+                raise ValueError(f"No AI configuration found for user_id={message.user_id}")
+            if config.provider == "openrouter" and (not config.api_key or not config.api_key.strip()):
+                raise ValueError(f"No OpenRouter API key configured for user_id={message.user_id}")
+
+            self.llm = LLMClient(
+                provider=config.provider,
+                api_key=config.api_key,
+                base_url=config.base_url,
+                model=config.model,
+                user_id=message.user_id,
+            )
+            # Strictly override to avoid any fallback inside LLMClient
+            if config.provider == "openrouter":
+                self.llm.openrouter_api_key = config.api_key or ""
+        finally:
+            db.close()
 
         message_content = message.to_context_string()
 
