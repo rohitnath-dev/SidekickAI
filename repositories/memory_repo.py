@@ -15,7 +15,7 @@ class MemoryRepository:
     @staticmethod
     def create(
         db: Session,
-        user_id: int,
+        user_id: str | int,
         **kwargs,
     ) -> MemoryItem:
         """Create and persist a new memory item."""
@@ -34,7 +34,7 @@ class MemoryRepository:
     @staticmethod
     def find_by_content(
         db: Session,
-        user_id: int,
+        user_id: str | int,
         content: str,
     ) -> Optional[MemoryItem]:
         """
@@ -74,7 +74,7 @@ class MemoryRepository:
     @staticmethod
     def list_by_user(
         db: Session,
-        user_id: int,
+        user_id: str | int,
         category: Optional[str] = None,
         limit: int = 50,
     ) -> list[MemoryItem]:
@@ -105,7 +105,7 @@ class MemoryRepository:
     @staticmethod
     def find_relevant(
         db: Session,
-        user_id: int,
+        user_id: str | int,
         query: str,
         limit: int = 10,
     ) -> list[MemoryItem]:
@@ -181,7 +181,7 @@ class MemoryRepository:
     @staticmethod
     def search(
         db: Session,
-        user_id: int,
+        user_id: str | int,
         query: str,
         limit: int = 20,
     ) -> list[MemoryItem]:
@@ -210,7 +210,7 @@ class MemoryRepository:
     def delete(
         db: Session,
         memory_id: int,
-        user_id: int,
+        user_id: str | int,
     ) -> bool:
         """Delete a memory only if it belongs to the specified user."""
 

@@ -20,7 +20,7 @@ class MessageRepository:
         return message
 
     @staticmethod
-    def get_by_id(db: Session, message_id: int, user_id: int) -> Optional[Message]:
+    def get_by_id(db: Session, message_id: int, user_id: str | int) -> Optional[Message]:
         msg = db.query(Message).filter(Message.id == message_id).first()
         if msg and (msg.source == MessageSource.WHATSAPP or msg.user_id == user_id):
             return msg
@@ -28,7 +28,7 @@ class MessageRepository:
 
     @staticmethod
     def get_by_external_id(
-        db: Session, external_message_id: str, user_id: int
+        db: Session, external_message_id: str, user_id: str | int
     ) -> Optional[Message]:
         msg = db.query(Message).filter(Message.message_id == external_message_id).first()
         if msg and (msg.source == MessageSource.WHATSAPP or msg.user_id == user_id):
@@ -38,7 +38,7 @@ class MessageRepository:
     @staticmethod
     def list_by_user(
         db: Session,
-        user_id: int,
+        user_id: str | int,
         limit: int = 20,
         offset: int = 0,
         unread_only: bool = False,
@@ -89,5 +89,5 @@ class MessageRepository:
         db.commit()
 
     @staticmethod
-    def count_by_user(db: Session, user_id: int) -> int:
+    def count_by_user(db: Session, user_id: str | int) -> int:
         return db.query(Message).filter(Message.user_id == user_id).count()

@@ -76,7 +76,7 @@ async def callback(
             try:
                 user_id = int(user_id_str)
             except (ValueError, TypeError):
-                pass
+                user_id = user_id_str
 
     if not user_id:
         logger.error("Slack OAuth callback failed: User could not be identified.")

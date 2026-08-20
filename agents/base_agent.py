@@ -68,7 +68,7 @@ class BaseAgent(ABC):
         system_prompt: Optional[str] = None,
         temperature: Optional[float] = None,
         max_tokens: Optional[int] = None,
-        user_id: Optional[int] = None,
+        user_id: Optional[str | int] = None,
         caller: Optional[str] = None,
         **kwargs,
     ) -> str:

@@ -175,7 +175,7 @@ class MemoryAgent(BaseAgent):
     async def save_memories(
         self,
         memories: list[dict],
-        user_id: int,
+        user_id: str | int,
         db: Session,
         source_message_id: Optional[str] = None,
     ) -> list[MemoryItem]:
@@ -280,7 +280,7 @@ class MemoryAgent(BaseAgent):
     async def extract_and_save_memory(
         self,
         message: Message,
-        user_id: int,
+        user_id: str | int,
         db: Session,
     ) -> list[MemoryItem]:
         """
@@ -309,7 +309,7 @@ class MemoryAgent(BaseAgent):
 
     async def get_memories(
         self,
-        user_id: int,
+        user_id: str | int,
         db: Session,
         category: Optional[str] = None,
         limit: int = 50,
@@ -325,7 +325,7 @@ class MemoryAgent(BaseAgent):
 
     async def get_relevant_memories(
         self,
-        user_id: int,
+        user_id: str | int,
         query: str,
         db: Session,
         limit: int = 10,
@@ -347,7 +347,7 @@ class MemoryAgent(BaseAgent):
 
     async def search_memories(
         self,
-        user_id: int,
+        user_id: str | int,
         query: str,
         db: Session,
         limit: int = 20,
@@ -368,7 +368,7 @@ class MemoryAgent(BaseAgent):
     async def delete_memory(
         self,
         memory_id: int,
-        user_id: int,
+        user_id: str | int,
         db: Session,
     ) -> bool:
         """Delete a memory only if it belongs to the user."""

@@ -15,7 +15,7 @@ class TokenRepository:
     @staticmethod
     def upsert(
         db: Session,
-        user_id: int,
+        user_id: str | int,
         provider: str,
         access_token: str,
         refresh_token: Optional[str] = None,
@@ -47,7 +47,7 @@ class TokenRepository:
         return token
 
     @staticmethod
-    def get(db: Session, user_id: int, provider: str) -> Optional[OAuthToken]:
+    def get(db: Session, user_id: str | int, provider: str) -> Optional[OAuthToken]:
         return (
             db.query(OAuthToken)
             .filter_by(user_id=user_id, provider=provider)
@@ -55,7 +55,7 @@ class TokenRepository:
         )
 
     @staticmethod
-    def delete(db: Session, user_id: int, provider: str) -> bool:
+    def delete(db: Session, user_id: str | int, provider: str) -> bool:
         token = (
             db.query(OAuthToken)
             .filter_by(user_id=user_id, provider=provider)
@@ -68,5 +68,5 @@ class TokenRepository:
         return True
 
     @staticmethod
-    def list_by_user(db: Session, user_id: int) -> list[OAuthToken]:
+    def list_by_user(db: Session, user_id: str | int) -> list[OAuthToken]:
         return db.query(OAuthToken).filter_by(user_id=user_id).all()

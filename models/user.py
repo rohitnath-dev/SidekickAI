@@ -11,12 +11,14 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from database import Base
 
 
+import uuid
+
 class User(Base):
     """Registered Sidekick user."""
 
     __tablename__ = "users"
 
-    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    id: Mapped[str] = mapped_column(String(255), primary_key=True, default=lambda: str(uuid.uuid4()))
 
     email: Mapped[str] = mapped_column(
         String(255), unique=True, nullable=False, index=True

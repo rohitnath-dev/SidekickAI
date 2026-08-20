@@ -107,7 +107,7 @@ async def twitter_callback(
         try:
             user_id = int(state)
         except (ValueError, TypeError):
-            pass
+            user_id = state
     
     if not user_id:
         logger.warning("Twitter callback: Could not identify user (no auth, invalid state)")

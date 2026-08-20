@@ -38,7 +38,7 @@ class SummaryAgent(BaseAgent):
         self,
         email_content: str,
         context: str | None = None,
-        user_id: Optional[int] = None,
+        user_id: Optional[str | int] = None,
     ) -> dict:
         """
         Generate a structured JSON summary of an email.
@@ -72,7 +72,7 @@ class SummaryAgent(BaseAgent):
             "category": result.get("category", ""),
         }
 
-    async def summarize_thread(self, thread_content: str, user_id: Optional[int] = None) -> dict:
+    async def summarize_thread(self, thread_content: str, user_id: Optional[str | int] = None) -> dict:
         """
         Generate a structured JSON summary of an email thread.
 
@@ -94,7 +94,7 @@ class SummaryAgent(BaseAgent):
             return {}
         return result
 
-    async def extract_action_items(self, email_content: str, user_id: Optional[int] = None) -> dict:
+    async def extract_action_items(self, email_content: str, user_id: Optional[str | int] = None) -> dict:
         """
         Extract action items from an email.
 

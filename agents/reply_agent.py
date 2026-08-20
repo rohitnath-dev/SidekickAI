@@ -50,7 +50,7 @@ class ReplyAgent(BaseAgent):
         context: Optional[str] = None,
         tone: str = "professional",
         language: str = "English",
-        user_id: Optional[int] = None,
+        user_id: Optional[str | int] = None,
     ) -> dict:
         """
         Generate a ready-to-send reply.
@@ -101,7 +101,7 @@ class ReplyAgent(BaseAgent):
         self,
         original_email: str,
         reply_draft: str,
-        user_id: Optional[int] = None,
+        user_id: Optional[str | int] = None,
     ) -> dict:
         """
         Improve an existing reply draft.
@@ -140,7 +140,7 @@ class ReplyAgent(BaseAgent):
         tone: str = "professional",
         language: str = "English",
         context: Optional[str] = None,
-        user_id: Optional[int] = None,
+        user_id: Optional[str | int] = None,
     ) -> dict:
         """
         Regenerate a reply using user feedback.

@@ -283,11 +283,14 @@ async def refresh_session(
             detail="Session expired or invalid. Please login again.",
         )
         
-    try:
-        user_id = int(refresh_sub)
-        user = db.query(User).filter(User.id == user_id).first()
-    except (ValueError, TypeError):
-        user = None
+    # Look up user by string or integer
+    user = db.query(User).filter(User.id == refresh_sub).first()
+    if not user:
+        try:
+            user_id = int(refresh_sub)
+            user = db.query(User).filter(User.id == user_id).first()
+        except (ValueError, TypeError):
+            user = None
         
     if not user or not user.is_active:
         logger.warning("Refresh session failed: user is deactivated or not found.")

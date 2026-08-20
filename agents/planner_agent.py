@@ -36,7 +36,7 @@ class PlannerAgent(BaseAgent):
 
     async def generate_daily_briefing(
         self,
-        user_id: int,
+        user_id: str | int,
         db: Session,
         creds=None,
     ) -> dict:

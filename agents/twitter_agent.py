@@ -310,7 +310,7 @@ class TwitterAgent(BaseAgent):
         post_content: str,
         author_handle: str,
         context: Optional[str] = None,
-        user_id: Optional[int] = None,
+        user_id: Optional[str | int] = None,
     ) -> str:
         """
         Generate a reply text for a tweet using the LLM.

@@ -25,7 +25,7 @@ class UserRepository:
         return user
 
     @staticmethod
-    def get_by_id(db: Session, user_id: int) -> Optional[User]:
+    def get_by_id(db: Session, user_id: str | int) -> Optional[User]:
         return db.query(User).filter(User.id == user_id).first()
 
     @staticmethod

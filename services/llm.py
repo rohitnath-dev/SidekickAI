@@ -72,7 +72,7 @@ class LLMClient:
         base_url: Optional[str] = None,
         model: Optional[str] = None,
         timeout: Optional[float] = None,
-        user_id: Optional[int] = None,
+        user_id: Optional[str | int] = None,
     ) -> None:
 
         self._config_resolved = False
@@ -199,7 +199,7 @@ class LLMClient:
         temperature: Optional[float] = None,
         max_tokens: Optional[int] = None,
         model: Optional[str] = None,
-        user_id: Optional[int] = None,
+        user_id: Optional[str | int] = None,
         caller: Optional[str] = None,
     ) -> str:
         """
@@ -238,7 +238,7 @@ class LLMClient:
         temperature: Optional[float] = None,
         max_tokens: Optional[int] = None,
         model: Optional[str] = None,
-        user_id: Optional[int] = None,
+        user_id: Optional[str | int] = None,
         caller: Optional[str] = None,
     ) -> str:
         """
