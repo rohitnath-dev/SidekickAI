@@ -107,6 +107,41 @@ async def lifespan(app: FastAPI):
         except Exception as exc:
             logger.error("Failed to run Alembic migrations automatically on startup: %s", exc, exc_info=True)
 
+        # Database cleanup routine for Render startup:
+        # Delete user_3D8FF09H5k8W7d93riQ9tCJFHED and its configurations/sessions/messages
+        try:
+            from database import SessionLocal
+            from models.user import User as UserModel
+            from models.ai_config import UserAIConfig
+            from models.session import UserSession
+            from models.message import Message as MessageModel
+            from models.token import OAuthToken
+            from models.memory_item import MemoryItem
+
+            db = SessionLocal()
+            try:
+                target_user_id = "user_3D8FF09H5k8W7d93riQ9tCJFHED"
+                user = db.query(UserModel).filter(UserModel.id == target_user_id).first()
+                if user:
+                    logger.info("Startup Cleanup: Found target user %s, deleting database records...", target_user_id)
+                    db.query(UserAIConfig).filter_by(user_id=target_user_id).delete()
+                    db.query(UserSession).filter_by(user_id=target_user_id).delete()
+                    db.query(OAuthToken).filter_by(user_id=target_user_id).delete()
+                    db.query(MessageModel).filter_by(user_id=target_user_id).delete()
+                    db.query(MemoryItem).filter_by(user_id=target_user_id).delete()
+                    db.delete(user)
+                    db.commit()
+                    logger.info("Startup Cleanup: Successfully cleaned up all records for %s", target_user_id)
+                else:
+                    logger.info("Startup Cleanup: Target user %s not found in database.", target_user_id)
+            except Exception as clean_err:
+                db.rollback()
+                logger.error("Startup Cleanup: Error cleaning up database records: %s", clean_err)
+            finally:
+                db.close()
+        except Exception as import_err:
+            logger.error("Startup Cleanup: Failed to run imports for cleanup: %s", import_err)
+
         # Start background poller task
         import asyncio
         from services.poller import start_polling
