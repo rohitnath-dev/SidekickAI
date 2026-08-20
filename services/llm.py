@@ -149,12 +149,18 @@ class LLMClient:
         # ---------------------------------------------------------------
         # OpenRouter configuration
         # ---------------------------------------------------------------
-        self.openrouter_api_key = (
-            api_key_val
-            or getattr(settings, "OPENROUTER_API_KEY", None)
-            or os.getenv("OPENROUTER_API_KEY")
-            or ""
-        )
+        self.openrouter_api_key = api_key_val or ""
+
+        if self.provider == "openrouter" and not self.openrouter_api_key:
+            if (
+                provider is not None
+                or api_key is not None
+                or base_url is not None
+                or model is not None
+                or user_id is not None
+                or user_config is not None
+            ):
+                raise LLMException('No valid OpenRouter API key found for the user')
 
         self.openrouter_base_url = (
             os.getenv("OPENROUTER_BASE_URL")
@@ -417,9 +423,7 @@ class LLMClient:
         """
 
         if not self.openrouter_api_key:
-            raise LLMAuthenticationError(
-                "OpenRouter API key is not configured."
-            )
+            raise LLMException('No valid OpenRouter API key found for the user')
 
         url = (
             f"{self.openrouter_base_url}"
