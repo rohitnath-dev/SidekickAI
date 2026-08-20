@@ -67,49 +67,27 @@ class PlannerAgent(BaseAgent):
             config = db.query(UserAIConfig).filter_by(user_id=user_id).first()
         
         if not config:
-            # Find first user with active configuration (OpenRouter key or Ollama)
-            valid_configs = db.query(UserAIConfig).filter(
-                UserAIConfig.api_key != None,
-                UserAIConfig.api_key != ""
-            ).all()
-            valid_configs = [
-                c for c in valid_configs
-                if c.user_id not in BLOCKED_USER_IDS and c.api_key not in BLOCKED_API_KEYS
-            ]
-            if not valid_configs:
-                valid_configs = db.query(UserAIConfig).filter(
-                    UserAIConfig.provider == "ollama"
-                ).all()
-                valid_configs = [
-                    c for c in valid_configs
-                    if c.user_id not in BLOCKED_USER_IDS
-                ]
-            if valid_configs:
-                config = valid_configs[0]
-                user_id = config.user_id
-                self.logger.info("PlannerAgent: resolved empty/invalid user context to user_id=%s", user_id)
-            else:
-                self.logger.warning("PlannerAgent: No valid user configuration with keys found. Safely skipping daily briefing.")
-                return {"briefing": "No valid user configuration found.", "priority_messages": []}
+            # Fall back to shared system-level defaults instead of randomly picking a user's personal key
+            self.llm = LLMClient(user_id=None)
+        else:
+            if config.user_id in BLOCKED_USER_IDS or config.api_key in BLOCKED_API_KEYS:
+                self.logger.warning("PlannerAgent: config user_id=%s or api_key=%s is blocked. Safely skipping.", config.user_id, config.api_key)
+                return {"briefing": "Blocked user context.", "priority_messages": []}
 
-        if config.user_id in BLOCKED_USER_IDS or config.api_key in BLOCKED_API_KEYS:
-            self.logger.warning("PlannerAgent: config user_id=%s or api_key=%s is blocked. Safely skipping.", config.user_id, config.api_key)
-            return {"briefing": "Blocked user context.", "priority_messages": []}
+            if config.provider == "openrouter" and (not config.api_key or not config.api_key.strip()):
+                self.logger.warning("PlannerAgent: OpenRouter config has empty API key. Safely skipping daily briefing.")
+                return {"briefing": "No valid OpenRouter API key found.", "priority_messages": []}
 
-        if config.provider == "openrouter" and (not config.api_key or not config.api_key.strip()):
-            self.logger.warning("PlannerAgent: OpenRouter config has empty API key. Safely skipping daily briefing.")
-            return {"briefing": "No valid OpenRouter API key found.", "priority_messages": []}
-
-        self.llm = LLMClient(
-            provider=config.provider,
-            api_key=config.api_key,
-            base_url=config.base_url,
-            model=config.model,
-            user_id=user_id,
-        )
-        # Strictly override to avoid any fallback inside LLMClient
-        if config.provider == "openrouter":
-            self.llm.openrouter_api_key = config.api_key or ""
+            self.llm = LLMClient(
+                provider=config.provider,
+                api_key=config.api_key,
+                base_url=config.base_url,
+                model=config.model,
+                user_id=user_id,
+            )
+            # Strictly override to avoid any fallback inside LLMClient
+            if config.provider == "openrouter":
+                self.llm.openrouter_api_key = config.api_key or ""
 
         # Lazy import to avoid circular dependencies.
         from agents.priority_agent import PriorityAgent
