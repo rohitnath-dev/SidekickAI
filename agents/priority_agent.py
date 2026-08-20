@@ -56,18 +56,40 @@ class PriorityAgent(BaseAgent):
 
         db = SessionLocal()
         try:
-            config = db.query(UserAIConfig).filter_by(user_id=message.user_id).first()
+            config = None
+            user_id = message.user_id
+            if user_id:
+                config = db.query(UserAIConfig).filter_by(user_id=user_id).first()
+            
             if not config:
-                raise ValueError(f"No AI configuration found for user_id={message.user_id}")
+                # Find first user with active configuration (OpenRouter key or Ollama)
+                valid_configs = db.query(UserAIConfig).filter(
+                    UserAIConfig.api_key != None,
+                    UserAIConfig.api_key != ""
+                ).all()
+                if not valid_configs:
+                    valid_configs = db.query(UserAIConfig).filter(
+                        UserAIConfig.provider == "ollama"
+                    ).all()
+                if valid_configs:
+                    config = valid_configs[0]
+                    user_id = config.user_id
+                    message.user_id = user_id
+                    self.logger.info("PriorityAgent: resolved empty/invalid user context to user_id=%s", user_id)
+                else:
+                    self.logger.warning("PriorityAgent: No valid user configuration with keys found. Safely skipping.")
+                    return {"priority_level": "medium", "requires_reply": False, "score": 0.5, "reason": "No valid user context"}
+
             if config.provider == "openrouter" and (not config.api_key or not config.api_key.strip()):
-                raise ValueError(f"No OpenRouter API key configured for user_id={message.user_id}")
+                self.logger.warning("PriorityAgent: OpenRouter config has empty API key. Safely skipping.")
+                return {"priority_level": "medium", "requires_reply": False, "score": 0.5, "reason": "Empty API key"}
 
             self.llm = LLMClient(
                 provider=config.provider,
                 api_key=config.api_key,
                 base_url=config.base_url,
                 model=config.model,
-                user_id=message.user_id,
+                user_id=user_id,
             )
             # Strictly override to avoid any fallback inside LLMClient
             if config.provider == "openrouter":

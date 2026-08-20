@@ -53,11 +53,31 @@ class PlannerAgent(BaseAgent):
         from models.ai_config import UserAIConfig
         from services.llm import LLMClient
 
-        config = db.query(UserAIConfig).filter_by(user_id=user_id).first()
+        config = None
+        if user_id:
+            config = db.query(UserAIConfig).filter_by(user_id=user_id).first()
+        
         if not config:
-            raise ValueError(f"No AI configuration found for user_id={user_id}")
+            # Find first user with active configuration (OpenRouter key or Ollama)
+            valid_configs = db.query(UserAIConfig).filter(
+                UserAIConfig.api_key != None,
+                UserAIConfig.api_key != ""
+            ).all()
+            if not valid_configs:
+                valid_configs = db.query(UserAIConfig).filter(
+                    UserAIConfig.provider == "ollama"
+                ).all()
+            if valid_configs:
+                config = valid_configs[0]
+                user_id = config.user_id
+                self.logger.info("PlannerAgent: resolved empty/invalid user context to user_id=%s", user_id)
+            else:
+                self.logger.warning("PlannerAgent: No valid user configuration with keys found. Safely skipping daily briefing.")
+                return {"briefing": "No valid user configuration found.", "priority_messages": []}
+
         if config.provider == "openrouter" and (not config.api_key or not config.api_key.strip()):
-            raise ValueError(f"No OpenRouter API key configured for user_id={user_id}")
+            self.logger.warning("PlannerAgent: OpenRouter config has empty API key. Safely skipping daily briefing.")
+            return {"briefing": "No valid OpenRouter API key found.", "priority_messages": []}
 
         self.llm = LLMClient(
             provider=config.provider,

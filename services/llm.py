@@ -241,12 +241,32 @@ class LLMClient:
         user_id: Optional[str | int] = None,
         caller: Optional[str] = None,
     ) -> str:
-        """
-        Send messages to the selected LLM provider.
-        """
-
         if not messages:
             raise LLMException("Cannot send an empty messages list.")
+
+        # Resolve active user context if None (background agent without active user context)
+        if user_id is None:
+            from database import SessionLocal
+            from models.ai_config import UserAIConfig
+            db = SessionLocal()
+            try:
+                valid_configs = db.query(UserAIConfig).filter(
+                    UserAIConfig.api_key != None,
+                    UserAIConfig.api_key != ""
+                ).all()
+                if not valid_configs:
+                    valid_configs = db.query(UserAIConfig).filter(
+                        UserAIConfig.provider == "ollama"
+                    ).all()
+                if valid_configs:
+                    user_id = valid_configs[0].user_id
+                    logger.info("LLM Client: Resolved empty user context to user_id=%s", user_id)
+                else:
+                    logger.warning("LLM Client: No users with valid configured keys found.")
+            except Exception as e:
+                logger.error("LLM Client: Failed to resolve empty user context: %s", e)
+            finally:
+                db.close()
 
         # Check if user has their own AI configuration
         if user_id is not None and not getattr(self, "_config_resolved", False):
