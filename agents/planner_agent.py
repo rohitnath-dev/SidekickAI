@@ -53,6 +53,15 @@ class PlannerAgent(BaseAgent):
         from models.ai_config import UserAIConfig
         from services.llm import LLMClient
 
+        BLOCKED_USER_IDS = {"user_3D8FF09H5k8W7d93riQ9tCJFHED"}
+        BLOCKED_API_KEYS = {
+            "sk-or-v1-ca6bffe906dd48684da0f99e3d16b8a1d466c94bf1a83fbc5f1e7071e0711b14a"
+        }
+
+        if user_id in BLOCKED_USER_IDS:
+            self.logger.warning("PlannerAgent: user_id %s is blocked. Safely skipping.", user_id)
+            return {"briefing": "Blocked user ID context.", "priority_messages": []}
+
         config = None
         if user_id:
             config = db.query(UserAIConfig).filter_by(user_id=user_id).first()
@@ -63,10 +72,18 @@ class PlannerAgent(BaseAgent):
                 UserAIConfig.api_key != None,
                 UserAIConfig.api_key != ""
             ).all()
+            valid_configs = [
+                c for c in valid_configs
+                if c.user_id not in BLOCKED_USER_IDS and c.api_key not in BLOCKED_API_KEYS
+            ]
             if not valid_configs:
                 valid_configs = db.query(UserAIConfig).filter(
                     UserAIConfig.provider == "ollama"
                 ).all()
+                valid_configs = [
+                    c for c in valid_configs
+                    if c.user_id not in BLOCKED_USER_IDS
+                ]
             if valid_configs:
                 config = valid_configs[0]
                 user_id = config.user_id
@@ -74,6 +91,10 @@ class PlannerAgent(BaseAgent):
             else:
                 self.logger.warning("PlannerAgent: No valid user configuration with keys found. Safely skipping daily briefing.")
                 return {"briefing": "No valid user configuration found.", "priority_messages": []}
+
+        if config.user_id in BLOCKED_USER_IDS or config.api_key in BLOCKED_API_KEYS:
+            self.logger.warning("PlannerAgent: config user_id=%s or api_key=%s is blocked. Safely skipping.", config.user_id, config.api_key)
+            return {"briefing": "Blocked user context.", "priority_messages": []}
 
         if config.provider == "openrouter" and (not config.api_key or not config.api_key.strip()):
             self.logger.warning("PlannerAgent: OpenRouter config has empty API key. Safely skipping daily briefing.")

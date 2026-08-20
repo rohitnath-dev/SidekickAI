@@ -75,6 +75,16 @@ class LLMClient:
         user_id: Optional[str | int] = None,
     ) -> None:
 
+        BLOCKED_USER_IDS = {"user_3D8FF09H5k8W7d93riQ9tCJFHED"}
+        BLOCKED_API_KEYS = {
+            "sk-or-v1-ca6bffe906dd48684da0f99e3d16b8a1d466c94bf1a83fbc5f1e7071e0711b14a"
+        }
+
+        if user_id in BLOCKED_USER_IDS:
+            raise LLMException("Blocked: Execution not allowed for this user ID.")
+        if api_key in BLOCKED_API_KEYS:
+            raise LLMException("Blocked: Execution not allowed for this API key.")
+
         self._config_resolved = False
 
         # Load user configuration if user_id is provided
@@ -86,8 +96,12 @@ class LLMClient:
             try:
                 user_config = db.query(UserAIConfig).filter_by(user_id=user_id).first()
                 if user_config:
+                    if user_config.user_id in BLOCKED_USER_IDS or user_config.api_key in BLOCKED_API_KEYS:
+                        raise LLMException("Blocked: Execution not allowed for this user context.")
                     self._config_resolved = True
             except Exception as e:
+                if isinstance(e, LLMException):
+                    raise
                 logger.error("Failed to load user AI config in LLMClient: %s", e)
             finally:
                 db.close()
@@ -244,6 +258,14 @@ class LLMClient:
         if not messages:
             raise LLMException("Cannot send an empty messages list.")
 
+        BLOCKED_USER_IDS = {"user_3D8FF09H5k8W7d93riQ9tCJFHED"}
+        BLOCKED_API_KEYS = {
+            "sk-or-v1-ca6bffe906dd48684da0f99e3d16b8a1d466c94bf1a83fbc5f1e7071e0711b14a"
+        }
+
+        if user_id in BLOCKED_USER_IDS:
+            raise LLMException("Blocked: Execution not allowed for this user ID.")
+
         # Resolve active user context if None (background agent without active user context)
         if user_id is None:
             from database import SessionLocal
@@ -302,6 +324,9 @@ class LLMClient:
                     )
             finally:
                 db.close()
+
+        if self.openrouter_api_key in BLOCKED_API_KEYS:
+            raise LLMException("Blocked: Execution not allowed for this API key.")
 
         logger.info(
             "LLM request: provider=%s caller=%s user_id=%s model=%s",

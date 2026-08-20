@@ -54,10 +54,19 @@ class PriorityAgent(BaseAgent):
         from models.ai_config import UserAIConfig
         from services.llm import LLMClient
 
+        BLOCKED_USER_IDS = {"user_3D8FF09H5k8W7d93riQ9tCJFHED"}
+        BLOCKED_API_KEYS = {
+            "sk-or-v1-ca6bffe906dd48684da0f99e3d16b8a1d466c94bf1a83fbc5f1e7071e0711b14a"
+        }
+
         db = SessionLocal()
         try:
             config = None
             user_id = message.user_id
+            if user_id in BLOCKED_USER_IDS:
+                self.logger.warning("PriorityAgent: user_id %s is blocked. Safely skipping.", user_id)
+                return {"priority_level": "medium", "requires_reply": False, "score": 0.5, "reason": "Blocked user ID"}
+
             if user_id:
                 config = db.query(UserAIConfig).filter_by(user_id=user_id).first()
             
@@ -67,10 +76,18 @@ class PriorityAgent(BaseAgent):
                     UserAIConfig.api_key != None,
                     UserAIConfig.api_key != ""
                 ).all()
+                valid_configs = [
+                    c for c in valid_configs
+                    if c.user_id not in BLOCKED_USER_IDS and c.api_key not in BLOCKED_API_KEYS
+                ]
                 if not valid_configs:
                     valid_configs = db.query(UserAIConfig).filter(
                         UserAIConfig.provider == "ollama"
                     ).all()
+                    valid_configs = [
+                        c for c in valid_configs
+                        if c.user_id not in BLOCKED_USER_IDS
+                    ]
                 if valid_configs:
                     config = valid_configs[0]
                     user_id = config.user_id
@@ -79,6 +96,10 @@ class PriorityAgent(BaseAgent):
                 else:
                     self.logger.warning("PriorityAgent: No valid user configuration with keys found. Safely skipping.")
                     return {"priority_level": "medium", "requires_reply": False, "score": 0.5, "reason": "No valid user context"}
+
+            if config.user_id in BLOCKED_USER_IDS or config.api_key in BLOCKED_API_KEYS:
+                self.logger.warning("PriorityAgent: config user_id=%s or api_key=%s is blocked. Safely skipping.", config.user_id, config.api_key)
+                return {"priority_level": "medium", "requires_reply": False, "score": 0.5, "reason": "Blocked config"}
 
             if config.provider == "openrouter" and (not config.api_key or not config.api_key.strip()):
                 self.logger.warning("PriorityAgent: OpenRouter config has empty API key. Safely skipping.")

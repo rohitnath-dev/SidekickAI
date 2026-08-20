@@ -79,6 +79,11 @@ class BaseAgent(ABC):
         OpenRouter, Ollama, or another supported provider.
         """
 
+        BLOCKED_USER_IDS = {"user_3D8FF09H5k8W7d93riQ9tCJFHED"}
+        if user_id in BLOCKED_USER_IDS:
+            from services.llm import LLMException
+            raise LLMException("Blocked: Execution not allowed for this user ID.")
+
         caller_name = caller or self.__class__.__name__
 
         return await self.llm.generate(
