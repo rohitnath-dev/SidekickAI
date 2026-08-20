@@ -62,14 +62,14 @@ export default function MemoryPage() {
       return response.data;
     },
     onSuccess: (data) => {
-      setExtractResult(`Successfully extracted and stored ${data.length} new facts!`);
+      setExtractResult(`Successfully added ${data.length} new memories.`);
       setExtractText('');
       queryClient.invalidateQueries({ queryKey: ['memories'] });
       setTimeout(() => setExtractResult(null), 4000);
     },
     onError: (err: any) => {
       console.error(err);
-      setExtractError(err.response?.data?.detail || 'Extraction failed. Make sure LLM model is available.');
+      setExtractError(err.response?.data?.detail || 'Unable to add this to memory. Please try again.');
     },
     onSettled: () => {
       setIsExtracting(false);
@@ -98,9 +98,9 @@ export default function MemoryPage() {
         
         {/* Header */}
         <div className="border-b border-zinc-900 pb-6">
-          <h1 className="text-2xl font-bold tracking-tight text-zinc-50">Long-term Memory Bank</h1>
+          <h1 className="text-2xl font-bold tracking-tight text-zinc-50">Long-term Memory</h1>
           <p className="text-sm text-zinc-400 mt-1">
-            Browse, search, and manually extract semantic facts about people, schedules, and projects gathered from communications.
+            Browse, search, and manage information Sidekick remembers about you.
           </p>
         </div>
 
@@ -115,7 +115,7 @@ export default function MemoryPage() {
                 <Search className="absolute left-3 top-2.5 w-4 h-4 text-zinc-500" />
                 <input
                   type="text"
-                  placeholder="Search memory bank by query..."
+                  placeholder="Search your memories..."
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
                   className="w-full bg-zinc-900 border border-zinc-850 rounded-lg pl-9 pr-4 py-2 text-xs text-zinc-100 placeholder-zinc-500 outline-none focus:border-zinc-700 transition-all"
@@ -202,19 +202,21 @@ export default function MemoryPage() {
                 <div className="py-12 text-center border border-dashed border-zinc-850 rounded-xl p-6">
                   <BrainCircuit className="w-8 h-8 text-zinc-700 mx-auto mb-2" />
                   <p className="text-xs text-zinc-400 font-semibold">No memories recorded yet</p>
-                  <p className="text-[10px] text-zinc-500 mt-0.5">Use the extractor in the panel to manually register facts, or let the AI analyze incoming messages.</p>
+                  <p className="text-[10px] text-zinc-500 mt-0.5">
+                    Add something important to your memory, or let Sidekick remember useful information from your conversations.
+                  </p>
                 </div>
               )}
             </div>
 
           </div>
 
-          {/* Right Column: Manual AI Extraction Panel */}
+          {/* Right Column: Add to Memory Panel */}
           <div className="space-y-6">
             <div className="bg-zinc-900/20 border border-zinc-900 rounded-xl p-6 space-y-6">
               <div className="flex items-center gap-2 border-b border-zinc-900 pb-3">
                 <Sparkles className="w-4 h-4 text-zinc-400" />
-                <h2 className="text-sm font-semibold text-zinc-200 uppercase tracking-wider">AI Fact Extractor</h2>
+                <h2 className="text-sm font-semibold text-zinc-200 uppercase tracking-wider">Add to Memory</h2>
               </div>
 
               {extractResult && (
@@ -233,11 +235,11 @@ export default function MemoryPage() {
 
               <div className="space-y-4">
                 <p className="text-[11px] text-zinc-450 leading-relaxed font-normal">
-                  Paste emails, conversation snippets, or project briefs below. The assistant will parse the text, extract concrete factual statements, categorize them, and store them in the semantic memory database.
+                  Save useful information for future conversations. Sidekick will identify important, lasting facts and add them to your long-term memory.
                 </p>
 
                 <textarea
-                  placeholder="Paste context here (e.g. 'Jane mentioned that the project deadline has been moved to next Friday and we need to schedule a meeting with her on Tuesday morning.')"
+                  placeholder="Paste something you want Sidekick to remember..."
                   value={extractText}
                   onChange={(e) => setExtractText(e.target.value)}
                   rows={8}
@@ -252,12 +254,12 @@ export default function MemoryPage() {
                   {isExtracting ? (
                     <>
                       <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                      Parsing semantic facts...
+                      Adding to Memory...
                     </>
                   ) : (
                     <>
                       <Plus className="w-3.5 h-3.5" />
-                      Extract & Memorise
+                      Add to Memory
                     </>
                   )}
                 </button>
