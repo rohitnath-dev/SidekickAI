@@ -112,6 +112,7 @@ async def get_current_user(
                             expires=15 * 60,
                             secure=settings.COOKIE_SECURE,
                             samesite=settings.COOKIE_SAMESITE,
+                            domain=settings.COOKIE_DOMAIN,
                         )
                         response.set_cookie(
                             key="refresh_token",
@@ -121,6 +122,7 @@ async def get_current_user(
                             expires=settings.REFRESH_TOKEN_EXPIRE_DAYS * 24 * 3600,
                             secure=settings.COOKIE_SECURE,
                             samesite=settings.COOKIE_SAMESITE,
+                            domain=settings.COOKIE_DOMAIN,
                         )
                         return user
                     else:

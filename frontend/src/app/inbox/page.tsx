@@ -63,9 +63,13 @@ function InboxContent() {
 
   useEffect(() => {
     if (typeof window !== 'undefined') {
-      const stored = localStorage.getItem('last_synced_at');
-      if (stored) {
-        setLastSyncedAt(stored);
+      try {
+        const stored = localStorage.getItem('last_synced_at');
+        if (stored) {
+          setLastSyncedAt(stored);
+        }
+      } catch (e) {
+        console.warn('Failed to read last_synced_at from localStorage:', e);
       }
     }
   }, []);
@@ -300,7 +304,11 @@ function InboxContent() {
     onSuccess: (data) => {
       const now = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
       if (typeof window !== 'undefined') {
-        localStorage.setItem('last_synced_at', now);
+        try {
+          localStorage.setItem('last_synced_at', now);
+        } catch (e) {
+          console.warn('Failed to save last_synced_at to localStorage:', e);
+        }
       }
       setLastSyncedAt(now);
 

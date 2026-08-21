@@ -452,7 +452,11 @@ export default function SettingsPage() {
       await apiClient.delete('/auth/me');
       await apiClient.post('/auth/logout').catch(() => {});
       if (typeof window !== 'undefined') {
-        localStorage.removeItem('access_token');
+        try {
+          localStorage.removeItem('access_token');
+        } catch (e) {
+          console.warn('Failed to remove access token from localStorage:', e);
+        }
       }
       Cookies.remove('access_token');
       router.push('/login');

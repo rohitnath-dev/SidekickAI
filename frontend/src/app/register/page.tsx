@@ -46,7 +46,11 @@ export default function RegisterPage() {
 
       // SAVE TOKEN TO LOCALSTORAGE — this is the critical missing piece
       if (response.data?.access_token) {
-        localStorage.setItem('access_token', response.data.access_token);
+        try {
+          localStorage.setItem('access_token', response.data.access_token);
+        } catch (e) {
+          console.warn('Failed to save access token to localStorage:', e);
+        }
       }
 
       router.push('/');

@@ -38,7 +38,8 @@ class Settings(BaseSettings):
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 15
     REFRESH_TOKEN_EXPIRE_DAYS: int = 30
     COOKIE_SECURE: bool = True
-    COOKIE_SAMESITE: str = "lax"
+    COOKIE_SAMESITE: str = "none"
+    COOKIE_DOMAIN: Optional[str] = None
 
     # ------------------------------------------------------------------ #
     # Database
@@ -153,9 +154,21 @@ class Settings(BaseSettings):
     from pydantic import model_validator
 
     @model_validator(mode="after")
-    def fix_postgres_url(self) -> "Settings":
+    def validate_and_adjust_settings(self) -> "Settings":
         if self.DATABASE_URL and self.DATABASE_URL.startswith("postgres://"):
             self.DATABASE_URL = self.DATABASE_URL.replace("postgres://", "postgresql://", 1)
+        
+        # Relax cookie security parameters for local development on HTTP
+        if self.DEBUG:
+            if self.COOKIE_SECURE:
+                self.COOKIE_SECURE = False
+            if self.COOKIE_SAMESITE == "none":
+                self.COOKIE_SAMESITE = "lax"
+                
+        # Clean empty domain configurations to None
+        if not self.COOKIE_DOMAIN:
+            self.COOKIE_DOMAIN = None
+            
         return self
 
     # ------------------------------------------------------------------ #

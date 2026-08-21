@@ -103,6 +103,7 @@ async def register(response: Response, request: RegisterRequest, db: Session = D
         expires=15 * 60,
         secure=settings.COOKIE_SECURE,
         samesite=settings.COOKIE_SAMESITE,
+        domain=settings.COOKIE_DOMAIN,
     )
     response.set_cookie(
         key="refresh_token",
@@ -112,6 +113,7 @@ async def register(response: Response, request: RegisterRequest, db: Session = D
         expires=settings.REFRESH_TOKEN_EXPIRE_DAYS * 24 * 3600,
         secure=settings.COOKIE_SECURE,
         samesite=settings.COOKIE_SAMESITE,
+        domain=settings.COOKIE_DOMAIN,
     )
     
     logger.info("New user registered and session created: %s (id=%d)", user.email, user.id)
@@ -156,6 +158,7 @@ async def login(
         expires=15 * 60,
         secure=settings.COOKIE_SECURE,
         samesite=settings.COOKIE_SAMESITE,
+        domain=settings.COOKIE_DOMAIN,
     )
     response.set_cookie(
         key="refresh_token",
@@ -165,6 +168,7 @@ async def login(
         expires=settings.REFRESH_TOKEN_EXPIRE_DAYS * 24 * 3600,
         secure=settings.COOKIE_SECURE,
         samesite=settings.COOKIE_SAMESITE,
+        domain=settings.COOKIE_DOMAIN,
     )
     
     logger.info("User logged in and session created: %s (id=%d)", user.email, user.id)
@@ -316,6 +320,7 @@ async def refresh_session(
         expires=15 * 60,
         secure=settings.COOKIE_SECURE,
         samesite=settings.COOKIE_SAMESITE,
+        domain=settings.COOKIE_DOMAIN,
     )
     response.set_cookie(
         key="refresh_token",
@@ -325,6 +330,7 @@ async def refresh_session(
         expires=settings.REFRESH_TOKEN_EXPIRE_DAYS * 24 * 3600,
         secure=settings.COOKIE_SECURE,
         samesite=settings.COOKIE_SAMESITE,
+        domain=settings.COOKIE_DOMAIN,
     )
     
     logger.info("Successfully refreshed session for user_id=%d", user.id)
@@ -348,8 +354,18 @@ async def logout(
         logger.info("Logout called without a refresh token cookie.")
         
     # Clear cookies
-    response.delete_cookie("access_token", secure=settings.COOKIE_SECURE, samesite=settings.COOKIE_SAMESITE)
-    response.delete_cookie("refresh_token", secure=settings.COOKIE_SECURE, samesite=settings.COOKIE_SAMESITE)
+    response.delete_cookie(
+        "access_token",
+        secure=settings.COOKIE_SECURE,
+        samesite=settings.COOKIE_SAMESITE,
+        domain=settings.COOKIE_DOMAIN,
+    )
+    response.delete_cookie(
+        "refresh_token",
+        secure=settings.COOKIE_SECURE,
+        samesite=settings.COOKIE_SAMESITE,
+        domain=settings.COOKIE_DOMAIN,
+    )
     
     logger.info("Successfully cleared client cookies on logout.")
     return {"status": "success"}
