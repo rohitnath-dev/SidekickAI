@@ -18,8 +18,8 @@ The frontend may provide:
 - model
 - base_url
 
-If these values are omitted, the user's saved configuration
-or application's configured defaults are used.
+If these values are omitted, the application's configured defaults
+are used.
 """
 
 from __future__ import annotations
@@ -29,7 +29,7 @@ import logging
 from collections import defaultdict
 from typing import Optional
 
-from fastapi import APIRouter, Body, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
@@ -62,7 +62,9 @@ router = APIRouter(
 # Per-user AI locks
 # ============================================================================
 
-_ai_run_locks = defaultdict(asyncio.Lock)
+_ai_run_locks = defaultdict(
+    asyncio.Lock
+)
 
 
 # ============================================================================
@@ -100,15 +102,15 @@ class LLMConfigRequest(BaseModel):
         description=(
             "User-provided API key. "
             "Required for OpenRouter when no "
-            "saved user key or server default exists."
+            "server default exists."
         ),
     )
 
     model: Optional[str] = Field(
         default=None,
         description=(
-            "Model to use. Uses the saved/default "
-            "model when omitted."
+            "Model to use. Uses configured default "
+            "when omitted."
         ),
     )
 
@@ -121,17 +123,23 @@ class LLMConfigRequest(BaseModel):
     )
 
 
-class TestPromptRequest(LLMConfigRequest):
-    prompt: Optional[str] = Field(
-        default="Hello, are you working?"
+class TestPromptRequest(
+    LLMConfigRequest
+):
+    prompt: Optional[str] = (
+        "Hello, are you working?"
     )
 
 
-class AnalyzeMessageRequest(LLMConfigRequest):
+class AnalyzeMessageRequest(
+    LLMConfigRequest
+):
     message_id: Optional[int] = None
 
 
-class RunAIRequest(LLMConfigRequest):
+class RunAIRequest(
+    LLMConfigRequest
+):
     pass
 
 
@@ -139,27 +147,14 @@ class RunAIRequest(LLMConfigRequest):
 # LLM helpers
 # ============================================================================
 
-def _get_request_llm(
-    config: Optional[LLMConfigRequest],
-    user_id: int,
+def _create_llm_client(
+    config: LLMConfigRequest,
 ) -> LLMClient:
     """
-    Return a request-specific LLM client.
+    Create a request-specific LLMClient.
 
-    Configuration precedence is handled by LLMClient:
-
-        request-specific config
-            ↓
-        saved user config
-            ↓
-        application defaults
+    API keys are never logged.
     """
-
-    # A missing/empty request body is completely valid.
-    # In that case LLMClient resolves the saved user
-    # configuration or application defaults.
-    if config is None:
-        config = LLMConfigRequest()
 
     try:
         return LLMClient(
@@ -167,7 +162,6 @@ def _get_request_llm(
             api_key=config.api_key,
             model=config.model,
             base_url=config.base_url,
-            user_id=user_id,
         )
 
     except ValueError as exc:
@@ -175,6 +169,35 @@ def _get_request_llm(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=str(exc),
         ) from exc
+
+
+def _get_request_llm(
+    config: LLMConfigRequest,
+) -> LLMClient:
+    """
+    Return a request-specific LLM client when the
+    request provides configuration.
+
+    Otherwise return the application's default
+    global LLM client.
+    """
+
+    has_request_config = any(
+        value is not None
+        for value in (
+            config.provider,
+            config.api_key,
+            config.model,
+            config.base_url,
+        )
+    )
+
+    if not has_request_config:
+        return llm
+
+    return _create_llm_client(
+        config
+    )
 
 
 def _llm_http_error(
@@ -230,12 +253,6 @@ def _llm_http_error(
             detail=str(exc),
         )
 
-    logger.error(
-        "Unexpected LLM exception: %s",
-        exc,
-        exc_info=True,
-    )
-
     return HTTPException(
         status_code=status.HTTP_502_BAD_GATEWAY,
         detail="LLM request failed.",
@@ -253,33 +270,33 @@ async def ai_health(
     ),
 ):
     """
-    Check the health of the application's
-    default LLM configuration.
+    Check the health of the current user's
+    configured LLM.
 
-    This intentionally uses the server-side
-    default client.
+    This uses the user's saved AI configuration
+    when available, rather than the server-side
+    default LLM client.
     """
 
     try:
-        return await llm.health_check_details()
+        user_llm = LLMClient(
+            user_id=current_user.id
+        )
+
+        return await user_llm.health_check_details()
 
     except Exception as exc:
         logger.error(
-            "LLM health check failed: %s",
+            "User LLM health check failed for user_id=%s: %s",
+            current_user.id,
             exc,
             exc_info=True,
         )
 
         return {
             "status": "error",
-            "provider": getattr(
-                llm,
-                "provider",
-                "unknown",
-            ),
-            "reason": (
-                "LLM health check failed."
-            ),
+            "provider": "unknown",
+            "reason": "LLM health check failed.",
         }
 
 
@@ -289,9 +306,7 @@ async def ai_health(
 
 @router.post("/test")
 async def ai_test(
-    request: Optional[TestPromptRequest] = Body(
-        default=None
-    ),
+    request: TestPromptRequest,
     current_user: User = Depends(
         get_current_user
     ),
@@ -300,20 +315,12 @@ async def ai_test(
     Test the selected LLM configuration.
 
     Uses:
-    1. Request-provided configuration
-    2. Saved user configuration
-    3. Application defaults
-
-    The request body is optional so the endpoint
-    remains usable even when no JSON body is sent.
+    1. Request-provided configuration, or
+    2. Application defaults.
     """
 
-    if request is None:
-        request = TestPromptRequest()
-
     client = _get_request_llm(
-        request,
-        user_id=current_user.id,
+        request
     )
 
     prompt = (
@@ -358,7 +365,9 @@ async def ai_test(
             exc_info=True,
         )
 
-        raise _llm_http_error(exc)
+        raise _llm_http_error(
+            exc
+        )
 
 
 # ============================================================================
@@ -367,9 +376,7 @@ async def ai_test(
 
 @router.post("/analyze")
 async def analyze_messages(
-    request: Optional[AnalyzeMessageRequest] = Body(
-        default=None
-    ),
+    request: AnalyzeMessageRequest,
     current_user: User = Depends(
         get_current_user
     ),
@@ -386,14 +393,7 @@ async def analyze_messages(
 
     The same LLMClient is used for the entire
     operation.
-
-    The request body is optional. If omitted,
-    the user's saved/default LLM configuration
-    is used.
     """
-
-    if request is None:
-        request = AnalyzeMessageRequest()
 
     lock = _ai_run_locks[
         current_user.id
@@ -409,8 +409,7 @@ async def analyze_messages(
         )
 
     client = _get_request_llm(
-        request,
-        user_id=current_user.id,
+        request
     )
 
     async with lock:
@@ -473,7 +472,9 @@ async def analyze_messages(
                     exc_info=True,
                 )
 
-                raise _llm_http_error(exc)
+                raise _llm_http_error(
+                    exc
+                )
 
         # --------------------------------------------------------------
         # All unprocessed messages
@@ -547,9 +548,7 @@ async def analyze_messages(
 
 @router.post("/run")
 async def run_ai_pipeline(
-    request: Optional[RunAIRequest] = Body(
-        default=None
-    ),
+    request: RunAIRequest,
     current_user: User = Depends(
         get_current_user
     ),
@@ -567,14 +566,7 @@ async def run_ai_pipeline(
 
     The same request-specific LLMClient is used
     for both message processing and briefing.
-
-    The request body is optional. If omitted,
-    the user's saved/default LLM configuration
-    is used.
     """
-
-    if request is None:
-        request = RunAIRequest()
 
     lock = _ai_run_locks[
         current_user.id
@@ -590,8 +582,7 @@ async def run_ai_pipeline(
         )
 
     client = _get_request_llm(
-        request,
-        user_id=current_user.id,
+        request
     )
 
     async with lock:
@@ -674,6 +665,7 @@ async def run_ai_pipeline(
             # IMPORTANT:
             # Pass the exact same request-specific client
             # directly into PlannerAgent.
+
             planner_agent = PlannerAgent(
                 llm_client=client,
             )
@@ -730,4 +722,4 @@ async def run_ai_pipeline(
             "briefing_status": briefing_status,
             "briefing": briefing_data,
             "errors": errors,
-        }
+            }
