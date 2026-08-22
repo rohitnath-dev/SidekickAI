@@ -30,8 +30,13 @@ export default function AIOnboardingPage() {
         if (!isCancelled) {
           clearTimeout(timeoutId);
           if (response.data && response.data.has_ai_config === true) {
-            console.log('[AI Onboarding] AI provider already configured. Redirecting to dashboard.');
-            router.push('/');
+            if (response.data.onboarding_completed === false) {
+              console.log('[AI Onboarding] AI provider configured. Proceeding to intermediate Settings step.');
+              router.push('/onboarding/settings');
+            } else {
+              console.log('[AI Onboarding] Onboarding already completed. Redirecting to dashboard.');
+              router.push('/');
+            }
           } else {
             setCheckingAuth(false);
           }
@@ -93,7 +98,7 @@ export default function AIOnboardingPage() {
           </div>
 
           <div className="bg-zinc-900/40 border border-zinc-900 rounded-xl p-6 md:p-8 shadow-2xl backdrop-blur-md">
-            <AIConfigForm onSaveSuccess={() => router.push('/')} />
+            <AIConfigForm onSaveSuccess={() => router.push('/onboarding/settings')} />
           </div>
         </div>
       </div>

@@ -22,7 +22,8 @@ import {
   Trash2,
   Sparkles,
   BrainCircuit,
-  AlertCircle
+  AlertCircle,
+  ArrowRight
 } from 'lucide-react';
 import SidebarLayout from '@/components/layout';
 import { apiClient } from '@/lib/api-client';
@@ -45,7 +46,7 @@ const passwordSchema = zod.object({
 type ProfileSchema = zod.infer<typeof profileSchema>;
 type PasswordSchema = zod.infer<typeof passwordSchema>;
 
-export default function SettingsPage() {
+export default function SettingsPage({ isOnboarding = false }: { isOnboarding?: boolean }) {
   const router = useRouter();
   const queryClient = useQueryClient();
   const [profileSuccess, setProfileSuccess] = useState<string | null>(null);
@@ -53,6 +54,21 @@ export default function SettingsPage() {
   const [passwordSuccess, setPasswordSuccess] = useState<string | null>(null);
   const [passwordError, setPasswordError] = useState<string | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
+  const [isCompletingOnboarding, setIsCompletingOnboarding] = useState(false);
+
+  const handleCompleteOnboarding = async () => {
+    setIsCompletingOnboarding(true);
+    try {
+      await apiClient.post('/auth/complete-onboarding');
+      queryClient.invalidateQueries({ queryKey: ['user'] });
+      router.push('/');
+    } catch (err) {
+      console.error('Failed to complete onboarding:', err);
+      router.push('/');
+    } finally {
+      setIsCompletingOnboarding(false);
+    }
+  };
 
   const [isGoogleConnecting, setIsGoogleConnecting] = useState(false);
   const [isSlackConnecting, setIsSlackConnecting] = useState(false);
@@ -472,12 +488,50 @@ export default function SettingsPage() {
     <SidebarLayout>
       <div className="p-6 md:p-8 space-y-8 max-w-5xl mx-auto h-full overflow-y-auto">
         
+        {isOnboarding && (
+          <div className="bg-indigo-950/40 border border-indigo-500/30 rounded-xl p-5 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 shadow-lg shadow-indigo-500/5">
+            <div className="space-y-1">
+              <div className="flex items-center gap-2">
+                <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider bg-indigo-500/20 text-indigo-300 border border-indigo-500/30">
+                  Step 2 of 2
+                </span>
+                <h2 className="text-sm font-bold text-zinc-100">Review Profile & Connected Services</h2>
+              </div>
+              <p className="text-xs text-zinc-300">
+                Review your profile information and connect your Gmail, Telegram, or Twitter accounts before proceeding.
+              </p>
+            </div>
+            <button
+              onClick={handleCompleteOnboarding}
+              disabled={isCompletingOnboarding}
+              className="px-5 py-2.5 bg-indigo-600 hover:bg-indigo-500 active:scale-[0.98] text-white text-xs font-semibold rounded-lg transition-all flex items-center gap-2 shrink-0 cursor-pointer shadow-md disabled:opacity-50"
+            >
+              {isCompletingOnboarding ? <Loader2 className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4 text-indigo-200" />}
+              Continue to Dashboard
+              <ArrowRight className="w-4 h-4" />
+            </button>
+          </div>
+        )}
+
         {/* Header */}
-        <div className="border-b border-zinc-900 pb-6">
-          <h1 className="text-2xl font-bold tracking-tight text-zinc-50">Settings & Integrations</h1>
-          <p className="text-sm text-zinc-400 mt-1">
-            Configure integrations, credentials, and manage your security profile.
-          </p>
+        <div className="border-b border-zinc-900 pb-6 flex items-center justify-between">
+          <div>
+            <h1 className="text-2xl font-bold tracking-tight text-zinc-50">Settings & Integrations</h1>
+            <p className="text-sm text-zinc-400 mt-1">
+              Configure integrations, credentials, and manage your security profile.
+            </p>
+          </div>
+          {isOnboarding && (
+            <button
+              onClick={handleCompleteOnboarding}
+              disabled={isCompletingOnboarding}
+              className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 active:scale-[0.98] text-white text-xs font-semibold rounded-lg transition-all flex items-center gap-1.5 cursor-pointer shadow-md disabled:opacity-50"
+            >
+              {isCompletingOnboarding ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Sparkles className="w-3.5 h-3.5 text-indigo-200" />}
+              Continue to Dashboard
+              <ArrowRight className="w-3.5 h-3.5" />
+            </button>
+          )}
         </div>
 
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">

@@ -51,6 +51,7 @@ class UserResponse(BaseModel):
     is_admin: bool
     created_at: datetime
     has_ai_config: bool
+    onboarding_completed: bool = False
 
 
 class UpdateProfileRequest(BaseModel):
@@ -183,6 +184,7 @@ async def get_me(
     """Return the profile of the current logged-in user."""
     from models.ai_config import UserAIConfig
     ai_config = db.query(UserAIConfig).filter_by(user_id=current_user.id).first()
+    is_onboarding_completed = getattr(current_user, "onboarding_completed", False)
     return UserResponse(
         id=current_user.id,
         email=current_user.email,
@@ -191,6 +193,31 @@ async def get_me(
         is_admin=current_user.is_admin,
         created_at=current_user.created_at,
         has_ai_config=ai_config is not None,
+        onboarding_completed=is_onboarding_completed,
+    )
+
+
+@router.post("/complete-onboarding", response_model=UserResponse)
+async def complete_onboarding(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Mark onboarding as completed for the current user."""
+    current_user.onboarding_completed = True
+    db.commit()
+    db.refresh(current_user)
+
+    from models.ai_config import UserAIConfig
+    ai_config = db.query(UserAIConfig).filter_by(user_id=current_user.id).first()
+    return UserResponse(
+        id=current_user.id,
+        email=current_user.email,
+        full_name=current_user.full_name,
+        is_active=current_user.is_active,
+        is_admin=current_user.is_admin,
+        created_at=current_user.created_at,
+        has_ai_config=ai_config is not None,
+        onboarding_completed=True,
     )
 
 
@@ -237,6 +264,7 @@ async def update_me(
         is_admin=current_user.is_admin,
         created_at=current_user.created_at,
         has_ai_config=ai_config is not None,
+        onboarding_completed=getattr(current_user, "onboarding_completed", False),
     )
 
 

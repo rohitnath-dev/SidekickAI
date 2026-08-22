@@ -74,10 +74,22 @@ async def lifespan(app: FastAPI):
                 with engine.begin() as conn:
                     conn.execute(text("ALTER TABLE messages ADD COLUMN channel_info VARCHAR(512)"))
                 logger.info("Database fallback safety: Successfully added 'channel_info' column to 'messages' table.")
-            else:
-                logger.info("Database check: 'html_body' column exists in 'messages' table.")
+            user_columns = [col["name"] for col in inspector.get_columns("users")]
+            if "onboarding_completed" not in user_columns:
+                logger.info("Database fallback safety: Column 'onboarding_completed' not found in table 'users'. Attempting to add it dynamically.")
+                with engine.begin() as conn:
+                    conn.execute(text("ALTER TABLE users ADD COLUMN onboarding_completed BOOLEAN DEFAULT FALSE"))
+                logger.info("Database fallback safety: Successfully added 'onboarding_completed' column to 'users' table.")
+
+                # Backfill onboarding_completed = TRUE for pre-existing users with configured AI
+                try:
+                    with engine.begin() as conn:
+                        conn.execute(text("UPDATE users SET onboarding_completed = TRUE WHERE id IN (SELECT user_id FROM user_ai_configs)"))
+                    logger.info("Database backfill: Marked pre-existing users with AI configs as onboarding_completed = TRUE.")
+                except Exception as backfill_err:
+                    logger.error("Failed to backfill onboarding_completed for pre-existing users: %s", backfill_err)
         except Exception as err:
-            logger.error("Database fallback safety: Failed to verify or add 'html_body' column: %s", err, exc_info=True)
+            logger.error("Database fallback safety: Failed to verify or add database columns: %s", err, exc_info=True)
 
         # Backfill category = "primary" for existing messages where category is None
         try:

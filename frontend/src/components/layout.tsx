@@ -59,8 +59,16 @@ export default function SidebarLayout({ children }: SidebarProps) {
         if (!isCancelled) {
           clearTimeout(timeoutId);
           setIsAuthenticated(true);
-          if (response.data && response.data.has_ai_config === false) {
-            router.push('/onboarding/ai');
+          if (response.data) {
+            if (response.data.has_ai_config === false) {
+              if (pathname !== '/onboarding/ai') {
+                router.push('/onboarding/ai');
+              }
+            } else if (response.data.onboarding_completed === false) {
+              if (pathname !== '/onboarding/settings') {
+                router.push('/onboarding/settings');
+              }
+            }
           }
         }
       } catch (err) {
@@ -79,7 +87,7 @@ export default function SidebarLayout({ children }: SidebarProps) {
       isCancelled = true;
       clearTimeout(timeoutId);
     };
-  }, [isMounted, router]);
+  }, [isMounted, pathname, router]);
 
   if (!isMounted) {
     return (
@@ -101,6 +109,13 @@ export default function SidebarLayout({ children }: SidebarProps) {
   if (!isAuthenticated) {
     return null;
   }
+
+  const handleNavClick = () => {
+    setIsMobileMenuOpen(false);
+    if (pathname === '/onboarding/settings') {
+      apiClient.post('/auth/complete-onboarding').catch(() => {});
+    }
+  };
 
   const navItems = [
     { name: 'Dashboard', href: '/', icon: LayoutDashboard },
@@ -146,7 +161,7 @@ export default function SidebarLayout({ children }: SidebarProps) {
       {/* Desktop Sidebar */}
       <aside className="hidden md:flex md:w-64 md:flex-col border-r border-zinc-900/60 bg-zinc-950/40 backdrop-blur-md p-6 justify-between select-none z-10">
         <div className="flex flex-col gap-8">
-          <Link href="/" className="inline-block">
+          <Link href="/" onClick={handleNavClick} className="inline-block">
             <Logo size={28} />
           </Link>
           
@@ -158,6 +173,7 @@ export default function SidebarLayout({ children }: SidebarProps) {
                 <Link
                   key={item.name}
                   href={item.href}
+                  onClick={handleNavClick}
                   className={`flex items-center gap-3 px-3.5 py-2.5 rounded-lg text-sm font-medium transition-all duration-300 relative group border ${
                     isActive 
                       ? 'bg-indigo-500/10 text-zinc-50 border-indigo-500/20 shadow-sm shadow-indigo-500/5' 
@@ -188,7 +204,7 @@ export default function SidebarLayout({ children }: SidebarProps) {
       {/* Mobile Header & Overlay Menu */}
       <div className="flex flex-col flex-1 h-full overflow-hidden bg-transparent">
         <header className="flex items-center justify-between px-6 py-4 md:hidden border-b border-zinc-900/60 bg-zinc-950/40 backdrop-blur-md z-50">
-          <Link href="/">
+          <Link href="/" onClick={handleNavClick}>
             <Logo size={24} />
           </Link>
           <button 
@@ -210,7 +226,7 @@ export default function SidebarLayout({ children }: SidebarProps) {
                   <Link
                     key={item.name}
                     href={item.href}
-                    onClick={() => setIsMobileMenuOpen(false)}
+                    onClick={handleNavClick}
                     className={`flex items-center gap-4 px-4 py-3 rounded-lg text-base font-medium transition-all duration-300 border ${
                       isActive 
                         ? 'bg-indigo-500/10 text-zinc-50 border-indigo-500/20' 
