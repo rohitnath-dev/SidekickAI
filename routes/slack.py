@@ -64,15 +64,38 @@ async def login(
 
 
 @router.get("/callback")
+@router.get("/callback/")
 async def callback(
     request: Request,
-    code: str = Query(...),
+    code: Optional[str] = Query(None),
+    error: Optional[str] = Query(None),
     state: str = Query(default=""),
     redirect_uri: Optional[str] = Query(None),
     current_user: Optional[User] = Depends(get_optional_user),
     db: Session = Depends(get_db),
 ):
     """Exchange the Slack OAuth code for tokens and store them."""
+    if error:
+        logger.warning("Slack OAuth callback returned error: %s", error)
+        return HTMLResponse(
+            content=f"""
+            <html>
+                <body style="font-family: sans-serif; text-align: center; padding-top: 50px; background-color: #121214; color: #ffffff;">
+                    <h2>Slack Authorization Cancelled</h2>
+                    <p>Error from Slack: {error}</p>
+                    <p>You may close this window and try again.</p>
+                </body>
+            </html>
+            """,
+            status_code=status.HTTP_400_BAD_REQUEST,
+        )
+
+    if not code:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Missing 'code' query parameter in Slack callback.",
+        )
+
     user_id = None
     if current_user:
         user_id = current_user.id

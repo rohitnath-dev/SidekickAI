@@ -256,6 +256,9 @@ app.include_router(twitter_router,  prefix=API_PREFIX)
 app.include_router(settings_router, prefix=API_PREFIX)
 app.include_router(telegram_router, prefix=API_PREFIX)
 app.include_router(slack_router,    prefix=API_PREFIX)
+# Fallback alias mounts for Slack OAuth callback URLs
+app.include_router(slack_router,    prefix="/api")
+app.include_router(slack_router,    prefix="")
 app.include_router(ai_router,      prefix=API_PREFIX)
 
 # ---------------------------------------------------------------------------
