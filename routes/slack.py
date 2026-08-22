@@ -27,6 +27,7 @@ router = APIRouter(prefix="/slack", tags=["Slack"])
 @router.get("/login")
 async def login(
     request: Request,
+    redirect_uri: Optional[str] = Query(None),
     current_user: User = Depends(get_current_user)
 ):
     """Generate the Slack OAuth login/authorization URL."""
@@ -48,7 +49,11 @@ async def login(
         )
 
     try:
-        url, state = generate_slack_authorization_url(state=token)
+        url, state = generate_slack_authorization_url(
+            state=token,
+            redirect_uri=redirect_uri,
+            request=request
+        )
     except Exception as exc:
         logger.error("Failed to generate Slack authorization URL: %s", exc)
         raise HTTPException(
@@ -60,8 +65,10 @@ async def login(
 
 @router.get("/callback")
 async def callback(
+    request: Request,
     code: str = Query(...),
     state: str = Query(default=""),
+    redirect_uri: Optional[str] = Query(None),
     current_user: Optional[User] = Depends(get_optional_user),
     db: Session = Depends(get_db),
 ):
@@ -86,7 +93,13 @@ async def callback(
         )
 
     try:
-        await exchange_slack_code_for_tokens(code=code, db=db, user_id=user_id)
+        await exchange_slack_code_for_tokens(
+            code=code,
+            db=db,
+            user_id=user_id,
+            redirect_uri=redirect_uri,
+            request=request
+        )
     except Exception as exc:
         logger.error("Slack OAuth exchange failed for user %s: %s", user_id, exc)
         raise HTTPException(

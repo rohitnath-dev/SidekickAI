@@ -112,7 +112,7 @@ class Settings(BaseSettings):
     SLACK_CLIENT_ID: str = ""
     SLACK_CLIENT_SECRET: str = ""
     SLACK_REDIRECT_URI: str = (
-        "http://localhost:8000/api/v1/slack/callback"
+        "https://sidekickai-1.onrender.com/api/v1/slack/callback"
     )
 
 

@@ -16,7 +16,7 @@ from typing import Optional
 
 import httpx
 from sqlalchemy.orm import Session
-from fastapi import HTTPException, status
+from fastapi import HTTPException, Request, status
 
 from config import settings
 from models.token import OAuthToken
@@ -25,7 +25,39 @@ from repositories.token_repo import TokenRepository
 logger = logging.getLogger(__name__)
 
 
-def generate_slack_authorization_url(state: Optional[str] = None) -> tuple[str, str]:
+def get_slack_redirect_uri(
+    request: Optional[Request] = None,
+    redirect_uri: Optional[str] = None
+) -> str:
+    """
+    Determine the Slack OAuth redirect URI dynamically.
+    Priority:
+    1. Explicit redirect_uri argument if provided.
+    2. 'redirect_uri' query parameter from request if present.
+    3. settings.SLACK_REDIRECT_URI if configured.
+    4. Derived dynamically from Request host/scheme headers.
+    5. Default fallback to 'https://sidekickai-1.onrender.com/api/v1/slack/callback'.
+    """
+    if redirect_uri:
+        return redirect_uri
+    if request:
+        param_uri = request.query_params.get("redirect_uri")
+        if param_uri:
+            return param_uri
+    if settings.SLACK_REDIRECT_URI:
+        return settings.SLACK_REDIRECT_URI
+    if request:
+        proto = request.headers.get("x-forwarded-proto", request.url.scheme)
+        host = request.headers.get("x-forwarded-host") or request.headers.get("host") or request.url.netloc
+        return f"{proto}://{host}/api/v1/slack/callback"
+    return "https://sidekickai-1.onrender.com/api/v1/slack/callback"
+
+
+def generate_slack_authorization_url(
+    state: Optional[str] = None,
+    redirect_uri: Optional[str] = None,
+    request: Optional[Request] = None
+) -> tuple[str, str]:
     """
     Generate the redirect URL for Slack OAuth.
     """
@@ -43,9 +75,11 @@ def generate_slack_authorization_url(state: Optional[str] = None) -> tuple[str, 
         "channels:history",
     ]
     
+    effective_redirect_uri = get_slack_redirect_uri(request=request, redirect_uri=redirect_uri)
+
     params = {
         "client_id": settings.SLACK_CLIENT_ID,
-        "redirect_uri": settings.SLACK_REDIRECT_URI,
+        "redirect_uri": effective_redirect_uri,
         "user_scope": ",".join(user_scopes),
     }
 
@@ -61,7 +95,9 @@ def generate_slack_authorization_url(state: Optional[str] = None) -> tuple[str, 
 async def exchange_slack_code_for_tokens(
     code: str,
     db: Session,
-    user_id: int
+    user_id: int,
+    redirect_uri: Optional[str] = None,
+    request: Optional[Request] = None
 ) -> OAuthToken:
     """
     Exchange the Slack authorization code for access tokens and save them.
@@ -72,12 +108,14 @@ async def exchange_slack_code_for_tokens(
             detail="Slack Client ID or Client Secret is not configured."
         )
 
+    effective_redirect_uri = get_slack_redirect_uri(request=request, redirect_uri=redirect_uri)
+
     async with httpx.AsyncClient(timeout=30.0) as client:
         token_url = "https://slack.com/api/oauth.v2.access"
         token_data = {
             "grant_type": "authorization_code",
             "code": code,
-            "redirect_uri": settings.SLACK_REDIRECT_URI,
+            "redirect_uri": effective_redirect_uri,
             "client_id": settings.SLACK_CLIENT_ID,
             "client_secret": settings.SLACK_CLIENT_SECRET,
         }
