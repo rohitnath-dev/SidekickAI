@@ -254,18 +254,9 @@ async def get_me(
     """Return the profile of the current logged-in user."""
 
     from models.ai_config import UserAIConfig
-<<<<<<< HEAD
     ai_config = db.query(UserAIConfig).filter_by(user_id=current_user.id).first()
     is_onboarding_completed = getattr(current_user, "onboarding_completed", False)
-=======
 
-    ai_config = (
-        db.query(UserAIConfig)
-        .filter_by(user_id=current_user.id)
-        .first()
-    )
-
->>>>>>> f639053 (fix: align auth schemas with UUID user IDs)
     return UserResponse(
         id=current_user.id,
         email=current_user.email,
@@ -547,17 +538,11 @@ async def logout(
             "Successfully invalidated session in database on explicit logout."
         )
     else:
-<<<<<<< HEAD
-        logger.info("Logout called without a refresh token cookie.")
-        
-    # Clear cookies
-=======
         logger.info(
             "Logout called without a refresh token cookie."
         )
 
     # Clear cookies.
->>>>>>> f639053 (fix: align auth schemas with UUID user IDs)
     response.delete_cookie(
         "access_token",
         secure=settings.COOKIE_SECURE,
@@ -568,14 +553,9 @@ async def logout(
         "refresh_token",
         secure=settings.COOKIE_SECURE,
         samesite=settings.COOKIE_SAMESITE,
-<<<<<<< HEAD
         domain=settings.COOKIE_DOMAIN,
     )
     
-=======
-    )
-
->>>>>>> f639053 (fix: align auth schemas with UUID user IDs)
     logger.info("Successfully cleared client cookies on logout.")
 
     return {"status": "success"}
