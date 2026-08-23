@@ -6,23 +6,15 @@ let API_BASE_URL = process.env.NEXT_PUBLIC_API_URL;
 if (!API_BASE_URL) {
   if (typeof window !== 'undefined') {
     const hostname = window.location.hostname;
-    const protocol = window.location.protocol;
 
-    if (hostname.includes('onrender.com')) {
-      // If hostname contains -1 or -frontend, strip it to point to backend service,
-      // e.g. sidekickai-1.onrender.com or sidekickai-frontend.onrender.com -> sidekickai.onrender.com
-      const backendHost = hostname
-        .replace('-1.onrender.com', '.onrender.com')
-        .replace('-frontend.onrender.com', '.onrender.com');
-
-      API_BASE_URL = `${protocol}//${backendHost}/api/v1`;
-    } else if (hostname === 'localhost' || hostname === '127.0.0.1') {
+    if (hostname === 'localhost' || hostname === '127.0.0.1') {
       API_BASE_URL = 'http://localhost:8000/api/v1';
     } else {
-      API_BASE_URL = `${protocol}//${hostname}${window.location.port ? ':' + window.location.port : ''}/api/v1`;
+      // Production Render backend service fallback
+      API_BASE_URL = 'https://sidekickai-1.onrender.com/api/v1';
     }
   } else {
-    API_BASE_URL = 'http://localhost:8000/api/v1';
+    API_BASE_URL = 'https://sidekickai-1.onrender.com/api/v1';
   }
 }
 
