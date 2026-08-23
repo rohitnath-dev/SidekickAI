@@ -11,10 +11,10 @@ if (!API_BASE_URL) {
       API_BASE_URL = 'http://localhost:8000/api/v1';
     } else {
       // Production Render backend service fallback
-      API_BASE_URL = 'https://sidekickai-1.onrender.com/api/v1';
+      API_BASE_URL = 'https://sidekickai.onrender.com/api/v1';
     }
   } else {
-    API_BASE_URL = 'https://sidekickai-1.onrender.com/api/v1';
+    API_BASE_URL = 'https://sidekickai.onrender.com/api/v1';
   }
 }
 
