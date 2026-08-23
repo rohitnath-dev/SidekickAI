@@ -25,7 +25,7 @@ def upgrade() -> None:
     if 'user_sessions' not in tables:
         op.create_table('user_sessions',
         sa.Column('id', sa.Integer(), autoincrement=True, nullable=False),
-        sa.Column('user_id', sa.Integer(), nullable=False),
+        sa.Column('user_id', sa.String(length=255), nullable=False),
         sa.Column('refresh_token', sa.String(length=512), nullable=False),
         sa.Column('expires_at', sa.DateTime(), nullable=False),
         sa.Column('created_at', sa.DateTime(), nullable=False),

@@ -98,10 +98,14 @@ async def get_current_user(
                         new_access = create_access_token(user.id)
                         new_refresh = create_refresh_token(user.id)
 
-                        # Update DB session
-                        session_record.refresh_token = new_refresh
-                        session_record.expires_at = datetime.utcnow() + timedelta(days=settings.REFRESH_TOKEN_EXPIRE_DAYS)
-                        db.commit()
+                        # Update DB session safely
+                        try:
+                            session_record.refresh_token = new_refresh
+                            session_record.expires_at = datetime.utcnow() + timedelta(days=settings.REFRESH_TOKEN_EXPIRE_DAYS)
+                            db.commit()
+                        except Exception as session_err:
+                            db.rollback()
+                            logger.error("Failed to commit rotated session token in dependencies: %s", session_err)
 
                         # Write cookies on outgoing Response
                         response.set_cookie(

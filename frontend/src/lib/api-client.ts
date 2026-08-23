@@ -145,11 +145,12 @@ apiClient.interceptors.response.use(
     }
 
     // Check if 401 and request wasn't already retried,
-    // and is not the refresh request itself.
-    const isRefreshRequest =
+    // and is not an authentication route (/auth/login, /auth/register, /auth/refresh).
+    const isAuthRequest =
       originalRequest.url &&
       (
-        originalRequest.url.endsWith('/auth/refresh') ||
+        originalRequest.url.includes('/auth/login') ||
+        originalRequest.url.includes('/auth/register') ||
         originalRequest.url.includes('/auth/refresh')
       );
 
@@ -157,7 +158,7 @@ apiClient.interceptors.response.use(
       error.response &&
       error.response.status === 401 &&
       !originalRequest._retry &&
-      !isRefreshRequest
+      !isAuthRequest
     ) {
       // Avoid redirecting if we are already on
       // login or register pages.

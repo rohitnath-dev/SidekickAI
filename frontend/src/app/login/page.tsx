@@ -58,8 +58,16 @@ export default function LoginPage() {
       router.push('/');
     } catch (err: any) {
       console.error(err);
-      if (err.response && err.response.data && err.response.data.detail) {
-        setError(err.response.data.detail);
+      const detail = err.response?.data?.detail;
+      if (typeof detail === 'string') {
+        setError(detail);
+      } else if (Array.isArray(detail)) {
+        const messages = detail.map((d: any) => d.msg || JSON.stringify(d)).join(', ');
+        setError(messages || 'Validation failed. Please check your credentials.');
+      } else if (detail && typeof detail === 'object') {
+        setError(detail.message || JSON.stringify(detail));
+      } else if (err.message) {
+        setError(err.message);
       } else {
         setError('Connection failed. Please check your credentials or backend server.');
       }

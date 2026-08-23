@@ -121,14 +121,23 @@ async def register(
         days=settings.REFRESH_TOKEN_EXPIRE_DAYS
     )
 
-    session_record = UserSession(
-        user_id=user.id,
-        refresh_token=refresh_token,
-        expires_at=expires_at,
-    )
+    try:
+        session_record = UserSession(
+            user_id=user.id,
+            refresh_token=refresh_token,
+            expires_at=expires_at,
+        )
 
-    db.add(session_record)
-    db.commit()
+        db.add(session_record)
+        db.commit()
+    except Exception as exc:
+        db.rollback()
+        logger.error(
+            "Failed to commit user session during registration for user_id=%s: %s",
+            user.id,
+            exc,
+            exc_info=True,
+        )
 
     response.set_cookie(
         key="access_token",
@@ -177,7 +186,8 @@ async def login(
     """
     from datetime import datetime, timedelta
 
-    user = UserRepository.get_by_email(db, form_data.username)
+    username = form_data.username.strip() if form_data.username else ""
+    user = UserRepository.get_by_email(db, username)
 
     if user is None or not verify_password(
         form_data.password,
@@ -202,14 +212,29 @@ async def login(
         days=settings.REFRESH_TOKEN_EXPIRE_DAYS
     )
 
-    session_record = UserSession(
-        user_id=user.id,
-        refresh_token=refresh_token,
-        expires_at=expires_at,
-    )
+    try:
+        # Clean up any expired sessions for this user
+        db.query(UserSession).filter(
+            UserSession.user_id == user.id,
+            UserSession.expires_at <= datetime.utcnow(),
+        ).delete(synchronize_session=False)
 
-    db.add(session_record)
-    db.commit()
+        session_record = UserSession(
+            user_id=user.id,
+            refresh_token=refresh_token,
+            expires_at=expires_at,
+        )
+
+        db.add(session_record)
+        db.commit()
+    except Exception as exc:
+        db.rollback()
+        logger.error(
+            "Failed to commit user session during login for user_id=%s: %s",
+            user.id,
+            exc,
+            exc_info=True,
+        )
 
     response.set_cookie(
         key="access_token",

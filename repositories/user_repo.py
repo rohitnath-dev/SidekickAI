@@ -6,6 +6,7 @@ from typing import Optional
 
 from sqlalchemy.orm import Session
 
+from sqlalchemy import func
 from models.user import User
 
 
@@ -18,7 +19,8 @@ class UserRepository:
         hashed_password: str,
         full_name: Optional[str] = None,
     ) -> User:
-        user = User(email=email, hashed_password=hashed_password, full_name=full_name)
+        clean_email = email.strip().lower() if email else ""
+        user = User(email=clean_email, hashed_password=hashed_password, full_name=full_name)
         db.add(user)
         db.commit()
         db.refresh(user)
@@ -30,7 +32,10 @@ class UserRepository:
 
     @staticmethod
     def get_by_email(db: Session, email: str) -> Optional[User]:
-        return db.query(User).filter(User.email == email).first()
+        if not email:
+            return None
+        clean_email = email.strip().lower()
+        return db.query(User).filter(func.lower(User.email) == clean_email).first()
 
     @staticmethod
     def update(db: Session, user: User, **fields) -> User:

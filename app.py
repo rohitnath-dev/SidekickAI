@@ -74,7 +74,35 @@ async def lifespan(app: FastAPI):
                 with engine.begin() as conn:
                     conn.execute(text("ALTER TABLE messages ADD COLUMN channel_info VARCHAR(512)"))
                 logger.info("Database fallback safety: Successfully added 'channel_info' column to 'messages' table.")
-            user_columns = [col["name"] for col in inspector.get_columns("users")]
+            user_columns_info = inspector.get_columns("users")
+            user_columns = [col["name"] for col in user_columns_info]
+            id_col = next((c for c in user_columns_info if c["name"] == "id"), None)
+            if id_col and "INT" in str(id_col["type"]).upper() and engine.name == "sqlite":
+                logger.info("Database fallback safety: Column 'users.id' is INTEGER. Migrating table to VARCHAR(255) for UUID compatibility.")
+                with engine.begin() as conn:
+                    conn.execute(text("""
+                        CREATE TABLE IF NOT EXISTS users_new (
+                            id VARCHAR(255) NOT NULL PRIMARY KEY,
+                            email VARCHAR(255) NOT NULL UNIQUE,
+                            hashed_password VARCHAR(255) NOT NULL,
+                            full_name VARCHAR(255),
+                            is_active BOOLEAN NOT NULL DEFAULT 1,
+                            is_verified BOOLEAN NOT NULL DEFAULT 0,
+                            is_admin BOOLEAN NOT NULL DEFAULT 0,
+                            onboarding_completed BOOLEAN NOT NULL DEFAULT 0,
+                            created_at DATETIME NOT NULL,
+                            updated_at DATETIME NOT NULL
+                        );
+                    """))
+                    conn.execute(text("""
+                        INSERT OR IGNORE INTO users_new (id, email, hashed_password, full_name, is_active, is_verified, is_admin, onboarding_completed, created_at, updated_at)
+                        SELECT CAST(id AS TEXT), email, hashed_password, full_name, is_active, is_verified, COALESCE(is_admin, 0), COALESCE(onboarding_completed, 0), created_at, updated_at FROM users;
+                    """))
+                    conn.execute(text("DROP TABLE users;"))
+                    conn.execute(text("ALTER TABLE users_new RENAME TO users;"))
+                    conn.execute(text("DROP TABLE IF EXISTS user_sessions;"))
+                logger.info("Database fallback safety: Successfully migrated users table id to VARCHAR(255).")
+
             if "onboarding_completed" not in user_columns:
                 logger.info("Database fallback safety: Column 'onboarding_completed' not found in table 'users'. Attempting to add it dynamically.")
                 with engine.begin() as conn:
