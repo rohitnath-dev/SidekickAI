@@ -146,10 +146,15 @@ class Settings(BaseSettings):
     TELEGRAM_SESSION_ENCRYPTION_KEY: str = ""
 
 
-    # ------------------------------------------------------------------ #
-    # CORS
-    # ------------------------------------------------------------------ #
-    ALLOWED_ORIGINS: list[str] = ["*"]
+    ALLOWED_ORIGINS: list[str] = [
+        "http://localhost:3000",
+        "http://localhost:8000",
+        "http://127.0.0.1:3000",
+        "http://127.0.0.1:8000",
+        "https://sidekickai.onrender.com",
+        "https://sidekickai-1.onrender.com",
+        "*",
+    ]
 
     from pydantic import model_validator
 

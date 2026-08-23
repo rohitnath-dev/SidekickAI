@@ -237,6 +237,7 @@ app = FastAPI(
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.ALLOWED_ORIGINS,
+    allow_origin_regex=r"https?://.*",
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -273,6 +274,9 @@ async def add_cache_control_headers(request, call_next):
 API_PREFIX = "/api/v1"
 
 app.include_router(auth_router,     prefix=API_PREFIX)
+# Fallback alias mounts for Auth endpoints (/api/auth/login and /auth/login)
+app.include_router(auth_router,     prefix="/api")
+app.include_router(auth_router,     prefix="")
 app.include_router(gmail_router,    prefix=API_PREFIX)
 app.include_router(summary_router,  prefix=API_PREFIX)
 app.include_router(reply_router,    prefix=API_PREFIX)
