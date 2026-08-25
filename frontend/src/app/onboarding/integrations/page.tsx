@@ -11,7 +11,7 @@ import {
   Mail, 
   MessageSquare, 
   Send, 
-  Twitter, 
+  Share2, 
   ShieldCheck,
   RefreshCw
 } from 'lucide-react';
@@ -346,7 +346,7 @@ export default function ApplicationIntegrationsPage() {
               <div className="flex items-start justify-between">
                 <div className="flex items-center gap-3">
                   <div className="p-2.5 rounded-lg bg-blue-500/10 border border-blue-500/20 text-blue-400">
-                    <Twitter className="w-5 h-5" />
+                    <Share2 className="w-5 h-5" />
                   </div>
                   <div>
                     <h3 className="text-sm font-semibold text-zinc-100">Twitter / X Desk</h3>
