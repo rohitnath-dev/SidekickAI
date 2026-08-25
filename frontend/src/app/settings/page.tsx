@@ -907,7 +907,7 @@ export default function SettingsPage({ isOnboarding = false }: { isOnboarding?: 
                       <button
                         onClick={handleConnectGoogle}
                         disabled={isGoogleConnecting}
-                        className="flex items-center justify-center gap-1.5 w-full py-2 bg-zinc-100 hover:bg-zinc-200 rounded text-xs font-semibold text-zinc-950 transition-all cursor-pointer disabled:opacity-50"
+                        className="w-full flex items-center justify-center gap-1.5 py-2 bg-zinc-900 hover:bg-zinc-800 rounded text-xs font-semibold text-zinc-50 border border-zinc-850 hover:border-zinc-700 transition-all cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
                       >
                         {isGoogleConnecting ? (
                           <>

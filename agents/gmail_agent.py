@@ -74,7 +74,7 @@ class GmailAgent(BaseAgent):
             elif unread_only:
                 query = "is:unread OR newer_than:2d"
             else:
-                query = "newer_than:7d"
+                query = "newer_than:2d"
             
             self.logger.info("GmailAgent.get_messages query: '%s', labelIds: %s", query, label_ids)
             kwargs = {
@@ -317,23 +317,24 @@ class GmailAgent(BaseAgent):
         Skips duplicates (by message_id). Returns a summary dict.
         """
         global _backfilled_users
+        import asyncio
+
         if user_id not in _backfilled_users:
             _backfilled_users.add(user_id)
             # 1. Backfill / re-evaluate category tags for already synced messages.
-            # This will fetch the real Gmail labels and update database Message.category.
-            # We limit to 150 messages to keep it fast and prevent API limits.
+            # We limit to 15 messages to keep it fast and prevent API limits.
             try:
                 misclassified = (
                     db.query(Message)
                     .filter_by(user_id=user_id, source=MessageSource.GMAIL)
                     .order_by(Message.received_at.desc())
-                    .limit(150)
+                    .limit(15)
                     .all()
                 )
                 backfilled_count = 0
                 for msg in misclassified:
                     try:
-                        raw_msg = self.get_message(creds, msg.message_id)
+                        raw_msg = await asyncio.to_thread(self.get_message, creds, msg.message_id)
                         if raw_msg:
                             parsed_msg = self.parse_message(raw_msg)
                             if parsed_msg:
@@ -393,7 +394,8 @@ class GmailAgent(BaseAgent):
         else:
             self.logger.info("Fetching Gmail emails since: None")
 
-        raw_list = self.get_messages(
+        raw_list = await asyncio.to_thread(
+            self.get_messages,
             creds,
             limit=limit,
             unread_only=unread_only,
@@ -407,7 +409,8 @@ class GmailAgent(BaseAgent):
         if not raw_list and label_ids != ["INBOX"]:
             self.logger.warning("Gmail query labelIds=%s returned 0. Trying fallback query with labelIds=['INBOX']", label_ids)
             label_ids = ["INBOX"]
-            raw_list = self.get_messages(
+            raw_list = await asyncio.to_thread(
+                self.get_messages,
                 creds,
                 limit=limit,
                 unread_only=unread_only,
@@ -440,7 +443,7 @@ class GmailAgent(BaseAgent):
                 # Check if category needs update
                 if not existing.category or existing.category == "primary":
                     try:
-                        raw = self.get_message(creds, message_id)
+                        raw = await asyncio.to_thread(self.get_message, creds, message_id)
                         if raw:
                             parsed = self.parse_message(raw)
                             if parsed:
@@ -469,7 +472,7 @@ class GmailAgent(BaseAgent):
                 # If category is already updated, check if we just need to backfill html_body
                 elif not existing.html_body:
                     try:
-                        raw = self.get_message(creds, message_id)
+                        raw = await asyncio.to_thread(self.get_message, creds, message_id)
                         if raw:
                             parsed = self.parse_message(raw)
                             if parsed and parsed.get("html_body"):
@@ -483,7 +486,7 @@ class GmailAgent(BaseAgent):
                 continue
 
             try:
-                raw = self.get_message(creds, message_id)
+                raw = await asyncio.to_thread(self.get_message, creds, message_id)
             except HttpError as exc:
                 if exc.resp.status == 404:
                     self.logger.info("Email %s not found in Gmail (404) during sync. Skipping.", message_id)

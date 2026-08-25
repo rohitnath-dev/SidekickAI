@@ -23,6 +23,7 @@ from services.auth import create_access_token
 class TestOnboardingAndJobManager(unittest.TestCase):
 
     def setUp(self):
+        job_manager._user_jobs.clear()
         Base.metadata.create_all(bind=engine)
         self.db = SessionLocal()
         self.client = TestClient(app)
@@ -63,6 +64,8 @@ class TestOnboardingAndJobManager(unittest.TestCase):
 
     def test_job_manager_idempotency_duplicate_start_protection(self):
         job1 = asyncio.run(job_manager.start_job(self.user.id, self.db))
+        # Keep job in active processing state
+        job1.state = AIJobState.PROCESSING
         job2 = asyncio.run(job_manager.start_job(self.user.id, self.db))
         
         # Second call returns same active job ID
@@ -70,11 +73,52 @@ class TestOnboardingAndJobManager(unittest.TestCase):
 
     def test_stale_job_recovery(self):
         job = asyncio.run(job_manager.start_job(self.user.id, self.db))
-        # Artificially age the job updated_at timestamp by 15 minutes
-        job.updated_at = datetime.utcnow() - timedelta(minutes=15)
+        # Set to active processing state and age updated_at timestamp by 3 minutes (>120s)
+        job.state = AIJobState.PROCESSING
+        job.updated_at = datetime.utcnow() - timedelta(minutes=3)
         
         fetched = job_manager.get_job(self.user.id)
         self.assertEqual(fetched.state, AIJobState.STALE)
+
+    def test_tenant_isolation_job_status(self):
+        # Create second user
+        user2 = User(
+            id="user-2-uuid-202",
+            email="user2@example.com",
+            hashed_password="hashed_pass_user2",
+            full_name="User Two",
+            is_active=True,
+        )
+        self.db.add(user2)
+        self.db.commit()
+        token2 = create_access_token(user2.id)
+        headers2 = {"Authorization": f"Bearer {token2}"}
+
+        # User 1 starts job
+        job1 = asyncio.run(job_manager.start_job(self.user.id, self.db))
+
+        # User 2 checks status -> should have no job or user2's job
+        resp2 = self.client.get("/api/v1/ai/job/status", headers=headers2)
+        self.assertEqual(resp2.status_code, 200)
+        data2 = resp2.json()
+        self.assertFalse(data2["has_job"])
+
+    def test_job_retry_clears_stale_and_starts_new_job(self):
+        job1 = asyncio.run(job_manager.start_job(self.user.id, self.db))
+        job1.state = AIJobState.FAILED
+        
+        # Retry endpoint
+        resp = self.client.post("/api/v1/ai/job/retry", json={}, headers=self.headers)
+        self.assertEqual(resp.status_code, 200)
+        data = resp.json()
+        self.assertNotEqual(data["job_id"], job1.job_id)
+
+    def test_job_failed_state_allows_new_job(self):
+        job1 = asyncio.run(job_manager.start_job(self.user.id, self.db))
+        job1.mark_failed("Test error")
+        
+        job2 = asyncio.run(job_manager.start_job(self.user.id, self.db))
+        self.assertNotEqual(job1.job_id, job2.job_id)
 
     def test_complete_onboarding_endpoint(self):
         res = self.client.post("/api/v1/auth/complete-onboarding", headers=self.headers)

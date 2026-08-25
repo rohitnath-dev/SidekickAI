@@ -125,12 +125,12 @@ class AIJobManager:
         if not job:
             return None
 
-        # Check for stale job (>10 minutes without update while in active state)
+        # Check for stale job (>2 minutes without update while in active state)
         if (
             job.state not in (AIJobState.COMPLETED, AIJobState.FAILED, AIJobState.CANCELLED, AIJobState.STALE)
-            and (datetime.utcnow() - job.updated_at) > timedelta(minutes=10)
+            and (datetime.utcnow() - job.updated_at) > timedelta(seconds=120)
         ):
-            logger.warning("Job %s for user %s detected as stale (inactive >10m). Marking STALE.", job.job_id, user_id_str)
+            logger.warning("Job %s for user %s detected as stale (inactive >120s). Marking STALE.", job.job_id, user_id_str)
             job.state = AIJobState.STALE
             job.current_stage = "Job timed out / stale"
 
@@ -179,9 +179,11 @@ class AIJobManager:
         if not job or job.job_id != job_id:
             return
 
+        start_time = datetime.utcnow()
+        logger.info("Starting AI job lifecycle job_id=%s user_id=%s", job_id, user_id)
+
         try:
             job.update_stage(AIJobState.STARTING, "Initializing processing pipeline...")
-            await asyncio.sleep(0.5)
 
             # Stage 1: Detect connected integrations
             job.update_stage(AIJobState.CHECKING_CONNECTIONS, "Checking connected integrations...")
@@ -286,18 +288,56 @@ class AIJobManager:
             if job.state == AIJobState.CANCELLED:
                 return
 
-            # Stage 3: AI Processing & Analysis
+            # Stage 3: AI Processing & Analysis (24-hour data window)
             job.update_stage(AIJobState.PROCESSING, "Analyzing messages with AI...", discovered=total_discovered, processed=0)
 
             with SessionLocal() as db:
                 from models.message import Message
                 from services.ai_pipeline import process_message_ai
-                from services.llm import LLMClient, LLMRateLimitError, LLMAuthenticationError, LLMConnectionError
+                from services.llm import (
+                    LLMClient,
+                    LLMRateLimitError,
+                    LLMAuthenticationError,
+                    LLMConnectionError,
+                    LLMResponseError,
+                    LLMException,
+                )
 
-                unprocessed = db.query(Message).filter(Message.user_id == user_id, Message.is_processed == False).all()
-                
-                client = LLMClient(user_id=user_id)
+                cutoff_24h = datetime.utcnow() - timedelta(hours=HOURS_LOOKBACK)
+                unprocessed = (
+                    db.query(Message)
+                    .filter(
+                        Message.user_id == user_id,
+                        Message.is_processed == False,
+                        Message.received_at >= cutoff_24h,
+                    )
+                    .order_by(Message.received_at.desc())
+                    .limit(20)
+                    .all()
+                )
+
+                if not unprocessed:
+                    unprocessed = (
+                        db.query(Message)
+                        .filter(
+                            Message.user_id == user_id,
+                            Message.is_processed == False,
+                        )
+                        .order_by(Message.received_at.desc())
+                        .limit(20)
+                        .all()
+                    )
+
+                try:
+                    client = LLMClient(user_id=user_id)
+                except LLMException as exc:
+                    error_msg = f"AI provider configuration error: {str(exc)}"
+                    logger.warning("Job %s: LLM client creation failed for user %s: %s", job_id, user_id, exc)
+                    job.mark_failed(error_msg)
+                    return
+
                 processed_count = 0
+                failed_count = 0
 
                 for msg in unprocessed:
                     if job.state == AIJobState.CANCELLED:
@@ -306,20 +346,34 @@ class AIJobManager:
                     try:
                         await process_message_ai(db=db, message=msg, llm_client=client)
                         processed_count += 1
-                        job.update_stage(AIJobState.PROCESSING, f"Processed message {processed_count} of {len(unprocessed)}", processed=processed_count)
+                        job.update_stage(
+                            AIJobState.PROCESSING,
+                            f"Processed communication {processed_count} of {len(unprocessed)}",
+                            processed=processed_count,
+                        )
                     except LLMRateLimitError as exc:
                         error_msg = "Your AI provider is temporarily rate-limiting requests. You can retry when processing becomes available."
-                        logger.warning("Rate limit encountered in job %s: %s", job_id, exc)
+                        logger.warning("Rate limit encountered in job %s for user %s: %s", job_id, user_id, exc)
                         job.mark_failed(error_msg)
                         return
                     except LLMAuthenticationError as exc:
                         error_msg = "AI provider authentication failed. Please check your API key in Settings."
-                        logger.warning("Auth error in job %s: %s", job_id, exc)
+                        logger.warning("Auth error in job %s for user %s: %s", job_id, user_id, exc)
                         job.mark_failed(error_msg)
                         return
-                    except (LLMConnectionError, Exception) as exc:
-                        logger.error("AI message processing failed for msg %s: %s", msg.id, exc)
+                    except (LLMConnectionError, LLMResponseError, LLMException, Exception) as exc:
+                        failed_count += 1
+                        logger.error("AI message processing failed for msg %s in job %s: %s", msg.id, job_id, exc)
                         job.add_error(f"Message {msg.id}: {str(exc)}")
+
+                if len(unprocessed) > 0 and processed_count == 0 and failed_count > 0:
+                    error_msg = "AI processing failed for all communications. Check your LLM settings."
+                    logger.error("Job %s failed for user %s: 0 out of %d messages processed", job_id, user_id, len(unprocessed))
+                    job.mark_failed(error_msg)
+                    return
+
+            if job.state == AIJobState.CANCELLED:
+                return
 
             # Stage 4: Finalizing & Daily Briefing Generation
             job.update_stage(AIJobState.FINALIZING, "Generating daily briefing insights...")
@@ -343,11 +397,17 @@ class AIJobManager:
 
             # Stage 5: Mark Completed
             job.mark_completed(briefing_data=briefing_data)
-            logger.info("Job %s completed successfully for user_id=%s", job_id, user_id)
+            duration = (datetime.utcnow() - start_time).total_seconds()
+            logger.info("Job %s completed successfully for user_id=%s in %.2fs (provider=%s)", job_id, user_id, duration, getattr(client, "provider", "unknown"))
 
+        except asyncio.CancelledError:
+            logger.info("Job %s for user_id=%s was cancelled", job_id, user_id)
+            if job.state not in (AIJobState.COMPLETED, AIJobState.FAILED, AIJobState.CANCELLED):
+                job.state = AIJobState.CANCELLED
+                job.current_stage = "Job cancelled"
         except Exception as fatal_err:
-            logger.error("Job %s encountered fatal error: %s", job_id, fatal_err, exc_info=True)
-            job.mark_failed(str(fatal_err))
+            logger.error("Job %s encountered fatal error for user_id=%s: %s", job_id, user_id, fatal_err, exc_info=True)
+            job.mark_failed(f"AI processing pipeline error: {str(fatal_err)}")
 
 
 # Global Singleton Manager Instance

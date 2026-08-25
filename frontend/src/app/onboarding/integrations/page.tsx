@@ -232,7 +232,7 @@ export default function ApplicationIntegrationsPage() {
                   <button
                     onClick={handleConnectGoogle}
                     disabled={connectingProvider === 'google'}
-                    className="w-full flex items-center justify-center gap-2 py-2 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white rounded-lg text-xs font-semibold shadow-md shadow-indigo-600/10 transition-all cursor-pointer"
+                    className="w-full flex items-center justify-center gap-2 py-2 bg-zinc-900 hover:bg-zinc-850 disabled:opacity-50 text-zinc-100 rounded-lg text-xs font-semibold border border-zinc-800 transition-all cursor-pointer"
                   >
                     {connectingProvider === 'google' ? (
                       <>

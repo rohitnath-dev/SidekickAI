@@ -54,6 +54,18 @@ export default function DedicatedRunAIPage() {
     },
   });
 
+  // Retry Job Mutation
+  const retryJobMutation = useMutation({
+    mutationFn: async () => {
+      const response = await apiClient.post('/ai/job/retry', {});
+      return response.data;
+    },
+    onSuccess: () => {
+      setJobStarted(true);
+      refetch();
+    },
+  });
+
   // Auto-start job on mount if no active job exists
   useEffect(() => {
     if (!isLoading && jobStatus && !jobStatus.has_job && !jobStarted) {
@@ -218,11 +230,11 @@ export default function DedicatedRunAIPage() {
                 <div className="pt-4 flex flex-col sm:flex-row items-center justify-between gap-3 border-t border-zinc-900">
                   {isFailed || isStale ? (
                     <button
-                      onClick={() => startJobMutation.mutate()}
-                      disabled={startJobMutation.isPending}
+                      onClick={() => retryJobMutation.mutate()}
+                      disabled={retryJobMutation.isPending}
                       className="w-full sm:w-auto flex items-center justify-center gap-2 px-5 py-2.5 bg-zinc-900 hover:bg-zinc-850 text-zinc-200 text-xs font-semibold rounded-lg border border-zinc-800 transition-all cursor-pointer"
                     >
-                      <RefreshCw className={`w-3.5 h-3.5 ${startJobMutation.isPending ? 'animate-spin' : ''}`} />
+                      <RefreshCw className={`w-3.5 h-3.5 ${retryJobMutation.isPending ? 'animate-spin' : ''}`} />
                       Retry Sync & AI Run
                     </button>
                   ) : (

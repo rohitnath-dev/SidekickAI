@@ -438,7 +438,7 @@ async def sync_telegram(
 
     client = TelegramClient(StringSession(session_str), api_id, api_hash)
     try:
-        await client.connect()
+        await asyncio.wait_for(client.connect(), timeout=10.0)
         if not await client.is_user_authorized():
             raise HTTPException(status_code=401, detail="Telegram user unauthorized. Please reconnect.")
         dialogs = await client.get_dialogs(limit=10)
