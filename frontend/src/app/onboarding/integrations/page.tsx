@@ -407,7 +407,7 @@ export default function ApplicationIntegrationsPage() {
               onClick={handleNextOrSkip}
               className="flex items-center gap-2 px-6 py-2.5 rounded-lg text-xs font-semibold bg-indigo-600 hover:bg-indigo-500 text-white shadow-lg shadow-indigo-600/20 transition-all cursor-pointer"
             >
-              {hasAnyConnected ? 'Continue to Run AI' : 'Next'}
+              {hasAnyConnected ? 'Continue to Sync & Run AI' : 'Next'}
               <ArrowRight className="w-4 h-4" />
             </button>
           </div>

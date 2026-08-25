@@ -24,12 +24,14 @@ import {
 } from 'lucide-react';
 import SidebarLayout from '@/components/layout';
 import { apiClient } from '@/lib/api-client';
+import SyncRunAIModal from '@/components/sync-run-ai-modal';
 import DOMPurify from 'dompurify';
 
 function InboxContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const queryClient = useQueryClient();
+  const [isSyncModalOpen, setIsSyncModalOpen] = useState(false);
 
   const selectedIdParam = searchParams.get('id');
   const [selectedId, setSelectedId] = useState<number | null>(
@@ -550,6 +552,7 @@ function InboxContent() {
 
   return (
     <SidebarLayout>
+      <SyncRunAIModal isOpen={isSyncModalOpen} onClose={() => setIsSyncModalOpen(false)} />
       <div className="flex h-full w-full overflow-hidden bg-transparent relative z-10">
         
         {/* Left Pane: Message List */}
@@ -568,20 +571,11 @@ function InboxContent() {
               </div>
               <div className="flex items-center gap-2">
                 <button 
-                  onClick={() => syncMutation.mutate()}
-                  disabled={syncLoading}
-                  className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-semibold bg-zinc-100 text-zinc-950 hover:bg-zinc-200 hover:scale-[1.02] active:scale-[0.98] transition-all cursor-pointer disabled:opacity-50 shadow-md shadow-zinc-950/25 shrink-0"
+                  onClick={() => setIsSyncModalOpen(true)}
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-indigo-600 hover:bg-indigo-500 text-white transition-all cursor-pointer shadow-md shadow-indigo-950/25 border border-indigo-500/30 shrink-0"
                 >
-                  {syncLoading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RefreshCw className="w-3.5 h-3.5" />}
-                  {syncLoading ? 'Syncing...' : 'Sync'}
-                </button>
-                <button 
-                  onClick={() => runInboxAiMutation.mutate()}
-                  disabled={inboxAiLoading}
-                  className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-semibold bg-indigo-650 hover:bg-indigo-600 text-zinc-100 hover:scale-[1.02] active:scale-[0.98] transition-all cursor-pointer disabled:opacity-50 shadow-md shadow-indigo-950/25 border border-indigo-500/30 shrink-0"
-                >
-                  {inboxAiLoading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Sparkles className="w-3.5 h-3.5 text-indigo-400" />}
-                  {inboxAiLoading ? 'Running AI...' : 'Run AI'}
+                  <Sparkles className="w-3.5 h-3.5 text-indigo-200" />
+                  Sync & Run AI
                 </button>
               </div>
             </div>

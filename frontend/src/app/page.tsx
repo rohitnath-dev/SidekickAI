@@ -26,6 +26,7 @@ import {
 } from 'lucide-react';
 import SidebarLayout from '@/components/layout';
 import { apiClient } from '@/lib/api-client';
+import SyncRunAIModal from '@/components/sync-run-ai-modal';
 
 const PROVIDER_METADATA: Record<string, { name: string; dotClass: string; containerClass: string }> = {
   google: {
@@ -261,9 +262,13 @@ export default function DashboardPage() {
 
   const isJobActive = jobStatus?.has_job && ['starting', 'checking_connections', 'syncing', 'processing', 'finalizing'].includes(jobStatus?.state);
 
+  const [isSyncModalOpen, setIsSyncModalOpen] = useState(false);
+
   return (
     <SidebarLayout>
       <div className="p-6 md:p-8 space-y-8 max-w-7xl mx-auto relative z-10">
+        <SyncRunAIModal isOpen={isSyncModalOpen} onClose={() => setIsSyncModalOpen(false)} />
+
         {/* Compact AI Job Progress Bar */}
         {isJobActive && (
           <div className="flex items-center justify-between p-3.5 rounded-xl border border-indigo-500/30 bg-indigo-500/10 text-indigo-200 shadow-md">
@@ -273,12 +278,12 @@ export default function DashboardPage() {
                 AI processing in progress: {jobStatus?.current_stage}
               </span>
             </div>
-            <Link
-              href="/onboarding/run"
-              className="text-xs font-semibold text-indigo-400 hover:text-indigo-300 underline underline-offset-4 flex items-center gap-1"
+            <button
+              onClick={() => setIsSyncModalOpen(true)}
+              className="text-xs font-semibold text-indigo-400 hover:text-indigo-300 underline underline-offset-4 flex items-center gap-1 cursor-pointer bg-transparent border-none"
             >
               View progress →
-            </Link>
+            </button>
           </div>
         )}
 
@@ -311,20 +316,21 @@ export default function DashboardPage() {
               Assistant Online
             </span>
             <button 
-              onClick={() => syncMutation.mutate()}
-              disabled={syncLoading}
-              className="flex items-center gap-1.5 px-3.5 py-2 rounded-lg text-xs font-semibold bg-zinc-100 text-zinc-950 hover:bg-zinc-200 hover:scale-[1.02] active:scale-[0.98] transition-all cursor-pointer disabled:opacity-50 shadow-md shadow-zinc-950/20"
+              onClick={() => setIsSyncModalOpen(true)}
+              disabled={isJobActive}
+              className="flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-semibold bg-indigo-600 hover:bg-indigo-500 disabled:bg-zinc-800 disabled:text-zinc-500 text-white shadow-lg shadow-indigo-600/20 transition-all cursor-pointer border border-indigo-500/30"
             >
-              {syncLoading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RefreshCw className="w-3.5 h-3.5" />}
-              {syncLoading ? 'Syncing...' : 'Sync'}
-            </button>
-            <button 
-              onClick={() => runAiMutation.mutate()}
-              disabled={aiLoading}
-              className="flex items-center gap-1.5 px-3.5 py-2 rounded-lg text-xs font-semibold bg-indigo-650 hover:bg-indigo-600 text-zinc-100 hover:scale-[1.02] active:scale-[0.98] transition-all cursor-pointer disabled:opacity-50 shadow-md shadow-indigo-950/20 border border-indigo-500/30"
-            >
-              {aiLoading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Sparkles className="w-3.5 h-3.5 text-indigo-400" />}
-              {aiLoading ? 'Running AI...' : 'Run AI'}
+              {isJobActive ? (
+                <>
+                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                  Syncing & analyzing...
+                </>
+              ) : (
+                <>
+                  <Sparkles className="w-3.5 h-3.5 text-indigo-200" />
+                  Sync & Run AI
+                </>
+              )}
             </button>
           </div>
         </div>
