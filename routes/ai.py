@@ -543,183 +543,79 @@ async def analyze_messages(
 
 
 # ============================================================================
-# Full AI run
+# Authoritative AI Processing Job Endpoints
 # ============================================================================
+
+from services.job_manager import job_manager, AIJobState
+
+
+@router.post("/job/start")
+async def start_ai_job(
+    request: RunAIRequest,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """
+    Start or retrieve an authoritative Sync & AI processing job for current user.
+    If a job is already in progress, returns the existing active job.
+    """
+    job = await job_manager.start_job(user_id=current_user.id, db=db, llm_config=request)
+    return job.to_dict()
+
+
+@router.get("/job/status")
+async def get_ai_job_status(
+    current_user: User = Depends(get_current_user),
+):
+    """Get active or latest processing job status for current user."""
+    job = job_manager.get_job(str(current_user.id))
+    if not job:
+        return {
+            "has_job": False,
+            "state": "idle",
+            "current_stage": "No processing job found.",
+            "connected_integrations": [],
+            "total_items_discovered": 0,
+            "items_processed": 0,
+            "errors": [],
+            "briefing": None,
+        }
+    
+    res = job.to_dict()
+    res["has_job"] = True
+    return res
+
+
+@router.post("/job/cancel")
+async def cancel_ai_job(
+    current_user: User = Depends(get_current_user),
+):
+    """Cancel any active processing job for current user."""
+    cancelled = await job_manager.cancel_job(current_user.id)
+    return {"status": "success" if cancelled else "no_active_job", "cancelled": cancelled}
+
+
+@router.post("/job/retry")
+async def retry_ai_job(
+    request: RunAIRequest,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Reset failed/stale job and start a new processing run."""
+    user_id_str = str(current_user.id)
+    job = job_manager.get_job(user_id_str)
+    if job:
+        job.state = AIJobState.STALE  # Force reset existing job
+    new_job = await job_manager.start_job(user_id=current_user.id, db=db, llm_config=request)
+    return new_job.to_dict()
+
 
 @router.post("/run")
 async def run_ai_pipeline(
     request: RunAIRequest,
-    current_user: User = Depends(
-        get_current_user
-    ),
-    db: Session = Depends(
-        get_db
-    ),
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
 ):
-    """
-    Run the complete AI pipeline.
-
-    Operations:
-    1. Process all unprocessed messages.
-    2. Generate the daily briefing.
-    3. Cache the generated briefing.
-
-    The same request-specific LLMClient is used
-    for both message processing and briefing.
-    """
-
-    lock = _ai_run_locks[
-        current_user.id
-    ]
-
-    if lock.locked():
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail=(
-                "AI processing is already "
-                "in progress. Please wait."
-            ),
-        )
-
-    client = _get_request_llm(
-        request
-    )
-
-    async with lock:
-
-        from agents.planner_agent import (
-            PlannerAgent
-        )
-
-        from routes.planner import (
-            cache_briefing
-        )
-
-        from services.oauth import (
-            get_credentials
-        )
-
-        # --------------------------------------------------------------
-        # 1. Process unprocessed messages
-        # --------------------------------------------------------------
-
-        unprocessed = (
-            db.query(Message)
-            .filter(
-                Message.user_id
-                == current_user.id,
-                Message.is_processed
-                == False,
-            )
-            .all()
-        )
-
-        processed_count = 0
-        errors: list[str] = []
-
-        for message in unprocessed:
-
-            try:
-                await process_message_ai(
-                    db=db,
-                    message=message,
-                    llm_client=client,
-                )
-
-                processed_count += 1
-
-            except Exception as exc:
-                logger.error(
-                    "AI pipeline failed for message %d: %s",
-                    message.id,
-                    exc,
-                    exc_info=True,
-                )
-
-                errors.append(
-                    f"Message {message.id}: "
-                    "AI processing failed."
-                )
-
-        # --------------------------------------------------------------
-        # 2. Generate daily briefing
-        # --------------------------------------------------------------
-
-        briefing_status = "success"
-        briefing_data = None
-
-        try:
-            logger.info(
-                "Generating daily briefing for "
-                "user_id=%d provider=%s model=%s",
-                current_user.id,
-                client.provider,
-                client._active_model(),
-            )
-
-            creds = get_credentials(
-                current_user.id,
-                db,
-            )
-
-            # IMPORTANT:
-            # Pass the exact same request-specific client
-            # directly into PlannerAgent.
-
-            planner_agent = PlannerAgent(
-                llm_client=client,
-            )
-
-            briefing_data = (
-                await planner_agent.generate_daily_briefing(
-                    user_id=current_user.id,
-                    db=db,
-                    creds=creds,
-                )
-            )
-
-            cache_briefing(
-                current_user.id,
-                briefing_data,
-            )
-
-        except Exception as exc:
-            logger.error(
-                "Daily briefing generation failed "
-                "for user %d: %s",
-                current_user.id,
-                exc,
-                exc_info=True,
-            )
-
-            errors.append(
-                "Daily briefing generation failed."
-            )
-
-            briefing_status = "failed"
-
-        # --------------------------------------------------------------
-        # 3. Final response
-        # --------------------------------------------------------------
-
-        if not errors:
-            status_str = "success"
-
-        elif (
-            processed_count == 0
-            and briefing_status == "failed"
-        ):
-            status_str = "failure"
-
-        else:
-            status_str = "partial_failure"
-
-        return {
-            "status": status_str,
-            "provider": client.provider,
-            "model": client._active_model(),
-            "processed_count": processed_count,
-            "briefing_status": briefing_status,
-            "briefing": briefing_data,
-            "errors": errors,
-            }
+    """Backwards-compatible endpoint for running AI pipeline."""
+    job = await job_manager.start_job(user_id=current_user.id, db=db, llm_config=request)
+    return job.to_dict()

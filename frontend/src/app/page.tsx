@@ -249,9 +249,39 @@ export default function DashboardPage() {
   const isTwitterConnected = connectedServices.find((s: any) => s.provider === 'twitter')?.connected;
 
 
+  // Fetch AI processing job status
+  const { data: jobStatus } = useQuery({
+    queryKey: ['ai-job-status-dashboard'],
+    queryFn: async () => {
+      const response = await apiClient.get('/ai/job/status');
+      return response.data;
+    },
+    refetchInterval: 3000,
+  });
+
+  const isJobActive = jobStatus?.has_job && ['starting', 'checking_connections', 'syncing', 'processing', 'finalizing'].includes(jobStatus?.state);
+
   return (
     <SidebarLayout>
       <div className="p-6 md:p-8 space-y-8 max-w-7xl mx-auto relative z-10">
+        {/* Compact AI Job Progress Bar */}
+        {isJobActive && (
+          <div className="flex items-center justify-between p-3.5 rounded-xl border border-indigo-500/30 bg-indigo-500/10 text-indigo-200 shadow-md">
+            <div className="flex items-center gap-3">
+              <Loader2 className="w-4 h-4 text-indigo-400 animate-spin" />
+              <span className="text-xs font-medium">
+                AI processing in progress: {jobStatus?.current_stage}
+              </span>
+            </div>
+            <Link
+              href="/onboarding/run"
+              className="text-xs font-semibold text-indigo-400 hover:text-indigo-300 underline underline-offset-4 flex items-center gap-1"
+            >
+              View progress →
+            </Link>
+          </div>
+        )}
+
         {aiHealth?.status === 'error' && (
           <div className="flex items-start gap-3 p-4 rounded-xl border border-rose-500/25 bg-rose-500/5 text-rose-250 shadow-sm relative overflow-hidden group">
             <div className="absolute inset-0 bg-gradient-to-r from-rose-500/0 via-rose-500/2 to-rose-500/0 pointer-events-none"></div>

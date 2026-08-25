@@ -13,26 +13,17 @@ export default function AIOnboardingPage() {
 
   useEffect(() => {
     let isCancelled = false;
-    let timeoutId: any;
 
     const verifyAuth = async () => {
       try {
-        timeoutId = setTimeout(() => {
-          if (!isCancelled) {
-            console.warn('[Auth Timeout] AI Onboarding auth check took too long, redirecting to login');
-            window.location.href = '/login';
-          }
-        }, 4000); // 4 seconds max wait
-
         console.log('[AI Onboarding] Verifying session and AI configuration status...');
         const response = await apiClient.get('/auth/me');
 
         if (!isCancelled) {
-          clearTimeout(timeoutId);
           if (response.data && response.data.has_ai_config === true) {
             if (response.data.onboarding_completed === false) {
-              console.log('[AI Onboarding] AI provider configured. Proceeding to intermediate Settings step.');
-              router.push('/onboarding/settings');
+              console.log('[AI Onboarding] AI provider configured. Proceeding to Application Integrations step.');
+              router.push('/onboarding/integrations');
             } else {
               console.log('[AI Onboarding] Onboarding already completed. Redirecting to dashboard.');
               router.push('/');
@@ -43,7 +34,6 @@ export default function AIOnboardingPage() {
         }
       } catch (err) {
         if (!isCancelled) {
-          clearTimeout(timeoutId);
           console.log('[AI Onboarding] Session verification failed. Redirecting to login.', err);
           window.location.href = '/login';
         }
@@ -54,7 +44,6 @@ export default function AIOnboardingPage() {
 
     return () => {
       isCancelled = true;
-      clearTimeout(timeoutId);
     };
   }, [router]);
 
@@ -98,7 +87,7 @@ export default function AIOnboardingPage() {
           </div>
 
           <div className="bg-zinc-900/40 border border-zinc-900 rounded-xl p-6 md:p-8 shadow-2xl backdrop-blur-md">
-            <AIConfigForm onSaveSuccess={() => router.push('/onboarding/settings')} />
+            <AIConfigForm onSaveSuccess={() => router.push('/onboarding/integrations')} />
           </div>
         </div>
       </div>

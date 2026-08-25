@@ -57,8 +57,8 @@ export default function SidebarLayout({ children }: SidebarProps) {
                 router.push('/onboarding/ai');
               }
             } else if (response.data.onboarding_completed === false) {
-              if (pathname !== '/onboarding/settings') {
-                router.push('/onboarding/settings');
+              if (!pathname.startsWith('/onboarding/')) {
+                router.push('/onboarding/integrations');
               }
             }
           }

@@ -72,6 +72,7 @@ export default function SettingsPage({ isOnboarding = false }: { isOnboarding?: 
 
   const [isGoogleConnecting, setIsGoogleConnecting] = useState(false);
   const [isSlackConnecting, setIsSlackConnecting] = useState(false);
+  const [isTwitterConnecting, setIsTwitterConnecting] = useState(false);
   const pollingInterval = useRef<any>(null);
   const activePopup = useRef<any>(null);
 
@@ -453,6 +454,48 @@ export default function SettingsPage({ isOnboarding = false }: { isOnboarding?: 
       console.error(err);
       alert(err.response?.data?.detail || 'Failed to initialize Slack authorization.');
       setIsSlackConnecting(false);
+    }
+  };
+
+  const handleConnectTwitter = async () => {
+    setIsTwitterConnecting(true);
+    try {
+      const response = await apiClient.get('/twitter/authorize');
+      const { authorization_url } = response.data;
+
+      const width = 500;
+      const height = 650;
+      const left = window.screenX + (window.innerWidth - width) / 2;
+      const top = window.screenY + (window.innerHeight - height) / 2;
+      const popup = window.open(
+        authorization_url,
+        'Twitter Authorization',
+        `width=${width},height=${height},left=${left},top=${top}`
+      );
+      activePopup.current = popup;
+
+      if (pollingInterval.current) clearInterval(pollingInterval.current);
+      pollingInterval.current = setInterval(async () => {
+        try {
+          const prefCheck = await apiClient.get('/settings/preferences');
+          const twitterStatus = prefCheck.data.connected_services.find((s: any) => s.provider === 'twitter')?.connected;
+          
+          if (twitterStatus) {
+            clearInterval(pollingInterval.current);
+            setIsTwitterConnecting(false);
+            if (popup) popup.close();
+            queryClient.invalidateQueries({ queryKey: ['preferences-settings'] });
+            queryClient.invalidateQueries({ queryKey: ['preferences'] });
+          }
+        } catch (e) {
+          console.error(e);
+        }
+      }, 2500);
+
+    } catch (err: any) {
+      console.error(err);
+      alert(err.response?.data?.detail || 'Failed to initialize Twitter authorization.');
+      setIsTwitterConnecting(false);
     }
   };
 
@@ -885,7 +928,7 @@ export default function SettingsPage({ isOnboarding = false }: { isOnboarding?: 
                   <div className="space-y-3 pt-4 border-t border-zinc-900">
                     <div className="flex items-center justify-between">
                       <div>
-                        <h3 className="text-xs font-bold text-zinc-255">Twitter / X Desk</h3>
+                        <h3 className="text-xs font-bold text-zinc-200">Twitter / X Desk</h3>
                         <p className="text-[10px] text-zinc-500">Mentions, Reply posting</p>
                       </div>
                       <span className={`text-[10px] font-mono px-2 py-0.5 rounded ${
@@ -902,9 +945,23 @@ export default function SettingsPage({ isOnboarding = false }: { isOnboarding?: 
                         Disconnect Service
                       </button>
                     ) : (
-                      <div className="p-3 bg-zinc-950/60 border border-zinc-900 rounded text-[10px] text-zinc-500 leading-relaxed">
-                        Read-only mentions are pulled automatically from your global system environment variables when set.
-                      </div>
+                      <button
+                        onClick={handleConnectTwitter}
+                        disabled={isTwitterConnecting}
+                        className="w-full flex items-center justify-center gap-1.5 py-2 bg-zinc-900 hover:bg-zinc-800 rounded text-xs font-semibold text-zinc-50 border border-zinc-850 hover:border-zinc-700 transition-all cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+                      >
+                        {isTwitterConnecting ? (
+                          <>
+                            <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                            Connecting popup...
+                          </>
+                        ) : (
+                          <>
+                            Authorize Twitter
+                            <ExternalLink className="w-3.5 h-3.5" />
+                          </>
+                        )}
+                      </button>
                     )}
                   </div>
 
