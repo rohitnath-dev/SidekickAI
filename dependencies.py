@@ -36,39 +36,29 @@ async def get_current_user(
         headers={"WWW-Authenticate": "Bearer"},
     )
 
-    # 1. Dynamically extract user_id from authenticated request headers
-    user_id_str = (
-        request.headers.get("x-user-id")
-        or request.headers.get("user-id")
-        or request.headers.get("X-User-ID")
-        or request.headers.get("X-User-Id")
-    )
+    # 1. Extract token from Authorization header, cookies, or query params
+    token = None
+    auth_header = request.headers.get("Authorization")
+    if auth_header:
+        parts = auth_header.split(" ")
+        if len(parts) == 2 and parts[0].lower() == "bearer":
+            token = parts[1]
 
-    if not user_id_str:
-        # 2. Extract token from headers, cookies, or query params
-        token = None
-        auth_header = request.headers.get("Authorization")
-        if auth_header:
-            parts = auth_header.split(" ")
-            if len(parts) == 2 and parts[0].lower() == "bearer":
-                token = parts[1]
+    if not token:
+        token = request.cookies.get("access_token")
 
-        if not token:
-            token = request.cookies.get("access_token")
+    if not token:
+        token = request.query_params.get("token")
 
-        if not token:
-            token = request.query_params.get("token")
-
-        if token:
-            user_id_str = decode_access_token(token)
+    user_id_str: Optional[str] = None
+    if token:
+        user_id_str = decode_access_token(token)
 
     if user_id_str is None:
         # Access token missing or invalid/expired. Try silent refresh with refresh_token cookie.
-        logger.info("Access token missing or invalid/expired. Checking refresh_token for silent refresh.")
+        logger.debug("Access token missing or invalid/expired. Checking refresh_token for silent refresh.")
         refresh_token = request.cookies.get("refresh_token")
         if refresh_token:
-            logger.info("Attempting validation of refresh token from cookie.")
-            # Check refresh token validity
             refresh_sub = decode_access_token(refresh_token)
             if refresh_sub:
                 from datetime import datetime, timedelta
@@ -76,29 +66,18 @@ async def get_current_user(
                 from services.auth import create_access_token, create_refresh_token
                 from config import settings
 
-                logger.info("Refresh token decoded successfully for subject=%s. Querying database session.", refresh_sub)
                 session_record = db.query(UserSession).filter(
                     UserSession.refresh_token == refresh_token,
                     UserSession.expires_at > datetime.utcnow()
                 ).first()
 
                 if session_record:
-                    # Look up user by string or integer
                     user = db.query(User).filter(User.id == refresh_sub).first()
-                    if not user:
-                        try:
-                            user_id = int(refresh_sub)
-                            user = db.query(User).filter(User.id == user_id).first()
-                        except (ValueError, TypeError):
-                            user = None
-
                     if user and user.is_active:
-                        logger.info("Valid user session found. Silently generating new access & refresh tokens for user_id=%s.", str(user.id))
                         # Generate rotated tokens
                         new_access = create_access_token(user.id)
                         new_refresh = create_refresh_token(user.id)
 
-                        # Update DB session safely
                         try:
                             session_record.refresh_token = new_refresh
                             session_record.expires_at = datetime.utcnow() + timedelta(days=settings.REFRESH_TOKEN_EXPIRE_DAYS)
@@ -129,49 +108,12 @@ async def get_current_user(
                             domain=settings.COOKIE_DOMAIN,
                         )
                         return user
-                    else:
-                        logger.warning("Session matched but user not active or not found.")
-                else:
-                    logger.warning("Refresh token was not found in active database sessions or has expired.")
-            else:
-                logger.warning("Refresh token in cookies failed JWT decoding/expiry validation.")
-        else:
-            logger.info("No refresh token cookie found on unauthorized request.")
-        
-        # If silent refresh fails or is not possible, raise 401
+
         raise credentials_exception
 
-    # Resolve database user dynamically using string/integer
+    # Resolve database user by user_id_str
     user = db.query(User).filter(User.id == user_id_str).first()
-    if not user:
-        try:
-            user_id = int(user_id_str)
-            user = db.query(User).filter(User.id == user_id).first()
-        except (ValueError, TypeError):
-            pass
-
-    # Provision user dynamically if they do not exist yet (test/mock account on the fly)
-    if not user:
-        try:
-            user = User(
-                id=user_id_str,
-                email=f"{user_id_str}@example.com" if "@" not in user_id_str else user_id_str,
-                hashed_password="placeholder_password",
-                full_name=f"User {user_id_str}",
-                is_active=True,
-                is_verified=True
-            )
-            db.add(user)
-            db.commit()
-            db.refresh(user)
-            logger.info("Dynamically created user for extracted ID: %s", user_id_str)
-        except Exception as exc:
-            db.rollback()
-            logger.error("Failed to dynamically create user for ID %s: %s", user_id_str, exc)
-            # Last resort fallback: return first user in database
-            user = db.query(User).first()
-
-    if user is None or not user.is_active:
+    if not user or not user.is_active:
         raise credentials_exception
 
     return user

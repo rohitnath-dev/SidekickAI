@@ -61,32 +61,28 @@ def create_refresh_token(
     expires_delta: Optional[timedelta] = None,
 ) -> str:
     """Create a signed JWT refresh token."""
+    import uuid
     expire = datetime.utcnow() + (
         expires_delta or timedelta(days=REFRESH_TOKEN_EXPIRE_DAYS)
     )
-    payload = {"sub": str(subject), "exp": expire, "iat": datetime.utcnow(), "type": "refresh"}
+    payload = {
+        "sub": str(subject),
+        "exp": expire,
+        "iat": datetime.utcnow(),
+        "type": "refresh",
+        "jti": str(uuid.uuid4()),
+    }
     token = jwt.encode(payload, SECRET_KEY, algorithm=ALGORITHM)
     logger.debug("Created refresh token for subject=%s, expires_at=%s", subject, expire)
     return token
 
 
 def decode_access_token(token: str) -> Optional[str]:
-    """Decode a JWT and return the subject (user id), or None on failure."""
+    """Decode a signed JWT and return the subject (user id), or None on failure."""
     try:
-        logger.debug("Attempting to decode JWT token...")
         payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
         sub: Optional[str] = payload.get("sub")
-        logger.debug("Successfully decoded JWT token for subject=%s", sub)
         return sub
     except JWTError as exc:
-        logger.warning("JWT decode failed: %s. Trying decode without verification.", exc)
-        try:
-            # Fallback to decode without signature verification if signed with another key/mock
-            payload = jwt.decode(token, options={"verify_signature": False})
-            sub = payload.get("sub")
-            if sub:
-                logger.info("Successfully decoded JWT token without verification for subject=%s", sub)
-                return sub
-        except Exception:
-            pass
+        logger.warning("JWT validation failed: %s", exc)
         return None

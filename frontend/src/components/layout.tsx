@@ -46,18 +46,10 @@ export default function SidebarLayout({ children }: SidebarProps) {
 
     const checkAuth = async () => {
       try {
-        timeoutId = setTimeout(() => {
-          if (!isCancelled) {
-            console.warn('[Auth Timeout] SidebarLayout auth check took too long, redirecting to login');
-            window.location.href = '/login';
-          }
-        }, 4000); // 4 seconds max wait
-
         console.log("[App Layout] Checking user session status...");
         const response = await apiClient.get('/auth/me');
 
         if (!isCancelled) {
-          clearTimeout(timeoutId);
           setIsAuthenticated(true);
           if (response.data) {
             if (response.data.has_ai_config === false) {
@@ -73,7 +65,6 @@ export default function SidebarLayout({ children }: SidebarProps) {
         }
       } catch (err) {
         if (!isCancelled) {
-          clearTimeout(timeoutId);
           console.log("[App Layout] User not authenticated.", err);
           setIsAuthenticated(false);
           window.location.href = '/login';
@@ -85,7 +76,6 @@ export default function SidebarLayout({ children }: SidebarProps) {
 
     return () => {
       isCancelled = true;
-      clearTimeout(timeoutId);
     };
   }, [isMounted, pathname, router]);
 

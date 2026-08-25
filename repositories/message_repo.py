@@ -21,19 +21,24 @@ class MessageRepository:
 
     @staticmethod
     def get_by_id(db: Session, message_id: int, user_id: str | int) -> Optional[Message]:
-        msg = db.query(Message).filter(Message.id == message_id).first()
-        if msg and (msg.source == MessageSource.WHATSAPP or msg.user_id == user_id):
-            return msg
-        return None
+        return (
+            db.query(Message)
+            .filter(Message.id == message_id, Message.user_id == str(user_id))
+            .first()
+        )
 
     @staticmethod
     def get_by_external_id(
         db: Session, external_message_id: str, user_id: str | int
     ) -> Optional[Message]:
-        msg = db.query(Message).filter(Message.message_id == external_message_id).first()
-        if msg and (msg.source == MessageSource.WHATSAPP or msg.user_id == user_id):
-            return msg
-        return None
+        return (
+            db.query(Message)
+            .filter(
+                Message.message_id == external_message_id,
+                Message.user_id == str(user_id),
+            )
+            .first()
+        )
 
     @staticmethod
     def list_by_user(
@@ -46,13 +51,7 @@ class MessageRepository:
         high_priority_only: bool = False,
         category: Optional[str] = None,
     ) -> list[Message]:
-        from sqlalchemy import or_
-        if source == "whatsapp":
-            q = db.query(Message)
-        elif not source or source == "all":
-            q = db.query(Message).filter(or_(Message.user_id == user_id, Message.source == MessageSource.WHATSAPP))
-        else:
-            q = db.query(Message).filter(Message.user_id == user_id)
+        q = db.query(Message).filter(Message.user_id == str(user_id))
 
         if unread_only:
             q = q.filter(Message.status == MessageStatus.UNREAD)

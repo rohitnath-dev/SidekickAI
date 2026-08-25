@@ -49,93 +49,10 @@ logger = logging.getLogger(__name__)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    import traceback
-    logger.info("APP_VERSION_MARKER: starting new deploy version")
-    print("APP_VERSION_MARKER: starting new deploy version")
     logger.info("Starting Sidekick AI v%s …", settings.VERSION)
     try:
-        # Create all database tables (legacy/fallback)
+        # Create database tables if missing
         Base.metadata.create_all(bind=engine)
-        logger.info("Database tables ready.")
-
-        # Fallback safety: Verify and add html_body column if missing
-        try:
-            from sqlalchemy import inspect, text
-            inspector = inspect(engine)
-            columns = [col["name"] for col in inspector.get_columns("messages")]
-            if "html_body" not in columns:
-                logger.info("Database fallback safety: Column 'html_body' not found in table 'messages'. Attempting to add it dynamically.")
-                with engine.begin() as conn:
-                    # SQLite and PostgreSQL both support this syntax
-                    conn.execute(text("ALTER TABLE messages ADD COLUMN html_body TEXT"))
-                logger.info("Database fallback safety: Successfully added 'html_body' column to 'messages' table.")
-            if "channel_info" not in columns:
-                logger.info("Database fallback safety: Column 'channel_info' not found in table 'messages'. Attempting to add it dynamically.")
-                with engine.begin() as conn:
-                    conn.execute(text("ALTER TABLE messages ADD COLUMN channel_info VARCHAR(512)"))
-                logger.info("Database fallback safety: Successfully added 'channel_info' column to 'messages' table.")
-            user_columns_info = inspector.get_columns("users")
-            user_columns = [col["name"] for col in user_columns_info]
-            id_col = next((c for c in user_columns_info if c["name"] == "id"), None)
-            if id_col and "INT" in str(id_col["type"]).upper() and engine.name == "sqlite":
-                logger.info("Database fallback safety: Column 'users.id' is INTEGER. Migrating table to VARCHAR(255) for UUID compatibility.")
-                with engine.begin() as conn:
-                    conn.execute(text("""
-                        CREATE TABLE IF NOT EXISTS users_new (
-                            id VARCHAR(255) NOT NULL PRIMARY KEY,
-                            email VARCHAR(255) NOT NULL UNIQUE,
-                            hashed_password VARCHAR(255) NOT NULL,
-                            full_name VARCHAR(255),
-                            is_active BOOLEAN NOT NULL DEFAULT 1,
-                            is_verified BOOLEAN NOT NULL DEFAULT 0,
-                            is_admin BOOLEAN NOT NULL DEFAULT 0,
-                            onboarding_completed BOOLEAN NOT NULL DEFAULT 0,
-                            created_at DATETIME NOT NULL,
-                            updated_at DATETIME NOT NULL
-                        );
-                    """))
-                    conn.execute(text("""
-                        INSERT OR IGNORE INTO users_new (id, email, hashed_password, full_name, is_active, is_verified, is_admin, onboarding_completed, created_at, updated_at)
-                        SELECT CAST(id AS TEXT), email, hashed_password, full_name, is_active, is_verified, COALESCE(is_admin, 0), COALESCE(onboarding_completed, 0), created_at, updated_at FROM users;
-                    """))
-                    conn.execute(text("DROP TABLE users;"))
-                    conn.execute(text("ALTER TABLE users_new RENAME TO users;"))
-                    conn.execute(text("DROP TABLE IF EXISTS user_sessions;"))
-                logger.info("Database fallback safety: Successfully migrated users table id to VARCHAR(255).")
-
-            if "onboarding_completed" not in user_columns:
-                logger.info("Database fallback safety: Column 'onboarding_completed' not found in table 'users'. Attempting to add it dynamically.")
-                with engine.begin() as conn:
-                    conn.execute(text("ALTER TABLE users ADD COLUMN onboarding_completed BOOLEAN DEFAULT FALSE"))
-                logger.info("Database fallback safety: Successfully added 'onboarding_completed' column to 'users' table.")
-
-                # Backfill onboarding_completed = TRUE for pre-existing users with configured AI
-                try:
-                    with engine.begin() as conn:
-                        conn.execute(text("UPDATE users SET onboarding_completed = TRUE WHERE id IN (SELECT user_id FROM user_ai_configs)"))
-                    logger.info("Database backfill: Marked pre-existing users with AI configs as onboarding_completed = TRUE.")
-                except Exception as backfill_err:
-                    logger.error("Failed to backfill onboarding_completed for pre-existing users: %s", backfill_err)
-        except Exception as err:
-            logger.error("Database fallback safety: Failed to verify or add database columns: %s", err, exc_info=True)
-
-        # Backfill category = "primary" for existing messages where category is None
-        try:
-            from database import SessionLocal
-            from models.message import Message
-            db = SessionLocal()
-            updated_count = db.query(Message).filter(Message.category.is_(None)).update(
-                {Message.category: "primary"},
-                synchronize_session=False
-            )
-            if updated_count > 0:
-                db.commit()
-                logger.info("Backfilled %d messages with category='primary'.", updated_count)
-            else:
-                logger.info("No messages need category backfilling.")
-            db.close()
-        except Exception as err:
-            logger.error("Failed to backfill message categories: %s", err)
 
         # Run Alembic migrations automatically on startup
         try:
@@ -145,42 +62,7 @@ async def lifespan(app: FastAPI):
             command.upgrade(alembic_cfg, "head")
             logger.info("Alembic database migrations applied successfully on startup.")
         except Exception as exc:
-            logger.error("Failed to run Alembic migrations automatically on startup: %s", exc, exc_info=True)
-
-        # Database cleanup routine for Render startup:
-        # Delete user_3D8FF09H5k8W7d93riQ9tCJFHED and its configurations/sessions/messages
-        try:
-            from database import SessionLocal
-            from models.user import User as UserModel
-            from models.ai_config import UserAIConfig
-            from models.session import UserSession
-            from models.message import Message as MessageModel
-            from models.token import OAuthToken
-            from models.memory_item import MemoryItem
-
-            db = SessionLocal()
-            try:
-                target_user_id = "user_3D8FF09H5k8W7d93riQ9tCJFHED"
-                user = db.query(UserModel).filter(UserModel.id == target_user_id).first()
-                if user:
-                    logger.info("Startup Cleanup: Found target user %s, deleting database records...", target_user_id)
-                    db.query(UserAIConfig).filter_by(user_id=target_user_id).delete()
-                    db.query(UserSession).filter_by(user_id=target_user_id).delete()
-                    db.query(OAuthToken).filter_by(user_id=target_user_id).delete()
-                    db.query(MessageModel).filter_by(user_id=target_user_id).delete()
-                    db.query(MemoryItem).filter_by(user_id=target_user_id).delete()
-                    db.delete(user)
-                    db.commit()
-                    logger.info("Startup Cleanup: Successfully cleaned up all records for %s", target_user_id)
-                else:
-                    logger.info("Startup Cleanup: Target user %s not found in database.", target_user_id)
-            except Exception as clean_err:
-                db.rollback()
-                logger.error("Startup Cleanup: Error cleaning up database records: %s", clean_err)
-            finally:
-                db.close()
-        except Exception as import_err:
-            logger.error("Startup Cleanup: Failed to run imports for cleanup: %s", import_err)
+            logger.warning("Alembic startup migration notification: %s", exc)
 
         # Start background poller task
         import asyncio
