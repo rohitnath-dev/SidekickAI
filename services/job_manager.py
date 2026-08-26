@@ -32,6 +32,8 @@ class AIJobState(str, Enum):
     CHECKING_CONNECTIONS = "checking_connections"
     SYNCING = "syncing"
     PROCESSING = "processing"
+    DASHBOARD_READY = "dashboard_ready"
+    BACKGROUND_PROCESSING = "background_processing"
     FINALIZING = "finalizing"
     COMPLETED = "completed"
     FAILED = "failed"
@@ -75,10 +77,21 @@ class ProcessingJob:
         self.errors.append(error_msg)
         self.updated_at = datetime.utcnow()
 
+    def heartbeat(self):
+        self.updated_at = datetime.utcnow()
+
+    def mark_dashboard_ready(self, briefing_data: Optional[Dict[str, Any]] = None):
+        self.state = AIJobState.DASHBOARD_READY
+        self.current_stage = "Dashboard data ready. Continuing background processing..."
+        if briefing_data:
+            self.briefing = briefing_data
+        self.updated_at = datetime.utcnow()
+
     def mark_completed(self, briefing_data: Optional[Dict[str, Any]] = None):
         self.state = AIJobState.COMPLETED
         self.current_stage = "Processing completed successfully"
-        self.briefing = briefing_data
+        if briefing_data:
+            self.briefing = briefing_data
         self.completed_at = datetime.utcnow()
         self.updated_at = datetime.utcnow()
 
@@ -113,6 +126,7 @@ class AIJobManager:
     def __init__(self):
         self._user_jobs: Dict[str, ProcessingJob] = {}
         self._locks: Dict[str, asyncio.Lock] = {}
+        self._running_tasks: Dict[str, asyncio.Task] = {}
 
     def _get_lock(self, user_id: str) -> asyncio.Lock:
         if user_id not in self._locks:
@@ -125,7 +139,15 @@ class AIJobManager:
         if not job:
             return None
 
-        # Check for stale job (>2 minutes without update while in active state)
+        # Check active background task handle
+        task = self._running_tasks.get(user_id_str)
+        if task and not task.done():
+            # Task is actively running, ensure heartbeat is fresh
+            if (datetime.utcnow() - job.updated_at) > timedelta(seconds=30):
+                job.heartbeat()
+            return job
+
+        # Check for genuine stale job (>120s without update while task is dead/inactive)
         if (
             job.state not in (AIJobState.COMPLETED, AIJobState.FAILED, AIJobState.CANCELLED, AIJobState.STALE)
             and (datetime.utcnow() - job.updated_at) > timedelta(seconds=120)
@@ -162,7 +184,8 @@ class AIJobManager:
             self._user_jobs[user_id_str] = job
 
             # Launch async background task for sync & processing
-            asyncio.create_task(self._run_job_lifecycle(job_id, user_id_str, llm_config))
+            task = asyncio.create_task(self._run_job_lifecycle(job_id, user_id_str, llm_config))
+            self._running_tasks[user_id_str] = task
             return job
 
     async def cancel_job(self, user_id: str | int) -> bool:
@@ -288,12 +311,12 @@ class AIJobManager:
             if job.state == AIJobState.CANCELLED:
                 return
 
-            # Stage 3: AI Processing & Analysis (24-hour data window)
-            job.update_stage(AIJobState.PROCESSING, "Analyzing messages with AI...", discovered=total_discovered, processed=0)
+            # Stage 3: CRITICAL FAST PATH (Analyzing top candidate messages + generating Executive Briefing)
+            job.update_stage(AIJobState.PROCESSING, "Running fast-path AI analysis...", discovered=total_discovered, processed=0)
 
             with SessionLocal() as db:
                 from models.message import Message
-                from services.ai_pipeline import process_message_ai
+                from services.ai_pipeline import analyze_message_single_pass
                 from services.llm import (
                     LLMClient,
                     LLMRateLimitError,
@@ -339,16 +362,19 @@ class AIJobManager:
                 processed_count = 0
                 failed_count = 0
 
-                for msg in unprocessed:
+                # Fast Path: Process top 5 urgent communications first
+                fast_path_batch = unprocessed[:5]
+                background_batch = unprocessed[5:]
+
+                for msg in fast_path_batch:
                     if job.state == AIJobState.CANCELLED:
                         return
-
                     try:
-                        await process_message_ai(db=db, message=msg, llm_client=client)
+                        await analyze_message_single_pass(db=db, message=msg, llm_client=client)
                         processed_count += 1
                         job.update_stage(
                             AIJobState.PROCESSING,
-                            f"Processed communication {processed_count} of {len(unprocessed)}",
+                            f"Analyzed fast-path communication {processed_count} of {len(fast_path_batch)}",
                             processed=processed_count,
                         )
                     except LLMRateLimitError as exc:
@@ -363,37 +389,65 @@ class AIJobManager:
                         return
                     except (LLMConnectionError, LLMResponseError, LLMException, Exception) as exc:
                         failed_count += 1
-                        logger.error("AI message processing failed for msg %s in job %s: %s", msg.id, job_id, exc)
+                        logger.error("AI fast-path processing failed for msg %s in job %s: %s", msg.id, job_id, exc)
                         job.add_error(f"Message {msg.id}: {str(exc)}")
 
-                if len(unprocessed) > 0 and processed_count == 0 and failed_count > 0:
-                    error_msg = "AI processing failed for all communications. Check your LLM settings."
-                    logger.error("Job %s failed for user %s: 0 out of %d messages processed", job_id, user_id, len(unprocessed))
-                    job.mark_failed(error_msg)
-                    return
-
-            if job.state == AIJobState.CANCELLED:
-                return
-
-            # Stage 4: Finalizing & Daily Briefing Generation
-            job.update_stage(AIJobState.FINALIZING, "Generating daily briefing insights...")
-
-            briefing_data = None
-            with SessionLocal() as db:
+                # Generate Executive Daily Briefing for Fast Path
+                job.heartbeat()
+                briefing_data = None
                 try:
                     from agents.planner_agent import PlannerAgent
                     from routes.planner import cache_briefing
                     from services.oauth import get_credentials
 
                     creds = get_credentials(user_id, db)
-                    client = LLMClient(user_id=user_id)
                     planner_agent = PlannerAgent(llm_client=client)
-
                     briefing_data = await planner_agent.generate_daily_briefing(user_id=user_id, db=db, creds=creds)
                     cache_briefing(user_id, briefing_data)
                 except Exception as briefing_err:
-                    logger.error("Job %s: Briefing generation failed: %s", job_id, briefing_err)
+                    logger.error("Job %s: Fast-path briefing generation failed: %s", job_id, briefing_err)
                     job.add_error("Daily briefing generation failed.")
+
+                # Mark DASHBOARD_READY: User can now load the executive dashboard!
+                job.mark_dashboard_ready(briefing_data=briefing_data)
+                logger.info("Job %s reached DASHBOARD_READY for user_id=%s in %.2fs", job_id, user_id, (datetime.utcnow() - start_time).total_seconds())
+
+                if job.state == AIJobState.CANCELLED:
+                    return
+
+                # Stage 4: BACKGROUND DEFERRED PATH (Process remaining messages & memories)
+                if background_batch:
+                    job.update_stage(
+                        AIJobState.BACKGROUND_PROCESSING,
+                        f"Continuing background processing ({len(background_batch)} items remaining)...",
+                        processed=processed_count,
+                    )
+
+                    for msg in background_batch:
+                        if job.state == AIJobState.CANCELLED:
+                            return
+                        try:
+                            await analyze_message_single_pass(db=db, message=msg, llm_client=client)
+                            processed_count += 1
+                            job.update_stage(
+                                AIJobState.BACKGROUND_PROCESSING,
+                                f"Processed communication {processed_count} of {len(unprocessed)}",
+                                processed=processed_count,
+                            )
+                        except Exception as bg_err:
+                            logger.error("Background AI processing failed for msg %s: %s", msg.id, bg_err)
+
+                # Extract and persist long-term memories in background
+                from agents.memory_agent import MemoryAgent
+                memory_agent = MemoryAgent(llm_client=client)
+                for msg in (fast_path_batch + background_batch):
+                    if job.state == AIJobState.CANCELLED:
+                        return
+                    try:
+                        await memory_agent.extract_and_save_memory(message=msg, user_id=user_id, db=db)
+                        job.heartbeat()
+                    except Exception as mem_err:
+                        logger.warning("Background memory extraction error for msg %s: %s", msg.id, mem_err)
 
             # Stage 5: Mark Completed
             job.mark_completed(briefing_data=briefing_data)

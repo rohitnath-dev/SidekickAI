@@ -91,30 +91,132 @@ def _build_memory_context(memories) -> str:
     )
 
 
+async def analyze_message_single_pass(
+    db: Session,
+    message: Message,
+    llm_client: Optional[LLMClient] = None,
+) -> dict:
+    """
+    Perform high-performance single-pass AI analysis on a message.
+    Combines priority classification, summary generation, sentiment, category,
+    and action item extraction into ONE single LLM request.
+    """
+    client = llm_client or LLMClient(user_id=message.user_id)
+    sender = message.sender or "Unknown"
+    subject = message.subject or "(No subject)"
+    body = (message.body or "")[:1500]
+
+    prompt = f"""
+Analyze this incoming communication and return a single JSON object.
+
+COMMUNICATION DETAILS:
+From: {sender}
+Subject: {subject}
+Content: {body}
+
+OUTPUT JSON SCHEMA:
+{{
+  "score": 50,
+  "priority_level": "medium",
+  "requires_reply": false,
+  "reason": "Brief priority explanation",
+  "summary": "1-2 sentence concise executive summary",
+  "sentiment": "neutral",
+  "category": "work",
+  "action_items": []
+}}
+
+Rules:
+- score: 0 to 100 integer (critical > 85, high 70-85, medium 40-65, low < 40).
+- priority_level: "low" | "medium" | "high" | "critical"
+- requires_reply: true if sender asks a direct question, requests action/approval, or expects a response.
+- sentiment: "positive" | "neutral" | "negative" | "frustrated" | "urgent"
+- category: "work" | "personal" | "finance" | "travel" | "updates" | "sales" | "support" | "security" | "other"
+- action_items: list of short action strings.
+
+Return ONLY the JSON object. No preamble, no markdown code blocks.
+""".strip()
+
+    raw = await client.chat(
+        messages=[{"role": "user", "content": prompt}],
+        temperature=0.2,
+        user_id=message.user_id,
+        caller="single_pass_analysis",
+    )
+
+    from agents.base_agent import BaseAgent
+    helper = BaseAgent(llm_client=client)
+    res = helper.parse_json_response(raw)
+
+    if not isinstance(res, dict):
+        res = {}
+
+    score = res.get("score", 50)
+    try:
+        score = max(0, min(100, int(score)))
+    except (ValueError, TypeError):
+        score = 50
+
+    level_str = str(res.get("priority_level", "medium")).lower()
+    try:
+        priority_enum = MessagePriority(level_str)
+    except ValueError:
+        priority_enum = MessagePriority.MEDIUM
+
+    requires_reply = bool(res.get("requires_reply", False))
+    summary = str(res.get("summary", "")).strip()
+    sentiment = str(res.get("sentiment", "neutral")).strip()
+    category = str(res.get("category", "other")).strip()
+
+    action_list = res.get("action_items", [])
+    action_items_str = ""
+    if isinstance(action_list, list) and action_list:
+        action_items_str = "\n".join(f"- {str(item)}" for item in action_list)
+    elif action_list:
+        action_items_str = str(action_list)
+
+    suggested_reply = ""
+    if requires_reply:
+        try:
+            sender_name = message.sender.split("<")[0].strip() if message.sender else "Sender"
+            reply_agent = ReplyAgent(llm_client=client)
+            reply_res = await reply_agent.generate_reply(
+                recipient_name=sender_name,
+                email_content=message.body,
+                context="No relevant long-term user information is available.",
+                user_id=message.user_id,
+            )
+            if isinstance(reply_res, dict) and reply_res.get("reply"):
+                suggested_reply = reply_res["reply"]
+        except Exception as reply_err:
+            logger.warning("Failed to generate suggested reply for message %d: %s", message.id, reply_err)
+
+    message.update_from_ai(
+        summary=summary,
+        priority=priority_enum,
+        sentiment=sentiment,
+        category=category,
+        action_items=action_items_str,
+        suggested_reply=suggested_reply,
+        confidence_score=float(score),
+        requires_reply=requires_reply,
+    )
+    message.is_processed = True
+    db.commit()
+
+    return res
+
+
 async def process_message_ai(
     db: Session,
     message: Message,
     llm_client: Optional[LLMClient] = None,
+    include_memory: bool = True,
 ) -> None:
     """
-    Run the complete AI pipeline for a message.
-
-    Pipeline:
-
-        1. Priority classification
-        2. Summary + sentiment + category
-        3. Action item extraction
-        4. Memory extraction and persistence
-        5. Relevant memory retrieval
-        6. Conditional suggested reply generation
-        7. Save AI results to the database
-
-    Memory extraction is intentionally non-blocking for the rest of the
-    AI pipeline. If memory extraction fails, the message can still be
-    classified and processed normally.
-
-    Reply generation is conditional on the priority agent deciding that
-    a response is actually required.
+    Run the AI pipeline for a message.
+    Uses single-pass analysis for high speed execution.
+    Memory extraction is run conditionally based on include_memory.
     """
 
     try:
@@ -124,256 +226,26 @@ async def process_message_ai(
             message.source.value,
         )
 
-        # --------------------------------------------------------------
-        # 1. Priority
-        # --------------------------------------------------------------
-
-        priority_agent = PriorityAgent(
+        await analyze_message_single_pass(
+            db=db,
+            message=message,
             llm_client=llm_client,
         )
 
-        priority_result = await priority_agent.analyze(
-            message
-        )
-
-        if not isinstance(
-            priority_result,
-            dict,
-        ):
-            priority_result = {}
-
-        level_str = str(
-            priority_result.get(
-                "priority_level",
-                "medium",
-            )
-        ).lower()
-
-        try:
-            priority_enum = MessagePriority(
-                level_str
-            )
-        except ValueError:
-            priority_enum = MessagePriority.MEDIUM
-
-        requires_reply = bool(
-            priority_result.get(
-                "requires_reply",
-                False,
-            )
-        )
-
-        confidence_score = priority_result.get(
-            "score"
-        )
-
-        # --------------------------------------------------------------
-        # 2. Summary + sentiment + category
-        # --------------------------------------------------------------
-
-        summary_agent = SummaryAgent(
-            llm_client=llm_client,
-        )
-
-        summary_result = await summary_agent.generate_summary(
-            email_content=message.body,
-            user_id=message.user_id,
-        )
-
-        if isinstance(
-            summary_result,
-            dict,
-        ):
-            summary = summary_result.get(
-                "summary",
-                "",
-            )
-
-            sentiment = summary_result.get(
-                "sentiment",
-                "",
-            )
-
-            category = summary_result.get(
-                "category",
-                "",
-            )
-        else:
-            summary = ""
-            sentiment = ""
-            category = ""
-
-        # --------------------------------------------------------------
-        # 3. Action items
-        # --------------------------------------------------------------
-
-        action_result = await summary_agent.extract_action_items(
-            email_content=message.body,
-            user_id=message.user_id,
-        )
-
-        action_items = ""
-
-        if isinstance(
-            action_result,
-            dict,
-        ):
-            items_list = action_result.get(
-                "action_items",
-                [],
-            )
-
-            if isinstance(
-                items_list,
-                list,
-            ):
-                action_items = "\n".join(
-                    f"- {item}"
-                    for item in items_list
-                )
-            elif items_list:
-                action_items = str(
-                    items_list
-                )
-
-        # --------------------------------------------------------------
-        # 4. Extract + save long-term memories
-        # --------------------------------------------------------------
-
-        memory_agent = MemoryAgent(
-            llm_client=llm_client,
-        )
-
-        try:
-            saved_memories = (
+        if include_memory:
+            try:
+                memory_agent = MemoryAgent(llm_client=llm_client)
                 await memory_agent.extract_and_save_memory(
                     message=message,
                     user_id=message.user_id,
                     db=db,
                 )
-            )
-
-            logger.info(
-                "Memory processing completed for message %d: "
-                "saved=%d",
-                message.id,
-                len(saved_memories),
-            )
-
-        except Exception as memory_exc:
-            # Memory is an enrichment layer. A failure here must not
-            # prevent the main AI pipeline from completing.
-            logger.error(
-                "Memory extraction failed for message %d: %s",
-                message.id,
-                memory_exc,
-                exc_info=True,
-            )
-
-        # --------------------------------------------------------------
-        # 5. Retrieve relevant existing memories
-        # --------------------------------------------------------------
-
-        memory_context = (
-            "No relevant long-term user information is available."
-        )
-
-        try:
-            relevant_memories = (
-                await memory_agent.get_relevant_memories(
-                    user_id=message.user_id,
-                    query=message.body,
-                    db=db,
-                    limit=10,
-                )
-            )
-
-            memory_context = _build_memory_context(
-                relevant_memories
-            )
-
-            logger.debug(
-                "Retrieved %d relevant memories for message %d",
-                len(relevant_memories),
-                message.id,
-            )
-
-        except Exception as memory_exc:
-            logger.error(
-                "Relevant memory retrieval failed for message %d: %s",
-                message.id,
-                memory_exc,
-                exc_info=True,
-            )
-
-        # --------------------------------------------------------------
-        # 6. Suggested reply
-        # --------------------------------------------------------------
-
-        suggested_reply = ""
-
-        if requires_reply:
-            reply_agent = ReplyAgent(
-                llm_client=llm_client,
-            )
-
-            sender_name = (
-                message.sender.split("<")[0].strip()
-                if message.sender
-                else "User"
-            )
-
-            reply_result = await reply_agent.generate_reply(
-                recipient_name=sender_name,
-                email_content=message.body,
-                context=memory_context,
-                user_id=message.user_id,
-            )
-
-            if isinstance(
-                reply_result,
-                dict,
-            ):
-                suggested_reply = reply_result.get(
-                    "reply",
-                    "",
-                )
-
-        else:
-            logger.debug(
-                "Skipping reply generation for message %d "
-                "because requires_reply=False",
-                message.id,
-            )
-
-        # --------------------------------------------------------------
-        # 7. Persist AI results
-        # --------------------------------------------------------------
-
-        message.update_from_ai(
-            summary=summary,
-            priority=priority_enum,
-            sentiment=sentiment,
-            category=category,
-            action_items=action_items,
-            suggested_reply=suggested_reply,
-            confidence_score=confidence_score,
-            requires_reply=requires_reply,
-        )
-
-        message.is_processed = True
-
-        db.commit()
+            except Exception as memory_exc:
+                logger.error("Memory extraction failed for message %d: %s", message.id, memory_exc)
 
         logger.info(
-            "AI pipeline completed successfully for message %d "
-            "using provider=%s",
+            "AI pipeline completed successfully for message %d",
             message.id,
-            getattr(
-                llm_client,
-                "provider",
-                "default",
-            ),
         )
 
     except Exception as exc:
@@ -383,13 +255,7 @@ async def process_message_ai(
             exc,
             exc_info=True,
         )
-
-        # Roll back any partial database transaction.
         db.rollback()
-
-        # Do not leave the message in an ambiguous state.
         message.is_processed = True
         db.commit()
-
-        # Re-raise so the API route knows this message actually failed.
         raise

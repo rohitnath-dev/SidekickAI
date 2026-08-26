@@ -134,79 +134,33 @@ class PlannerAgent(BaseAgent):
             email_summaries: list[str] = []
 
             if messages:
-
-                priority_results = (
-                    await priority_agent.analyze_batch(
-                        messages
-                    )
-                )
-
-                # Pair priority results correctly by message ID.
-                pri_map = {
-                    pri.get("message_id"): pri
-                    for pri in priority_results
-                    if pri.get("message_id")
-                }
-
-                # Build summary strings for top 10 messages.
+                # Read priority and summary directly from message DB fields to avoid 50 redundant LLM calls
                 for i, msg in enumerate(messages):
-
                     if i >= 10:
                         break
 
-                    subject = (
-                        msg.subject
-                        or "(no subject)"
+                    subject = msg.subject or "(no subject)"
+                    sender = msg.sender or "unknown"
+                    score = int(msg.confidence_score) if msg.confidence_score is not None else (
+                        90 if getattr(msg.priority, 'value', str(msg.priority)) == 'critical' else
+                        75 if getattr(msg.priority, 'value', str(msg.priority)) == 'high' else
+                        50 if getattr(msg.priority, 'value', str(msg.priority)) == 'medium' else 25
                     )
-
-                    sender = (
-                        msg.sender
-                        or "unknown"
-                    )
-
-                    pri = pri_map.get(
-                        msg.message_id,
-                        {},
-                    )
-
-                    score = pri.get(
-                        "score",
-                        50,
-                    )
-
-                    snippet = (
-                        msg.body[:200]
-                        .replace("\n", " ")
-                        if msg.body
-                        else ""
-                    )
+                    snippet = (msg.summary or msg.body[:200] or "").replace("\n", " ")
 
                     email_summaries.append(
-                        f"- [{score}/100] "
-                        f"From: {sender} | "
-                        f"Subject: {subject} | "
-                        f"{snippet}"
+                        f"- [{score}/100] From: {sender} | Subject: {subject} | {snippet}"
                     )
 
-                # Collect high-priority messages.
+                # Collect high-priority messages directly from DB
                 for msg in messages:
-
-                    pri = pri_map.get(
-                        msg.message_id,
-                        {},
+                    score = int(msg.confidence_score) if msg.confidence_score is not None else (
+                        90 if getattr(msg.priority, 'value', str(msg.priority)) == 'critical' else
+                        75 if getattr(msg.priority, 'value', str(msg.priority)) == 'high' else 50
                     )
-
-                    if pri.get(
-                        "score",
-                        0,
-                    ) >= 70:
-
+                    if score >= 70 or getattr(msg.priority, 'value', str(msg.priority)) in ('high', 'critical'):
                         high_priority_items.append(
-                            f"- "
-                            f"{msg.subject or '(no subject)'} "
-                            f"from {msg.sender} "
-                            f"[score={pri.get('score', 0)}, "
-                            f"reason={pri.get('reason', '')}]"
+                            f"- {msg.subject or '(no subject)'} from {msg.sender} [score={score}]"
                         )
 
             emails_summary = (

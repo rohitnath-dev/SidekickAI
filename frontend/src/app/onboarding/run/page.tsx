@@ -83,7 +83,7 @@ export default function DedicatedRunAIPage() {
     router.push('/');
   };
 
-  const isCompleted = jobStatus?.state === 'completed';
+  const isCompleted = ['completed', 'dashboard_ready', 'background_processing'].includes(jobStatus?.state);
   const isFailed = jobStatus?.state === 'failed';
   const isStale = jobStatus?.state === 'stale';
   const hasNoIntegrations = jobStatus?.has_job && jobStatus?.has_connected_sources === false;

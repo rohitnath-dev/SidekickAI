@@ -268,22 +268,34 @@ async def ai_health(
     current_user: User = Depends(
         get_current_user
     ),
+    db: Session = Depends(
+        get_db
+    ),
 ):
     """
-    Check the health of the current user's
-    configured LLM.
-
-    This uses the user's saved AI configuration
-    when available, rather than the server-side
-    default LLM client.
+    Check the configuration health of the current user's configured LLM.
+    Validates provider credentials and settings without making live LLM completions.
     """
-
     try:
-        user_llm = LLMClient(
-            user_id=current_user.id
-        )
+        from models.ai_config import UserAIConfig
+        config = db.query(UserAIConfig).filter_by(user_id=str(current_user.id)).first()
 
-        return await user_llm.health_check_details()
+        provider = config.provider if config else getattr(llm, "provider", "openrouter")
+        model = config.model if config else getattr(llm, "_active_model", lambda: "openrouter/free")()
+
+        if config and config.provider == "openrouter" and not (config.api_key and config.api_key.strip()):
+            return {
+                "status": "error",
+                "provider": "openrouter",
+                "model": model,
+                "reason": "OpenRouter API key is missing. Please update key in Settings.",
+            }
+
+        return {
+            "status": "ok",
+            "provider": provider,
+            "model": model,
+        }
 
     except Exception as exc:
         logger.error(
@@ -292,7 +304,6 @@ async def ai_health(
             exc,
             exc_info=True,
         )
-
         return {
             "status": "error",
             "provider": "unknown",

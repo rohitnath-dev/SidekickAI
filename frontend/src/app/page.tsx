@@ -260,7 +260,8 @@ export default function DashboardPage() {
     refetchInterval: 3000,
   });
 
-  const isJobActive = jobStatus?.has_job && ['starting', 'checking_connections', 'syncing', 'processing', 'finalizing'].includes(jobStatus?.state);
+  const [bannerDismissed, setBannerDismissed] = useState(false);
+  const isJobActive = jobStatus?.has_job && ['starting', 'checking_connections', 'syncing', 'processing', 'finalizing', 'background_processing'].includes(jobStatus?.state);
 
   const [isSyncModalOpen, setIsSyncModalOpen] = useState(false);
 
@@ -287,16 +288,25 @@ export default function DashboardPage() {
           </div>
         )}
 
-        {aiHealth?.status === 'error' && (
-          <div className="flex items-start gap-3 p-4 rounded-xl border border-rose-500/25 bg-rose-500/5 text-rose-250 shadow-sm relative overflow-hidden group">
+        {!bannerDismissed && aiHealth?.status === 'error' && (
+          <div className="flex items-start justify-between gap-3 p-4 rounded-xl border border-rose-500/25 bg-rose-500/5 text-rose-250 shadow-sm relative overflow-hidden group">
             <div className="absolute inset-0 bg-gradient-to-r from-rose-500/0 via-rose-500/2 to-rose-500/0 pointer-events-none"></div>
-            <AlertTriangle className="w-5 h-5 text-rose-450 shrink-0 mt-0.5" />
-            <div className="space-y-1 z-10">
-              <h4 className="font-semibold text-rose-400">AI analysis temporarily unavailable</h4>
-              <p className="text-zinc-400 text-xs">
-                AI service is currently rate-limited or unavailable. Please check your API limits.
-              </p>
+            <div className="flex items-start gap-3 z-10">
+              <AlertTriangle className="w-5 h-5 text-rose-450 shrink-0 mt-0.5" />
+              <div className="space-y-1">
+                <h4 className="font-semibold text-rose-400 text-xs">AI Service Notice</h4>
+                <p className="text-zinc-400 text-xs">
+                  {aiHealth?.reason || "AI service is currently rate-limited or unavailable. Please check your settings."}
+                </p>
+              </div>
             </div>
+            <button
+              onClick={() => setBannerDismissed(true)}
+              className="text-zinc-400 hover:text-zinc-200 text-sm font-bold px-2 py-0.5 cursor-pointer bg-transparent border-none z-10"
+              title="Dismiss warning"
+            >
+              ×
+            </button>
           </div>
         )}
 

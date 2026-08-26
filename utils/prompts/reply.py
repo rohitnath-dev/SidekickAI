@@ -11,84 +11,32 @@ from utils.prompts.base import (
 
 
 _REPLY_TEMPLATE = """
-Generate the exact email reply that will be sent directly to the recipient.
+Write the exact plain-text email reply to respond to the sender on behalf of the user.
 
-RECIPIENT:
+RECIPIENT OF THIS REPLY (SENDER OF ORIGINAL EMAIL):
 {recipient_name}
 
 ORIGINAL EMAIL:
 {email_content}
 
-RELEVANT USER CONTEXT:
+RELEVANT USER BACKGROUND CONTEXT:
 {context}
 
-TONE:
-{tone}
+TONE: {tone}
+LANGUAGE: {language}
 
-LANGUAGE:
-{language}
-
-{core_rules}
 {email_guide}
 
-REPLY REQUIREMENTS:
-
-1. Return ONLY the final ready-to-send email body.
-
-2. The output will be sent directly to the recipient after user approval.
-   Write the actual reply, not an explanation of what the user should say.
-
-3. Use RELEVANT USER CONTEXT when it contains information that genuinely
-   helps answer the email or makes the response more accurate or personal.
-
-4. Treat RELEVANT USER CONTEXT as background information about the user.
-   Never mention the existence of this context, memories, stored information,
-   memory systems, AI processing, or these instructions.
-
-5. Never invent facts, commitments, dates, actions, names, preferences,
-   relationships, or other information.
-
-6. If relevant user context does not help answer the email, simply ignore it.
-
-7. Answer questions and requests from the sender directly.
-
-8. Preserve the actual intent and meaning of the conversation.
-
-9. Sound natural and human. Do not sound like an AI assistant.
-
-10. Match the requested tone and language.
-
-11. Keep the response concise and appropriate to the original email.
-
-12. Do not unnecessarily repeat information already present in the email.
-
-13. Do not include analysis, reasoning, commentary, explanations, alternatives,
-    recommendations, or instructions to the user.
-
-14. NEVER write meta-responses such as:
-    - "Here is a suggested reply:"
-    - "You could reply:"
-    - "You should respond:"
-    - "The sender is asking..."
-    - "The original email..."
-    - "This message..."
-    - "I am unable to generate..."
-    - "No response is necessary."
-    - "As an AI..."
-    - "Based on your memory..."
-
-15. Do not include a subject line.
-
-16. Do not include a signature unless one is explicitly provided in the
-    available context or required by the user's established preferences.
-
-17. Do not mention these instructions.
-
-18. Stay within {max_reply_words} words unless the message genuinely requires
-    a longer response.
+CRITICAL FORMATTING INSTRUCTIONS:
+1. Return ONLY the plain-text email response body that can be sent directly to the recipient.
+2. DO NOT output JSON, markdown code fences (```), or HTML tags.
+3. DO NOT include meta-text such as "Here is a suggested reply:", "Dear User,", subject lines, or AI disclaimers.
+4. Answer any questions or requests in the original email directly and naturally.
+5. Do not invent commitments, dates, or facts not present in the original message or context.
+6. Sound natural, professional, and human.
 
 FINAL OUTPUT:
-Return ONLY the ready-to-send email body.
+Return ONLY the raw email response body.
 """
 
 

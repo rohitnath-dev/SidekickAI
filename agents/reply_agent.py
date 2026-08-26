@@ -27,6 +27,33 @@ from utils.prompts.reply import (
 logger = logging.getLogger(__name__)
 
 
+import json
+import re
+
+def _clean_reply_text(raw: str) -> str:
+    if not raw or not isinstance(raw, str):
+        return ""
+    reply = raw.strip()
+    if reply.startswith("```"):
+        reply = re.sub(r"^```[a-zA-Z]*\n?", "", reply)
+        reply = re.sub(r"\n?```$", "", reply).strip()
+    if (reply.startswith("{") and reply.endswith("}")) or (reply.startswith("[") and reply.endswith("]")):
+        try:
+            parsed = json.loads(reply)
+            if isinstance(parsed, dict):
+                reply = str(parsed.get("reply") or parsed.get("text") or parsed.get("content") or reply).strip()
+        except Exception:
+            pass
+    preambles = [
+        r"^(?:Here is a (?:suggested |professional |draft |ready-to-send )?reply:?\s*)",
+        r"^(?:Suggested reply:?\s*)",
+        r"^(?:Proposed reply:?\s*)",
+    ]
+    for pat in preambles:
+        reply = re.sub(pat, "", reply, flags=re.IGNORECASE).strip()
+    return reply
+
+
 class ReplyAgent(BaseAgent):
     """Generates context-aware suggested replies."""
 
@@ -52,16 +79,6 @@ class ReplyAgent(BaseAgent):
         language: str = "English",
         user_id: Optional[str | int] = None,
     ) -> dict:
-        """
-        Generate a ready-to-send reply.
-
-        `context` may contain relevant long-term user memory retrieved
-        by the AI pipeline.
-
-        The request-specific LLM client, when supplied during agent
-        construction, is preserved and used through BaseAgent.
-        """
-
         memory_context = (
             context.strip()
             if isinstance(
@@ -85,7 +102,7 @@ class ReplyAgent(BaseAgent):
             user_id=user_id,
         )
 
-        reply = raw.strip() if raw else ""
+        reply = _clean_reply_text(raw)
 
         return {
             "reply": reply,

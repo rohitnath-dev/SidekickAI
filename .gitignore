@@ -1,3 +1,5 @@
 sidekick.db
+*.db
+*.db-journal
 __pycache__/
 *.pyc
