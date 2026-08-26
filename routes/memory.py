@@ -184,13 +184,13 @@ async def extract_memories(
 
     except Exception as exc:
         logger.exception(
-            "Memory extraction failed for user_id=%d",
+            "Memory extraction failed for user_id=%s",
             current_user.id,
         )
 
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
-            detail="Unable to extract memories from the provided text.",
+            detail="Memory processing temporarily unavailable.",
         ) from exc
 
     return [
@@ -252,7 +252,7 @@ async def extract_from_message(
 
     except Exception as exc:
         logger.exception(
-            "Memory extraction failed for message_id=%d user_id=%d",
+            "Memory extraction failed for message_id=%s user_id=%s",
             message_id,
             current_user.id,
         )

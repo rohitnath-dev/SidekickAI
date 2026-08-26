@@ -7,6 +7,9 @@ Generate an executive daily briefing.
 
 DATE: {today_date}
 
+LONG-TERM USER MEMORIES & CONTEXT:
+{user_memories}
+
 EMAILS SUMMARY:
 {emails_summary}
 
@@ -50,6 +53,7 @@ def build_daily_briefing_prompt(
     calendar_summary: str,
     outstanding_items: str | None = None,
     high_priority_messages: str | None = None,
+    user_memories: str | None = None,
 ) -> str:
     return build(
         _DAILY_BRIEFING_TEMPLATE,
@@ -58,5 +62,6 @@ def build_daily_briefing_prompt(
         calendar_summary=calendar_summary,
         outstanding_items=outstanding_items or "None.",
         high_priority_messages=high_priority_messages or "None.",
+        user_memories=user_memories or "None recorded.",
         max_briefing_words=str(MAX_BRIEFING_WORDS),
     )

@@ -47,126 +47,86 @@ class MemoryAgent(BaseAgent):
     # Extraction
     # ------------------------------------------------------------------
 
+    async def extract_from_text(
+        self,
+        text: str,
+        user_id: Optional[str | int] = None,
+    ) -> list[dict]:
+        """
+        Extract durable memories from raw text (user note, message, email, or draft).
+        Returns a list of validated memory dicts.
+        """
+        if not isinstance(text, str) or not text.strip():
+            return []
+
+        prompt = build_memory_prompt(text.strip())
+
+        try:
+            raw = await self._call_llm(
+                prompt,
+                user_id=user_id,
+            )
+        except Exception as exc:
+            self.logger.warning("MemoryAgent.extract_from_text LLM call failed for user_id=%s: %s", user_id, exc)
+            return []
+
+        parsed = self.parse_json_response(raw)
+
+        if isinstance(parsed, dict):
+            memories_raw = parsed.get("memories", [])
+        elif isinstance(parsed, list):
+            memories_raw = parsed
+        else:
+            self.logger.warning("MemoryAgent.extract_from_text: unexpected LLM response shape for user_id=%s", user_id)
+            return []
+
+        if not isinstance(memories_raw, list):
+            return []
+
+        validated: list[dict] = []
+        for item in memories_raw:
+            if not isinstance(item, dict):
+                continue
+
+            content = item.get("content")
+            confidence = item.get("confidence", 0.8)
+
+            if not isinstance(content, str) or not content.strip():
+                continue
+
+            # Ensure numeric confidence
+            try:
+                confidence_val = float(confidence)
+            except (ValueError, TypeError):
+                confidence_val = 0.8
+
+            confidence_clamped = max(0.0, min(1.0, confidence_val))
+            item["confidence"] = confidence_clamped
+            item["content"] = content.strip()
+            item["category"] = str(item.get("category", "personal")).lower()
+            item["retention_value"] = str(item.get("retention_value", "medium")).lower()
+
+            validated.append(item)
+
+        self.logger.info(
+            "MemoryAgent.extract_from_text: extracted %d valid memories for user_id=%s",
+            len(validated),
+            user_id,
+        )
+        return validated
+
     async def extract_memory(
         self,
         message: Message,
     ) -> list[dict]:
         """
         Extract durable facts from a stored message.
-
-        Only information explicitly present in the message should be
-        returned. Temporary or one-time information should be ignored.
         """
-
         message_content = message.to_context_string()
-
-        prompt = build_memory_prompt(
-            message_content
-        )
-
-        raw = await self._call_llm(
-            prompt,
+        return await self.extract_from_text(
+            text=message_content,
             user_id=message.user_id,
         )
-
-        parsed = self.parse_json_response(
-            raw
-        )
-
-        # --------------------------------------------------------------
-        # Parse LLM response
-        # --------------------------------------------------------------
-
-        if isinstance(parsed, dict):
-            memories_raw = parsed.get(
-                "memories",
-                [],
-            )
-
-        elif isinstance(parsed, list):
-            memories_raw = parsed
-
-        else:
-            self.logger.warning(
-                "MemoryAgent.extract_memory: "
-                "unexpected LLM response shape"
-            )
-            return []
-
-        if not isinstance(
-            memories_raw,
-            list,
-        ):
-            return []
-
-        # --------------------------------------------------------------
-        # Validate memories
-        # --------------------------------------------------------------
-
-        validated: list[dict] = []
-
-        for item in memories_raw:
-            if not isinstance(
-                item,
-                dict,
-            ):
-                continue
-
-            content = item.get(
-                "content"
-            )
-
-            confidence = item.get(
-                "confidence"
-            )
-
-            # Content is mandatory.
-            if (
-                not isinstance(
-                    content,
-                    str,
-                )
-                or not content.strip()
-            ):
-                continue
-
-            # Confidence is mandatory and must be numeric.
-            if (
-                not isinstance(
-                    confidence,
-                    (int, float),
-                )
-                or isinstance(
-                    confidence,
-                    bool,
-                )
-            ):
-                continue
-
-            # Clamp confidence to [0.0, 1.0].
-            item["confidence"] = max(
-                0.0,
-                min(
-                    1.0,
-                    float(confidence),
-                ),
-            )
-
-            # Normalize content before persistence.
-            item["content"] = content.strip()
-
-            validated.append(
-                item
-            )
-
-        self.logger.info(
-            "MemoryAgent.extract_memory: "
-            "extracted %d valid memories for message_id=%s",
-            len(validated),
-            message.message_id,
-        )
-
-        return validated
 
     # ------------------------------------------------------------------
     # Save
@@ -219,8 +179,8 @@ class MemoryAgent(BaseAgent):
 
                 self.logger.debug(
                     "MemoryAgent.save_memories: "
-                    "skipping duplicate memory_id=%d "
-                    "for user_id=%d",
+                    "skipping duplicate memory_id=%s "
+                    "for user_id=%s",
                     existing.id,
                     user_id,
                 )
@@ -265,7 +225,7 @@ class MemoryAgent(BaseAgent):
 
         self.logger.info(
             "MemoryAgent.save_memories: "
-            "saved=%d skipped_duplicates=%d user_id=%d",
+            "saved=%d skipped_duplicates=%d user_id=%s",
             len(saved),
             skipped_duplicates,
             user_id,

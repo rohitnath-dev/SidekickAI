@@ -178,6 +178,19 @@ class PlannerAgent(BaseAgent):
             )
 
             # ----------------------------------------------------------
+            # 2.5 Fetch Long-term User Memories
+            # ----------------------------------------------------------
+            user_memories_str = "None recorded."
+            try:
+                from repositories.memory_repo import MemoryRepository
+                from services.ai_pipeline import format_memories_for_prompt
+                stored_memories = MemoryRepository.list_by_user(db=db, user_id=user_id, limit=15)
+                if stored_memories:
+                    user_memories_str = format_memories_for_prompt(stored_memories)
+            except Exception as mem_err:
+                self.logger.warning("PlannerAgent: failed to retrieve long-term memories: %s", mem_err)
+
+            # ----------------------------------------------------------
             # 3. Build briefing prompt
             # ----------------------------------------------------------
 
@@ -187,6 +200,7 @@ class PlannerAgent(BaseAgent):
                 calendar_summary="No calendar connected.",
                 outstanding_items=None,
                 high_priority_messages=high_priority_str,
+                user_memories=user_memories_str,
             )
 
             self.logger.info(

@@ -36,6 +36,13 @@ from services.llm import LLMClient
 logger = logging.getLogger(__name__)
 
 
+def format_memories_for_prompt(memories) -> str:
+    """
+    Convert relevant MemoryItem objects into concise context for prompt generation.
+    """
+    return _build_memory_context(memories)
+
+
 def _build_memory_context(memories) -> str:
     """
     Convert relevant MemoryItem objects into concise context for the
@@ -179,11 +186,15 @@ Return ONLY the JSON object. No preamble, no markdown code blocks.
     if requires_reply:
         try:
             sender_name = message.sender.split("<")[0].strip() if message.sender else "Sender"
+            from repositories.memory_repo import MemoryRepository
+            relevant_mems = MemoryRepository.find_relevant(db, user_id=message.user_id, query=message.body or "", limit=5)
+            memory_ctx = format_memories_for_prompt(relevant_mems)
+
             reply_agent = ReplyAgent(llm_client=client)
             reply_res = await reply_agent.generate_reply(
                 recipient_name=sender_name,
                 email_content=message.body,
-                context="No relevant long-term user information is available.",
+                context=memory_ctx,
                 user_id=message.user_id,
             )
             if isinstance(reply_res, dict) and reply_res.get("reply"):

@@ -62,10 +62,16 @@ export default function MemoryPage() {
       return response.data;
     },
     onSuccess: (data) => {
-      setExtractResult(`Successfully added ${data.length} new memories.`);
+      if (Array.isArray(data) && data.length === 0) {
+        setExtractResult('No useful long-term memory was identified from this text.');
+      } else if (Array.isArray(data)) {
+        setExtractResult(`Successfully added ${data.length} new memory item${data.length > 1 ? 's' : ''}.`);
+      } else {
+        setExtractResult('Memory extraction processed successfully.');
+      }
       setExtractText('');
       queryClient.invalidateQueries({ queryKey: ['memories'] });
-      setTimeout(() => setExtractResult(null), 4000);
+      setTimeout(() => setExtractResult(null), 5000);
     },
     onError: (err: any) => {
       console.error(err);
@@ -220,8 +226,16 @@ export default function MemoryPage() {
               </div>
 
               {extractResult && (
-                <div className="flex items-start gap-2.5 rounded-lg border border-emerald-900/30 bg-emerald-950/20 p-4 text-xs text-emerald-400">
-                  <CheckCircle2 className="h-4 w-4 shrink-0 text-emerald-500 mt-0.5" />
+                <div className={`flex items-start gap-2.5 rounded-lg border p-4 text-xs ${
+                  extractResult.startsWith('No useful')
+                    ? 'border-zinc-800 bg-zinc-900/60 text-zinc-400'
+                    : 'border-emerald-900/30 bg-emerald-950/20 text-emerald-400'
+                }`}>
+                  {extractResult.startsWith('No useful') ? (
+                    <AlertCircle className="h-4 w-4 shrink-0 text-zinc-400 mt-0.5" />
+                  ) : (
+                    <CheckCircle2 className="h-4 w-4 shrink-0 text-emerald-500 mt-0.5" />
+                  )}
                   <span>{extractResult}</span>
                 </div>
               )}
