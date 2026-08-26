@@ -61,16 +61,6 @@ export default function DashboardPage() {
     retry: false, // Don't spam if backend LLM API fails
   });
 
-  // Fetch today's calendar events
-  const { data: events, isLoading: isEventsLoading, error: eventsError } = useQuery({
-    queryKey: ['calendar-today'],
-    queryFn: async () => {
-      const response = await apiClient.get('/calendar/today');
-      return response.data;
-    },
-    retry: false,
-  });
-
   const queryClient = useQueryClient();
 
   const [syncLoading, setSyncLoading] = useState(false);
@@ -637,85 +627,8 @@ export default function DashboardPage() {
             </div>
           </div>
 
-          {/* Right Pane: Calendar & Connections */}
+          {/* Right Pane: Connections */}
           <div className="space-y-8">
-            {/* Calendar Widget */}
-            <div className="space-y-4">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <Calendar className="w-4 h-4 text-zinc-400" />
-                  <h2 className="text-xs font-bold uppercase tracking-wider text-zinc-400">Schedule Today</h2>
-                </div>
-              </div>
-
-              <div className="glass-panel rounded-xl p-5 space-y-3.5">
-                {isEventsLoading ? (
-                  <div className="flex justify-center py-6">
-                    <Loader2 className="w-5 h-5 animate-spin text-indigo-500" />
-                  </div>
-                ) : eventsError || !isGoogleConnected ? (
-                  (() => {
-                    const errorDetails = (eventsError as any)?.response?.data?.errorDetails;
-                    const isApiDisabled = errorDetails?.code === 'GOOGLE_API_DISABLED';
-                    const isSessionExpired = errorDetails?.code === 'GOOGLE_SESSION_EXPIRED';
-                    const buttonText = isApiDisabled ? 'Enable API' : (isSessionExpired ? 'Reconnect' : 'Connect Google');
-                    const linkHref = isApiDisabled && errorDetails.actionUrl ? errorDetails.actionUrl : '/settings';
-                    const target = isApiDisabled ? '_blank' : '_self';
-                    const rel = isApiDisabled ? 'noreferrer' : undefined;
-                    
-                    return (
-                      <div className="py-6 text-center border border-dashed border-zinc-800/80 rounded-lg p-5">
-                        <Calendar className="w-8 h-8 text-zinc-650 mx-auto mb-2 animate-pulse" />
-                        <p className="text-xs font-semibold text-zinc-300">
-                          {errorDetails?.message || (eventsError as any)?.response?.data?.detail || "Calendar Disconnected"}
-                        </p>
-                        <p className="text-[10px] text-zinc-500 mt-1 max-w-[200px] mx-auto">
-                          {isApiDisabled 
-                            ? "The Google Calendar API needs to be enabled in your Google Cloud Console." 
-                            : (isSessionExpired ? "Your Google authentication session has expired." : "Connect Google Workspace to sync today's timeline.")}
-                        </p>
-                        {isApiDisabled && errorDetails.actionUrl ? (
-                          <a 
-                            href={linkHref}
-                            target={target}
-                            rel={rel}
-                            className="inline-block mt-3 px-3 py-1 bg-zinc-900 border border-zinc-800 hover:border-zinc-700 text-[10px] text-zinc-300 font-semibold rounded-md transition-all hover:text-zinc-100 cursor-pointer"
-                          >
-                            {buttonText}
-                          </a>
-                        ) : (
-                          <Link 
-                            href={linkHref}
-                            className="inline-block mt-3 px-3 py-1 bg-zinc-900 border border-zinc-800 hover:border-zinc-700 text-[10px] text-zinc-300 font-semibold rounded-md transition-all hover:text-zinc-100 cursor-pointer"
-                          >
-                            {buttonText}
-                          </Link>
-                        )}
-                      </div>
-                    );
-                  })()
-                ) : events && events.length > 0 ? (
-                  <div className="space-y-4">
-                    {events.map((event: any) => {
-                      const startTime = new Date(event.start).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-                      const endTime = new Date(event.end).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-                      return (
-                        <div key={event.id} className="group relative flex flex-col gap-1 pl-3.5 border-l-2 border-indigo-500/40 hover:border-indigo-400 transition-all duration-300">
-                          <p className="text-xs font-semibold text-zinc-200 group-hover:text-zinc-100 transition-colors">{event.title}</p>
-                          <p className="text-[10px] font-mono text-zinc-400">{startTime} — {endTime}</p>
-                          {event.location && (
-                            <p className="text-[10px] text-zinc-550 truncate mt-0.5">{event.location}</p>
-                          )}
-                        </div>
-                      );
-                    })}
-                  </div>
-                ) : (
-                  <p className="text-xs text-zinc-550 italic py-6 text-center">No calendar events scheduled today.</p>
-                )}
-              </div>
-            </div>
-
             {/* Integrations Center Status */}
             <div className="space-y-4">
               <div className="flex items-center gap-2">

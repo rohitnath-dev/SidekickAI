@@ -136,6 +136,13 @@ export default function SidebarLayout({ children }: SidebarProps) {
     router.push('/login');
   };
 
+  const isRouteActive = (currentPath: string, href: string) => {
+    if (href === '/') {
+      return currentPath === '/';
+    }
+    return currentPath === href || currentPath.startsWith(`${href}/`) || (href === '/settings' && currentPath.startsWith('/onboarding/settings'));
+  };
+
   return (
     <div className="flex h-screen w-screen overflow-hidden bg-zinc-950 text-zinc-100 font-sans relative">
       {/* Technology grid overlay */}
@@ -158,7 +165,7 @@ export default function SidebarLayout({ children }: SidebarProps) {
           <nav className="flex flex-col gap-1.5">
             {navItems.map((item) => {
               const Icon = item.icon;
-              const isActive = pathname === item.href;
+              const isActive = isRouteActive(pathname, item.href);
               return (
                 <Link
                   key={item.name}
@@ -211,18 +218,21 @@ export default function SidebarLayout({ children }: SidebarProps) {
             <nav className="flex flex-col gap-2">
               {navItems.map((item) => {
                 const Icon = item.icon;
-                const isActive = pathname === item.href;
+                const isActive = isRouteActive(pathname, item.href);
                 return (
                   <Link
                     key={item.name}
                     href={item.href}
                     onClick={handleNavClick}
-                    className={`flex items-center gap-4 px-4 py-3 rounded-lg text-base font-medium transition-all duration-300 border ${
+                    className={`flex items-center gap-4 px-4 py-3 rounded-lg text-base font-medium transition-all duration-300 relative group border ${
                       isActive 
-                        ? 'bg-indigo-500/10 text-zinc-50 border-indigo-500/20' 
+                        ? 'bg-indigo-500/10 text-zinc-50 border-indigo-500/20 shadow-sm shadow-indigo-500/5' 
                         : 'text-zinc-400 hover:text-zinc-100 hover:bg-zinc-900/40 border-transparent hover:border-zinc-800/50'
                     }`}
                   >
+                    {isActive && (
+                      <span className="absolute left-0 top-1/4 bottom-1/4 w-1 rounded-r-md bg-indigo-500 shadow-md shadow-indigo-400"></span>
+                    )}
                     <Icon className={`w-5 h-5 ${isActive ? 'text-indigo-400' : 'text-zinc-400'}`} />
                     {item.name}
                   </Link>

@@ -577,652 +577,635 @@ export default function SettingsPage({ isOnboarding = false }: { isOnboarding?: 
           )}
         </div>
 
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+        <div className="space-y-8 max-w-4xl mx-auto">
           
-          {/* Left: General Settings Forms */}
-          <div className="lg:col-span-2 space-y-8">
-            
-            {/* Profile Update */}
-            <div className="bg-zinc-900/20 border border-zinc-900 rounded-xl p-6 space-y-6">
-              <div className="flex items-center gap-2 border-b border-zinc-900 pb-3">
-                <User className="w-4 h-4 text-zinc-400" />
-                <h2 className="text-sm font-semibold text-zinc-200 uppercase tracking-wider">Profile Information</h2>
+          {/* 1. Profile Update */}
+          <div className="bg-zinc-900/20 border border-zinc-900 rounded-xl p-6 space-y-6">
+            <div className="flex items-center gap-2 border-b border-zinc-900 pb-3">
+              <User className="w-4 h-4 text-zinc-400" />
+              <h2 className="text-sm font-semibold text-zinc-200 uppercase tracking-wider">Profile Information</h2>
+            </div>
+
+            {profileSuccess && (
+              <div className="flex items-start gap-2.5 rounded-lg border border-emerald-900/30 bg-emerald-950/20 p-4 text-xs text-emerald-400">
+                <CheckCircle2 className="h-4 w-4 shrink-0 text-emerald-500 mt-0.5" />
+                <span>{profileSuccess}</span>
+              </div>
+            )}
+
+            {profileError && (
+              <div className="flex items-start gap-2.5 rounded-lg border border-red-900/30 bg-red-950/20 p-4 text-xs text-red-400">
+                <AlertTriangle className="h-4 w-4 shrink-0 text-red-500 mt-0.5" />
+                <span>{profileError}</span>
+              </div>
+            )}
+
+            <form onSubmit={handleSubmitProfile((data) => updateProfileMutation.mutate(data))} className="space-y-4">
+              <div className="space-y-2">
+                <label className="block text-xs font-semibold uppercase tracking-wider text-zinc-400">
+                  Account Email Address
+                </label>
+                <input
+                  type="text"
+                  disabled
+                  value={user?.email || ''}
+                  className="w-full bg-zinc-950/40 border border-zinc-900 rounded-lg px-3 py-2 text-xs text-zinc-550 outline-none cursor-not-allowed"
+                />
               </div>
 
-              {profileSuccess && (
-                <div className="flex items-start gap-2.5 rounded-lg border border-emerald-900/30 bg-emerald-950/20 p-4 text-xs text-emerald-400">
-                  <CheckCircle2 className="h-4 w-4 shrink-0 text-emerald-500 mt-0.5" />
-                  <span>{profileSuccess}</span>
-                </div>
-              )}
+              <div className="space-y-2">
+                <label className="block text-xs font-semibold uppercase tracking-wider text-zinc-400">
+                  Full Name
+                </label>
+                <input
+                  type="text"
+                  {...registerProfile('fullName')}
+                  className="w-full bg-zinc-950 border border-zinc-850 rounded-lg px-3 py-2 text-xs text-zinc-100 placeholder-zinc-500 outline-none focus:border-zinc-700 transition-all"
+                />
+                {profileErrors.fullName && (
+                  <p className="text-xs text-red-400 mt-1">{profileErrors.fullName.message}</p>
+                )}
+              </div>
 
-              {profileError && (
-                <div className="flex items-start gap-2.5 rounded-lg border border-red-900/30 bg-red-950/20 p-4 text-xs text-red-400">
-                  <AlertTriangle className="h-4 w-4 shrink-0 text-red-500 mt-0.5" />
-                  <span>{profileError}</span>
-                </div>
-              )}
+              <button
+                type="submit"
+                disabled={isProfileSubmitting}
+                className="flex items-center justify-center gap-1.5 px-4 py-2.5 rounded-lg bg-zinc-100 hover:bg-zinc-200 text-xs font-semibold text-zinc-950 transition-all cursor-pointer disabled:opacity-50"
+              >
+                {isProfileSubmitting && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
+                Save Changes
+              </button>
+            </form>
+          </div>
 
-              <form onSubmit={handleSubmitProfile((data) => updateProfileMutation.mutate(data))} className="space-y-4">
-                <div className="space-y-2">
-                  <label className="block text-xs font-semibold uppercase tracking-wider text-zinc-400">
-                    Account Email Address
-                  </label>
-                  <input
-                    type="text"
-                    disabled
-                    value={user?.email || ''}
-                    className="w-full bg-zinc-950/40 border border-zinc-900 rounded-lg px-3 py-2 text-xs text-zinc-550 outline-none cursor-not-allowed"
-                  />
-                </div>
+          {/* 2. Connected Services / Integrations */}
+          <div className="bg-zinc-900/20 border border-zinc-900 rounded-xl p-6 space-y-6">
+            <div className="flex items-center gap-2 border-b border-zinc-900 pb-3">
+              <Power className="w-4 h-4 text-zinc-400" />
+              <h2 className="text-sm font-semibold text-zinc-200 uppercase tracking-wider">Connected Services / Integrations</h2>
+            </div>
 
-                <div className="space-y-2">
-                  <label className="block text-xs font-semibold uppercase tracking-wider text-zinc-400">
-                    Full Name
-                  </label>
-                  <input
-                    type="text"
-                    {...registerProfile('fullName')}
-                    className="w-full bg-zinc-950 border border-zinc-850 rounded-lg px-3 py-2 text-xs text-zinc-100 placeholder-zinc-500 outline-none focus:border-zinc-700 transition-all"
-                  />
-                  {profileErrors.fullName && (
-                    <p className="text-xs text-red-400 mt-1">{profileErrors.fullName.message}</p>
+            {isPrefLoading ? (
+              <div className="py-8 flex justify-center text-zinc-500">
+                <Loader2 className="w-6 h-6 animate-spin text-zinc-400" />
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                {/* Google Card */}
+                <div className="space-y-3 p-4 bg-zinc-950/40 border border-zinc-900 rounded-xl">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <h3 className="text-xs font-bold text-zinc-200">Google Integration</h3>
+                      <p className="text-[10px] text-zinc-500">Gmail, Calendar sync</p>
+                    </div>
+                    <span className={`text-[10px] font-mono px-2 py-0.5 rounded ${
+                      googlePref?.connected ? 'bg-emerald-950/20 text-emerald-400 border border-emerald-900/30' : 'bg-zinc-900 text-zinc-500'
+                    }`}>
+                      {googlePref?.connected ? 'Active' : 'Disconnected'}
+                    </span>
+                  </div>
+                  {googlePref?.connected ? (
+                    <div className="space-y-2">
+                      {googlePref.connected_at && (
+                        <p className="text-[9px] font-mono text-zinc-500">Linked: {new Date(googlePref.connected_at).toLocaleString()}</p>
+                      )}
+                      <button
+                        onClick={() => disconnectMutation.mutate('google')}
+                        className="w-full text-center py-2 bg-zinc-950 hover:bg-red-950/20 hover:text-red-400 rounded text-xs font-semibold text-zinc-400 border border-zinc-850 hover:border-red-900/20 transition-all cursor-pointer"
+                      >
+                        Revoke Access
+                      </button>
+                    </div>
+                  ) : (
+                    <button
+                      onClick={handleConnectGoogle}
+                      disabled={isGoogleConnecting}
+                      className="w-full flex items-center justify-center gap-1.5 py-2 bg-zinc-900 hover:bg-zinc-800 rounded text-xs font-semibold text-zinc-50 border border-zinc-850 hover:border-zinc-700 transition-all cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      {isGoogleConnecting ? (
+                        <>
+                          <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                          Connecting popup...
+                        </>
+                      ) : (
+                        <>
+                          Authorize Google
+                          <ExternalLink className="w-3.5 h-3.5" />
+                        </>
+                      )}
+                    </button>
                   )}
                 </div>
 
-                <button
-                  type="submit"
-                  disabled={isProfileSubmitting}
-                  className="flex items-center justify-center gap-1.5 px-4 py-2.5 rounded-lg bg-zinc-100 hover:bg-zinc-200 text-xs font-semibold text-zinc-950 transition-all cursor-pointer disabled:opacity-50"
-                >
-                  {isProfileSubmitting && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
-                  Save Changes
-                </button>
-              </form>
-            </div>
-
-            {/* AI / LLM Configuration */}
-            <div className="bg-zinc-900/20 border border-zinc-900 rounded-xl p-6 space-y-6">
-              <div className="flex items-center gap-2 border-b border-zinc-900 pb-3">
-                <BrainCircuit className="w-4 h-4 text-zinc-400" />
-                <h2 className="text-sm font-semibold text-zinc-200 uppercase tracking-wider">AI / LLM Settings</h2>
-              </div>
-
-              {aiSuccess && (
-                <div className="flex items-start gap-2.5 rounded-lg border border-emerald-900/30 bg-emerald-950/20 p-4 text-xs text-emerald-400">
-                  <CheckCircle2 className="h-4 w-4 shrink-0 text-emerald-500 mt-0.5" />
-                  <span>{aiSuccess}</span>
-                </div>
-              )}
-
-              {isEditingAI ? (
-                <div>
-                  <AIConfigForm
-                    isSettingsMode={true}
-                    onSaveSuccess={() => {
-                      setIsEditingAI(false);
-                      setAiSuccess('AI configuration updated successfully.');
-                      setTimeout(() => setAiSuccess(null), 4050);
-                    }}
-                  />
-                  <div className="mt-3 flex justify-start">
-                    <button
-                      type="button"
-                      onClick={() => setIsEditingAI(false)}
-                      className="px-4 py-2 border border-zinc-800 hover:border-zinc-700 rounded-lg text-xs font-semibold text-zinc-400 hover:text-zinc-200 transition-all cursor-pointer"
-                    >
-                      Cancel
-                    </button>
-                  </div>
-                </div>
-              ) : (
-                <div className="space-y-4">
-                  {isAiConfigLoading ? (
-                    <div className="py-4 flex justify-center text-zinc-500">
-                      <Loader2 className="w-6 h-6 animate-spin text-zinc-400" />
+                {/* Twitter Card */}
+                <div className="space-y-3 p-4 bg-zinc-950/40 border border-zinc-900 rounded-xl">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <h3 className="text-xs font-bold text-zinc-200">Twitter / X Desk</h3>
+                      <p className="text-[10px] text-zinc-500">Mentions, Reply posting</p>
                     </div>
-                  ) : aiConfig?.configured ? (
-                    <div className="space-y-4">
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                        <div className="p-4 bg-zinc-950/40 border border-zinc-900 rounded-lg space-y-1">
-                          <span className="text-[10px] uppercase font-semibold text-zinc-500 tracking-wider">Provider</span>
-                          <span className="block text-sm font-semibold text-zinc-200 capitalize">
-                            {aiConfig.provider}
-                          </span>
-                        </div>
-                        <div className="p-4 bg-zinc-950/40 border border-zinc-900 rounded-lg space-y-1">
-                          <span className="text-[10px] uppercase font-semibold text-zinc-500 tracking-wider">Model</span>
-                          <span className="block text-sm font-semibold text-zinc-200 font-mono">
-                            {aiConfig.model}
-                          </span>
-                        </div>
-                      </div>
-                      
-                      {aiConfig.provider === 'ollama' && aiConfig.base_url && (
-                        <div className="p-4 bg-zinc-950/40 border border-zinc-900 rounded-lg space-y-1">
-                          <span className="text-[10px] uppercase font-semibold text-zinc-500 tracking-wider">Base URL</span>
-                          <span className="block text-xs text-zinc-350 font-mono">
-                            {aiConfig.base_url}
-                          </span>
-                        </div>
+                    <span className={`text-[10px] font-mono px-2 py-0.5 rounded ${
+                      twitterPref?.connected ? 'bg-emerald-950/20 text-emerald-400 border border-emerald-900/30' : 'bg-zinc-900 text-zinc-500'
+                    }`}>
+                      {twitterPref?.connected ? 'Active' : 'Offline'}
+                    </span>
+                  </div>
+                  {twitterPref?.connected ? (
+                    <button
+                      onClick={() => disconnectMutation.mutate('twitter')}
+                      className="w-full text-center py-2 bg-zinc-950 hover:bg-red-950/20 hover:text-red-400 rounded text-xs font-semibold text-zinc-400 border border-zinc-850 hover:border-red-900/20 transition-all cursor-pointer"
+                    >
+                      Disconnect Service
+                    </button>
+                  ) : (
+                    <button
+                      onClick={handleConnectTwitter}
+                      disabled={isTwitterConnecting}
+                      className="w-full flex items-center justify-center gap-1.5 py-2 bg-zinc-900 hover:bg-zinc-800 rounded text-xs font-semibold text-zinc-50 border border-zinc-850 hover:border-zinc-700 transition-all cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      {isTwitterConnecting ? (
+                        <>
+                          <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                          Connecting popup...
+                        </>
+                      ) : (
+                        <>
+                          Authorize Twitter
+                          <ExternalLink className="w-3.5 h-3.5" />
+                        </>
                       )}
+                    </button>
+                  )}
+                </div>
 
+                {/* Slack Card */}
+                <div className="space-y-3 p-4 bg-zinc-950/40 border border-zinc-900 rounded-xl">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <h3 className="text-xs font-bold text-zinc-200">Slack Integration</h3>
+                      <p className="text-[10px] text-zinc-500">Sync direct messages & mentions</p>
+                    </div>
+                    <span className={`text-[10px] font-mono px-2 py-0.5 rounded ${
+                      slackPref?.connected ? 'bg-emerald-950/20 text-emerald-400 border border-emerald-900/30' : 'bg-zinc-900 text-zinc-500'
+                    }`}>
+                      {slackPref?.connected ? 'Active' : 'Offline'}
+                    </span>
+                  </div>
+                  {slackPref?.connected ? (
+                    <button
+                      onClick={() => disconnectMutation.mutate('slack')}
+                      className="w-full text-center py-2 bg-zinc-950 hover:bg-red-950/20 hover:text-red-400 rounded text-xs font-semibold text-zinc-400 border border-zinc-850 hover:border-red-900/20 transition-all cursor-pointer"
+                    >
+                      Disconnect Service
+                    </button>
+                  ) : (
+                    <>
                       <button
-                        type="button"
-                        onClick={() => setIsEditingAI(true)}
-                        className="flex items-center justify-center px-4 py-2.5 rounded-lg bg-zinc-900 hover:bg-zinc-800 border border-zinc-850 hover:border-zinc-700 text-xs font-semibold text-zinc-50 transition-all cursor-pointer shadow-sm"
+                        onClick={handleConnectSlack}
+                        disabled={isSlackConnecting}
+                        className="w-full flex items-center justify-center gap-1.5 py-2 bg-zinc-900 hover:bg-zinc-800 rounded text-xs font-semibold text-zinc-50 border border-zinc-850 hover:border-zinc-700 transition-all cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
                       >
-                        Change AI Configuration
+                        {isSlackConnecting ? (
+                          <>
+                            <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                            Connecting popup...
+                          </>
+                        ) : (
+                          <>
+                            Authorize Slack
+                            <ExternalLink className="w-3.5 h-3.5" />
+                          </>
+                        )}
+                      </button>
+                      <div className="text-[10px] text-zinc-450 bg-zinc-900/40 border border-zinc-900/80 rounded-lg p-2.5 mt-2 leading-relaxed">
+                        <span className="text-indigo-400 font-semibold block mb-0.5">Integration Access:</span>
+                        Allows syncing direct messages and mentions from Slack channels you are in.
+                      </div>
+                    </>
+                  )}
+                </div>
+
+                {/* Telegram Card */}
+                <div className="space-y-4 p-4 bg-zinc-950/40 border border-zinc-900 rounded-xl">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <h3 className="text-xs font-bold text-zinc-200">Telegram User Client Integration</h3>
+                      <p className="text-[10px] text-zinc-500">Sync dialogs using MTProto Client API</p>
+                    </div>
+                    <span className={`text-[10px] font-mono px-2 py-0.5 rounded ${
+                      telegramPref?.connected ? 'bg-emerald-950/20 text-emerald-400 border border-emerald-900/30' : 'bg-zinc-900 text-zinc-500'
+                    }`}>
+                      {telegramPref?.connected ? 'Active' : 'Offline'}
+                    </span>
+                  </div>
+
+                  {telegramPref?.connected ? (
+                    <div className="space-y-3">
+                      <div className="bg-zinc-950/60 border border-zinc-900/80 rounded-xl p-3.5 space-y-2 text-xs">
+                        <div className="flex justify-between">
+                          <span className="text-zinc-500">Phone Number:</span>
+                          <span className="text-zinc-300 font-mono">{telegramPref?.phone_number || 'Configured'}</span>
+                        </div>
+                        {user?.is_admin && (
+                          <div className="flex justify-between">
+                            <span className="text-zinc-500">Session String:</span>
+                            <span className="text-zinc-300 font-mono">{telegramPref?.session_string || 'Configured'}</span>
+                          </div>
+                        )}
+                      </div>
+                      <button
+                        onClick={() => disconnectMutation.mutate('telegram')}
+                        className="w-full text-center py-2 bg-zinc-950 hover:bg-red-950/20 hover:text-red-400 rounded text-xs font-semibold text-zinc-400 border border-zinc-850 hover:border-red-900/20 transition-all cursor-pointer"
+                      >
+                        Disconnect Account
                       </button>
                     </div>
                   ) : (
                     <div className="space-y-4">
-                      <div className="flex items-start gap-2.5 rounded-lg border border-amber-900/30 bg-amber-950/15 p-4 text-xs text-amber-400">
-                        <AlertCircle className="h-4 w-4 shrink-0 text-amber-500 mt-0.5" />
-                        <span>AI provider is not configured. Sidekick requires an AI provider configuration to run messaging pipeline, summaries, and executive planner.</span>
-                      </div>
-                      <button
-                        type="button"
-                        onClick={() => setIsEditingAI(true)}
-                        className="flex items-center justify-center px-4 py-2.5 rounded-lg bg-zinc-100 hover:bg-zinc-200 text-xs font-semibold text-zinc-950 transition-all cursor-pointer shadow-md"
-                      >
-                        Configure AI Provider
-                      </button>
-                    </div>
-                  )}
-                </div>
-              )}
-            </div>
-
-            {/* Password Change */}
-            <div className="bg-zinc-900/20 border border-zinc-900 rounded-xl p-6 space-y-6">
-              <div className="flex items-center gap-2 border-b border-zinc-900 pb-3">
-                <Lock className="w-4 h-4 text-zinc-400" />
-                <h2 className="text-sm font-semibold text-zinc-200 uppercase tracking-wider">Change Security Credentials</h2>
-              </div>
-
-              {passwordSuccess && (
-                <div className="flex items-start gap-2.5 rounded-lg border border-emerald-900/30 bg-emerald-950/20 p-4 text-xs text-emerald-400">
-                  <CheckCircle2 className="h-4 w-4 shrink-0 text-emerald-500 mt-0.5" />
-                  <span>{passwordSuccess}</span>
-                </div>
-              )}
-
-              {passwordError && (
-                <div className="flex items-start gap-2.5 rounded-lg border border-red-900/30 bg-red-950/20 p-4 text-xs text-red-400">
-                  <AlertTriangle className="h-4 w-4 shrink-0 text-red-500 mt-0.5" />
-                  <span>{passwordError}</span>
-                </div>
-              )}
-
-              <form onSubmit={handleSubmitPassword((data) => updatePasswordMutation.mutate(data))} className="space-y-4">
-                <div className="space-y-2">
-                  <label className="block text-xs font-semibold uppercase tracking-wider text-zinc-400">
-                    Current Password
-                  </label>
-                  <input
-                    type="password"
-                    {...registerPassword('currentPassword')}
-                    className="w-full bg-zinc-950 border border-zinc-850 rounded-lg px-3 py-2 text-xs text-zinc-100 placeholder-zinc-500 outline-none focus:border-zinc-700 transition-all"
-                  />
-                  {passwordErrors.currentPassword && (
-                    <p className="text-xs text-red-400 mt-1">{passwordErrors.currentPassword.message}</p>
-                  )}
-                </div>
-
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div className="space-y-2">
-                    <label className="block text-xs font-semibold uppercase tracking-wider text-zinc-400">
-                      New Password
-                    </label>
-                    <input
-                      type="password"
-                      {...registerPassword('newPassword')}
-                      className="w-full bg-zinc-950 border border-zinc-850 rounded-lg px-3 py-2 text-xs text-zinc-100 placeholder-zinc-500 outline-none focus:border-zinc-700 transition-all"
-                    />
-                    {passwordErrors.newPassword && (
-                      <p className="text-xs text-red-400 mt-1">{passwordErrors.newPassword.message}</p>
-                    )}
-                  </div>
-
-                  <div className="space-y-2">
-                    <label className="block text-xs font-semibold uppercase tracking-wider text-zinc-400">
-                      Confirm New Password
-                    </label>
-                    <input
-                      type="password"
-                      {...registerPassword('confirmPassword')}
-                      className="w-full bg-zinc-950 border border-zinc-850 rounded-lg px-3 py-2 text-xs text-zinc-100 placeholder-zinc-500 outline-none focus:border-zinc-700 transition-all"
-                    />
-                    {passwordErrors.confirmPassword && (
-                      <p className="text-xs text-red-400 mt-1">{passwordErrors.confirmPassword.message}</p>
-                    )}
-                  </div>
-                </div>
-
-                <button
-                  type="submit"
-                  disabled={isPasswordSubmitting}
-                  className="flex items-center justify-center gap-1.5 px-4 py-2.5 rounded-lg bg-zinc-100 hover:bg-zinc-200 text-xs font-semibold text-zinc-950 transition-all cursor-pointer disabled:opacity-50"
-                >
-                  {isPasswordSubmitting && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
-                  Change Password
-                </button>
-              </form>
-            </div>
-
-            {/* Clear/Reset Application Data */}
-            <div className="bg-zinc-900/20 border border-zinc-900 rounded-xl p-6 space-y-4">
-              <div className="flex items-center gap-2 border-b border-zinc-900 pb-3">
-                <Trash2 className="w-4 h-4 text-amber-500" />
-                <h2 className="text-sm font-semibold text-zinc-200 uppercase tracking-wider">Reset Application Data</h2>
-              </div>
-              <p className="text-xs text-zinc-400 leading-relaxed">
-                Clearing application data resets your inbox state by deleting all synced messages, direct chats, and AI briefings. This allows you to start with a clean slate. Discovered integrations and user settings will not be affected.
-              </p>
-              <button
-                onClick={() => {
-                  if (confirm('Are you sure you want to clear all synced messages and memory logs? This action is irreversible.')) {
-                    clearDataMutation.mutate();
-                  }
-                }}
-                disabled={clearDataMutation.isPending}
-                className="flex items-center justify-center gap-1.5 px-4 py-2.5 rounded-lg bg-zinc-950 hover:bg-amber-950/20 hover:text-amber-400 border border-zinc-850 hover:border-amber-900/20 text-xs font-semibold text-zinc-400 transition-all cursor-pointer disabled:opacity-50"
-              >
-                {clearDataMutation.isPending ? (
-                  <>
-                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                    Clearing data...
-                  </>
-                ) : (
-                  <>
-                    <Trash2 className="w-3.5 h-3.5" />
-                    Clear All Test Messages & Logs
-                  </>
-                )}
-              </button>
-            </div>
-
-            {/* Danger Zone */}
-            <div className="bg-zinc-950 border border-red-950/60 rounded-xl p-6 space-y-4">
-              <div className="flex items-center gap-2 border-b border-red-950/20 pb-3">
-                <ShieldAlert className="w-4 h-4 text-red-400" />
-                <h2 className="text-sm font-semibold text-red-400 uppercase tracking-wider">Danger Zone</h2>
-              </div>
-              <p className="text-xs text-zinc-450 leading-relaxed font-normal">
-                Deactivating your profile will disable all background messaging cycles, terminate Gmail synchronization, and log you out. Account deactivation can be undone by logging back in with your username.
-              </p>
-              <button
-                onClick={handleDeactivateAccount}
-                disabled={isDeleting}
-                className="flex items-center justify-center gap-1.5 px-4 py-2 rounded-lg bg-red-950/20 hover:bg-red-950/40 border border-red-900/30 text-xs font-semibold text-red-400 transition-all cursor-pointer"
-              >
-                {isDeleting && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
-                Deactivate Profile Account
-              </button>
-            </div>
-
-          </div>
-
-          {/* Right: Connected Integrations Panel */}
-          <div className="space-y-6">
-            <div className="bg-zinc-900/20 border border-zinc-900 rounded-xl p-6 space-y-6">
-              <div className="flex items-center gap-2 border-b border-zinc-900 pb-3">
-                <Power className="w-4 h-4 text-zinc-400" />
-                <h2 className="text-sm font-semibold text-zinc-200 uppercase tracking-wider">Connected Services</h2>
-              </div>
-
-              {isPrefLoading ? (
-                <div className="py-8 flex justify-center text-zinc-500">
-                  <Loader2 className="w-6 h-6 animate-spin text-zinc-400" />
-                </div>
-              ) : (
-                <div className="space-y-6">
-                  {/* Google Card */}
-                  <div className="space-y-3">
-                    <div className="flex items-center justify-between">
-                      <div>
-                        <h3 className="text-xs font-bold text-zinc-255">Google Integration</h3>
-                        <p className="text-[10px] text-zinc-500">Gmail, Calendar sync</p>
-                      </div>
-                      <span className={`text-[10px] font-mono px-2 py-0.5 rounded ${
-                        googlePref?.connected ? 'bg-emerald-950/20 text-emerald-400 border border-emerald-900/30' : 'bg-zinc-900 text-zinc-500'
-                      }`}>
-                        {googlePref?.connected ? 'Active' : 'Disconnected'}
-                      </span>
-                    </div>
-                    {googlePref?.connected ? (
                       <div className="space-y-2">
-                        {googlePref.connected_at && (
-                          <p className="text-[9px] font-mono text-zinc-500">Linked: {new Date(googlePref.connected_at).toLocaleString()}</p>
-                        )}
-                        <button
-                          onClick={() => disconnectMutation.mutate('google')}
-                          className="w-full text-center py-2 bg-zinc-950 hover:bg-red-950/20 hover:text-red-400 rounded text-xs font-semibold text-zinc-400 border border-zinc-850 hover:border-red-900/20 transition-all cursor-pointer"
-                        >
-                          Revoke Access
-                        </button>
+                        <label className="block text-[10px] uppercase tracking-wider font-semibold text-zinc-400">
+                          Phone Number
+                        </label>
+                        <input
+                          type="text"
+                          placeholder="e.g. +1234567890"
+                          value={telegramPhoneNumber}
+                          onChange={(e) => setTelegramPhoneNumber(e.target.value)}
+                          disabled={telegramAuthState !== 'idle'}
+                          className="w-full bg-zinc-955 border border-zinc-850 rounded px-2.5 py-1.5 text-xs text-zinc-100 placeholder-zinc-500 outline-none focus:border-zinc-700 transition-all"
+                        />
                       </div>
-                    ) : (
-                      <button
-                        onClick={handleConnectGoogle}
-                        disabled={isGoogleConnecting}
-                        className="w-full flex items-center justify-center gap-1.5 py-2 bg-zinc-900 hover:bg-zinc-800 rounded text-xs font-semibold text-zinc-50 border border-zinc-850 hover:border-zinc-700 transition-all cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
-                      >
-                        {isGoogleConnecting ? (
-                          <>
-                            <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                            Connecting popup...
-                          </>
-                        ) : (
-                          <>
-                            Authorize Google
-                            <ExternalLink className="w-3.5 h-3.5" />
-                          </>
-                        )}
-                      </button>
-                    )}
-                  </div>
 
-                  {/* Twitter Card */}
-                  <div className="space-y-3 pt-4 border-t border-zinc-900">
-                    <div className="flex items-center justify-between">
-                      <div>
-                        <h3 className="text-xs font-bold text-zinc-200">Twitter / X Desk</h3>
-                        <p className="text-[10px] text-zinc-500">Mentions, Reply posting</p>
-                      </div>
-                      <span className={`text-[10px] font-mono px-2 py-0.5 rounded ${
-                        twitterPref?.connected ? 'bg-emerald-950/20 text-emerald-400 border border-emerald-900/30' : 'bg-zinc-900 text-zinc-500'
-                      }`}>
-                        {twitterPref?.connected ? 'Active' : 'Offline'}
-                      </span>
-                    </div>
-                    {twitterPref?.connected ? (
-                      <button
-                        onClick={() => disconnectMutation.mutate('twitter')}
-                        className="w-full text-center py-2 bg-zinc-950 hover:bg-red-950/20 hover:text-red-400 rounded text-xs font-semibold text-zinc-400 border border-zinc-850 hover:border-red-900/20 transition-all cursor-pointer"
-                      >
-                        Disconnect Service
-                      </button>
-                    ) : (
-                      <button
-                        onClick={handleConnectTwitter}
-                        disabled={isTwitterConnecting}
-                        className="w-full flex items-center justify-center gap-1.5 py-2 bg-zinc-900 hover:bg-zinc-800 rounded text-xs font-semibold text-zinc-50 border border-zinc-850 hover:border-zinc-700 transition-all cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
-                      >
-                        {isTwitterConnecting ? (
-                          <>
-                            <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                            Connecting popup...
-                          </>
-                        ) : (
-                          <>
-                            Authorize Twitter
-                            <ExternalLink className="w-3.5 h-3.5" />
-                          </>
-                        )}
-                      </button>
-                    )}
-                  </div>
-
-
-
-                  {/* Slack Card */}
-                  <div className="space-y-3 pt-4 border-t border-zinc-900">
-                    <div className="flex items-center justify-between">
-                      <div>
-                        <h3 className="text-xs font-bold text-zinc-200">Slack Integration</h3>
-                        <p className="text-[10px] text-zinc-500">Sync direct messages & mentions</p>
-                      </div>
-                      <span className={`text-[10px] font-mono px-2 py-0.5 rounded ${
-                        slackPref?.connected ? 'bg-emerald-950/20 text-emerald-400 border border-emerald-900/30' : 'bg-zinc-900 text-zinc-500'
-                      }`}>
-                        {slackPref?.connected ? 'Active' : 'Offline'}
-                      </span>
-                    </div>
-                    {slackPref?.connected ? (
-                      <button
-                        onClick={() => disconnectMutation.mutate('slack')}
-                        className="w-full text-center py-2 bg-zinc-950 hover:bg-red-950/20 hover:text-red-400 rounded text-xs font-semibold text-zinc-400 border border-zinc-850 hover:border-red-900/20 transition-all cursor-pointer"
-                      >
-                        Disconnect Service
-                      </button>
-                    ) : (
-                      <>
-                        <button
-                          onClick={handleConnectSlack}
-                          disabled={isSlackConnecting}
-                          className="w-full flex items-center justify-center gap-1.5 py-2 bg-zinc-900 hover:bg-zinc-800 rounded text-xs font-semibold text-zinc-50 border border-zinc-850 hover:border-zinc-700 transition-all cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
-                        >
-                          {isSlackConnecting ? (
-                            <>
-                              <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                              Connecting popup...
-                            </>
-                          ) : (
-                            <>
-                              Authorize Slack
-                              <ExternalLink className="w-3.5 h-3.5" />
-                            </>
-                          )}
-                        </button>
-                        <div className="text-[10px] text-zinc-450 bg-zinc-900/40 border border-zinc-900/80 rounded-lg p-2.5 mt-2 leading-relaxed">
-                          <span className="text-indigo-400 font-semibold block mb-0.5">Integration Access:</span>
-                          Allows syncing direct messages and mentions from Slack channels you are in.
+                      {telegramOtpError && (
+                        <div className="text-[10px] text-red-400 bg-red-950/20 border border-red-900/20 rounded p-2">
+                          {telegramOtpError}
                         </div>
-                      </>
-                    )}
-                  </div>
+                      )}
 
+                      {telegramAuthState === 'idle' && (
+                        <div className="space-y-3">
+                          <button
+                            onClick={() => {
+                              if (!telegramPhoneNumber) {
+                                alert('Please enter your Telegram Phone Number.');
+                                return;
+                              }
+                              sendTelegramCodeMutation.mutate({
+                                phone_number: telegramPhoneNumber
+                              });
+                            }}
+                            disabled={telegramOtpLoading}
+                            className="w-full flex items-center justify-center gap-1.5 py-2 bg-zinc-900 hover:bg-zinc-855 rounded text-xs font-semibold text-zinc-50 border border-zinc-850 hover:border-zinc-700 transition-all cursor-pointer disabled:opacity-50"
+                          >
+                            {telegramOtpLoading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : null}
+                            Request OTP Login Code
+                          </button>
 
-                  {/* Telegram Card */}
-                  <div className="space-y-4 pt-4 border-t border-zinc-900">
-                    <div className="flex items-center justify-between">
-                      <div>
-                        <h3 className="text-xs font-bold text-zinc-200">Telegram User Client Integration</h3>
-                        <p className="text-[10px] text-zinc-500">Sync dialogs and chats from your personal account using MTProto Client API</p>
-                      </div>
-                      <span className={`text-[10px] font-mono px-2 py-0.5 rounded ${
-                        telegramPref?.connected ? 'bg-emerald-950/20 text-emerald-400 border border-emerald-900/30' : 'bg-zinc-900 text-zinc-500'
-                      }`}>
-                        {telegramPref?.connected ? 'Active' : 'Offline'}
-                      </span>
-                    </div>
-
-                    {telegramPref?.connected ? (
-                      <div className="space-y-3">
-                        <div className="bg-zinc-950/60 border border-zinc-900/80 rounded-xl p-3.5 space-y-2 text-xs">
-                          <div className="flex justify-between">
-                            <span className="text-zinc-500">Phone Number:</span>
-                            <span className="text-zinc-300 font-mono">{telegramPref?.phone_number || 'Configured'}</span>
-                          </div>
                           {user?.is_admin && (
-                            <div className="flex justify-between">
-                              <span className="text-zinc-500">Session String:</span>
-                              <span className="text-zinc-300 font-mono">{telegramPref?.session_string || 'Configured'}</span>
-                            </div>
+                            <>
+                              <div className="relative flex py-1 items-center">
+                                <div className="flex-grow border-t border-zinc-900"></div>
+                                <span className="flex-shrink mx-3 text-[10px] text-zinc-500 uppercase tracking-widest font-semibold">Dev Session Direct Connect</span>
+                                <div className="flex-grow border-t border-zinc-900"></div>
+                              </div>
+
+                              <div className="space-y-2">
+                                <textarea
+                                  placeholder="Paste String Session (StringSession) - DEV MODE ONLY"
+                                  value={telegramSessionString}
+                                  onChange={(e) => setTelegramSessionString(e.target.value)}
+                                  rows={2}
+                                  className="w-full bg-zinc-955 border border-zinc-855 rounded p-2 text-xs text-zinc-100 placeholder-zinc-500 outline-none focus:border-zinc-700 transition-all resize-none"
+                                />
+                                <button
+                                  onClick={() => {
+                                    if (!telegramPhoneNumber || !telegramSessionString) {
+                                      alert('Please supply both Phone Number and Session String.');
+                                      return;
+                                    }
+                                    connectTelegramMutation.mutate({
+                                      phone_number: telegramPhoneNumber,
+                                      session_string: telegramSessionString
+                                    });
+                                  }}
+                                  disabled={connectTelegramMutation.isPending}
+                                  className="w-full py-2 bg-zinc-900 hover:bg-zinc-855 border border-zinc-850 text-zinc-300 rounded text-xs font-semibold hover:text-zinc-50 transition-all cursor-pointer disabled:opacity-50"
+                                >
+                                  {connectTelegramMutation.isPending ? 'Connecting...' : 'Connect with Session String'}
+                                </button>
+                              </div>
+                            </>
                           )}
                         </div>
-                        <button
-                          onClick={() => disconnectMutation.mutate('telegram')}
-                          className="w-full text-center py-2 bg-zinc-950 hover:bg-red-950/20 hover:text-red-400 rounded text-xs font-semibold text-zinc-400 border border-zinc-850 hover:border-red-900/20 transition-all cursor-pointer"
-                        >
-                          Disconnect Account
-                        </button>
-                      </div>
-                    ) : (
-                      <div className="space-y-4">
-                        <div className="space-y-2">
-                          <label className="block text-[10px] uppercase tracking-wider font-semibold text-zinc-400">
-                            Phone Number
-                          </label>
+                      )}
+
+                      {telegramAuthState === 'code_sent' && (
+                        <div className="space-y-2.5">
+                          <div className="text-[10px] text-amber-400 bg-amber-955/20 border border-amber-900/30 rounded p-2">
+                            OTP code has been sent to your Telegram app. Enter it below to sign in.
+                          </div>
                           <input
                             type="text"
-                            placeholder="e.g. +1234567890"
-                            value={telegramPhoneNumber}
-                            onChange={(e) => setTelegramPhoneNumber(e.target.value)}
-                            disabled={telegramAuthState !== 'idle'}
-                            className="w-full bg-zinc-955 border border-zinc-850 rounded px-2.5 py-1.5 text-xs text-zinc-100 placeholder-zinc-500 outline-none focus:border-zinc-700 transition-all"
+                            placeholder="Enter Telegram OTP Code"
+                            value={telegramOtpCode}
+                            onChange={(e) => setTelegramOtpCode(e.target.value)}
+                            className="w-full bg-zinc-955 border border-zinc-855 rounded px-2.5 py-1.5 text-xs text-zinc-100 placeholder-zinc-500 outline-none focus:border-zinc-700 transition-all text-center tracking-widest font-bold"
                           />
-                        </div>
-
-                        {telegramOtpError && (
-                          <div className="text-[10px] text-red-400 bg-red-950/20 border border-red-900/20 rounded p-2">
-                            {telegramOtpError}
-                          </div>
-                        )}
-
-                        {telegramAuthState === 'idle' && (
-                          <div className="space-y-3">
+                          <div className="flex gap-2">
                             <button
                               onClick={() => {
-                                if (!telegramPhoneNumber) {
-                                  alert('Please enter your Telegram Phone Number.');
+                                if (!telegramOtpCode) {
+                                  alert('Please enter the verification code.');
                                   return;
                                 }
-                                sendTelegramCodeMutation.mutate({
-                                  phone_number: telegramPhoneNumber
+                                verifyTelegramCodeMutation.mutate({
+                                  phone_number: telegramPhoneNumber,
+                                  code: telegramOtpCode,
+                                  phone_code_hash: telegramPhoneCodeHash
                                 });
                               }}
                               disabled={telegramOtpLoading}
-                              className="w-full flex items-center justify-center gap-1.5 py-2 bg-zinc-900 hover:bg-zinc-855 rounded text-xs font-semibold text-zinc-50 border border-zinc-850 hover:border-zinc-700 transition-all cursor-pointer disabled:opacity-50"
+                              className="flex-1 py-2 bg-zinc-100 hover:bg-zinc-200 text-zinc-955 rounded text-xs font-semibold transition-all cursor-pointer disabled:opacity-50"
                             >
-                              {telegramOtpLoading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : null}
-                              Request OTP Login Code
+                              {telegramOtpLoading ? 'Verifying...' : 'Verify OTP Code'}
                             </button>
-
-                            {user?.is_admin && (
-                              <>
-                                <div className="relative flex py-1 items-center">
-                                  <div className="flex-grow border-t border-zinc-900"></div>
-                                  <span className="flex-shrink mx-3 text-[10px] text-zinc-500 uppercase tracking-widest font-semibold">Dev Session Direct Connect</span>
-                                  <div className="flex-grow border-t border-zinc-900"></div>
-                                </div>
-
-                                <div className="space-y-2">
-                                  <textarea
-                                    placeholder="Paste String Session (StringSession) - DEV MODE ONLY"
-                                    value={telegramSessionString}
-                                    onChange={(e) => setTelegramSessionString(e.target.value)}
-                                    rows={2}
-                                    className="w-full bg-zinc-955 border border-zinc-855 rounded p-2 text-xs text-zinc-100 placeholder-zinc-500 outline-none focus:border-zinc-700 transition-all resize-none"
-                                  />
-                                  <button
-                                    onClick={() => {
-                                      if (!telegramPhoneNumber || !telegramSessionString) {
-                                        alert('Please supply both Phone Number and Session String.');
-                                        return;
-                                      }
-                                      connectTelegramMutation.mutate({
-                                        phone_number: telegramPhoneNumber,
-                                        session_string: telegramSessionString
-                                      });
-                                    }}
-                                    disabled={connectTelegramMutation.isPending}
-                                    className="w-full py-2 bg-zinc-900 hover:bg-zinc-855 border border-zinc-850 text-zinc-300 rounded text-xs font-semibold hover:text-zinc-50 transition-all cursor-pointer disabled:opacity-50"
-                                  >
-                                    {connectTelegramMutation.isPending ? 'Connecting...' : 'Connect with Session String'}
-                                  </button>
-                                </div>
-                              </>
-                            )}
+                            <button
+                              onClick={() => setTelegramAuthState('idle')}
+                              className="px-3 py-2 bg-zinc-955 hover:bg-zinc-900 text-zinc-400 border border-zinc-850 rounded text-xs transition-all cursor-pointer"
+                            >
+                              Cancel
+                            </button>
                           </div>
-                        )}
-
-                        {telegramAuthState === 'code_sent' && (
-                          <div className="space-y-2.5">
-                            <div className="text-[10px] text-amber-400 bg-amber-955/20 border border-amber-900/30 rounded p-2">
-                              OTP code has been sent to your Telegram app. Enter it below to sign in.
-                            </div>
-                            <input
-                              type="text"
-                              placeholder="Enter Telegram OTP Code"
-                              value={telegramOtpCode}
-                              onChange={(e) => setTelegramOtpCode(e.target.value)}
-                              className="w-full bg-zinc-955 border border-zinc-855 rounded px-2.5 py-1.5 text-xs text-zinc-100 placeholder-zinc-500 outline-none focus:border-zinc-700 transition-all text-center tracking-widest font-bold"
-                            />
-                            <div className="flex gap-2">
-                              <button
-                                onClick={() => {
-                                  if (!telegramOtpCode) {
-                                    alert('Please enter the verification code.');
-                                    return;
-                                  }
-                                  verifyTelegramCodeMutation.mutate({
-                                    phone_number: telegramPhoneNumber,
-                                    code: telegramOtpCode,
-                                    phone_code_hash: telegramPhoneCodeHash
-                                  });
-                                }}
-                                disabled={telegramOtpLoading}
-                                className="flex-1 py-2 bg-zinc-100 hover:bg-zinc-200 text-zinc-955 rounded text-xs font-semibold transition-all cursor-pointer disabled:opacity-50"
-                              >
-                                {telegramOtpLoading ? 'Verifying...' : 'Verify OTP Code'}
-                              </button>
-                              <button
-                                onClick={() => setTelegramAuthState('idle')}
-                                className="px-3 py-2 bg-zinc-955 hover:bg-zinc-900 text-zinc-400 border border-zinc-850 rounded text-xs transition-all cursor-pointer"
-                              >
-                                Cancel
-                              </button>
-                            </div>
-                          </div>
-                        )}
-
-                        {telegramAuthState === 'requires_password' && (
-                          <div className="space-y-2.5">
-                            <div className="text-[10px] text-amber-400 bg-amber-955/20 border border-amber-900/30 rounded p-2">
-                              Two-Step Verification Password Required. Enter your Telegram cloud password:
-                            </div>
-                            <input
-                              type="password"
-                              placeholder="Enter your 2FA Password"
-                              value={telegramPassword}
-                              onChange={(e) => setTelegramPassword(e.target.value)}
-                              className="w-full bg-zinc-955 border border-zinc-850 rounded px-2.5 py-1.5 text-xs text-zinc-100 placeholder-zinc-500 outline-none focus:border-zinc-700 transition-all text-center"
-                            />
-                            <div className="flex gap-2">
-                              <button
-                                onClick={() => {
-                                  if (!telegramPassword) {
-                                    alert('Please enter your 2FA password.');
-                                    return;
-                                  }
-                                  verifyTelegramPasswordMutation.mutate({
-                                    phone_number: telegramPhoneNumber,
-                                    password: telegramPassword
-                                  });
-                                }}
-                                disabled={telegramOtpLoading}
-                                className="flex-1 py-2 bg-zinc-100 hover:bg-zinc-200 text-zinc-955 rounded text-xs font-semibold transition-all cursor-pointer disabled:opacity-50"
-                              >
-                                {telegramOtpLoading ? 'Verifying...' : 'Submit Password'}
-                              </button>
-                              <button
-                                onClick={() => {
-                                  setTelegramAuthState('idle');
-                                  setTelegramPassword('');
-                                }}
-                                className="px-3 py-2 bg-zinc-955 hover:bg-zinc-900 text-zinc-400 border border-zinc-850 rounded text-xs transition-all cursor-pointer"
-                              >
-                                Cancel
-                              </button>
-                            </div>
-                          </div>
-                        )}
-
-                        <div className="text-[9px] text-zinc-500 bg-zinc-900/20 border border-zinc-900/80 rounded-lg p-2.5 leading-relaxed">
-                          <span className="text-zinc-300 font-semibold block mb-0.5">Easy MTProto Setup:</span>
-                          Using pre-configured developer keys. Simply verify your phone number to authorize your personal Telegram client.
                         </div>
+                      )}
+
+                      {telegramAuthState === 'requires_password' && (
+                        <div className="space-y-2.5">
+                          <div className="text-[10px] text-amber-400 bg-amber-955/20 border border-amber-900/30 rounded p-2">
+                            Two-Step Verification Password Required. Enter your Telegram cloud password:
+                          </div>
+                          <input
+                            type="password"
+                            placeholder="Enter your 2FA Password"
+                            value={telegramPassword}
+                            onChange={(e) => setTelegramPassword(e.target.value)}
+                            className="w-full bg-zinc-955 border border-zinc-850 rounded px-2.5 py-1.5 text-xs text-zinc-100 placeholder-zinc-500 outline-none focus:border-zinc-700 transition-all text-center"
+                          />
+                          <div className="flex gap-2">
+                            <button
+                              onClick={() => {
+                                if (!telegramPassword) {
+                                  alert('Please enter your 2FA password.');
+                                  return;
+                                }
+                                verifyTelegramPasswordMutation.mutate({
+                                  phone_number: telegramPhoneNumber,
+                                  password: telegramPassword
+                                });
+                              }}
+                              disabled={telegramOtpLoading}
+                              className="flex-1 py-2 bg-zinc-100 hover:bg-zinc-200 text-zinc-955 rounded text-xs font-semibold transition-all cursor-pointer disabled:opacity-50"
+                            >
+                              {telegramOtpLoading ? 'Verifying...' : 'Submit Password'}
+                            </button>
+                            <button
+                              onClick={() => {
+                                setTelegramAuthState('idle');
+                                setTelegramPassword('');
+                              }}
+                              className="px-3 py-2 bg-zinc-955 hover:bg-zinc-900 text-zinc-400 border border-zinc-850 rounded text-xs transition-all cursor-pointer"
+                            >
+                              Cancel
+                            </button>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* 3. AI / LLM Configuration */}
+          <div className="bg-zinc-900/20 border border-zinc-900 rounded-xl p-6 space-y-6">
+            <div className="flex items-center gap-2 border-b border-zinc-900 pb-3">
+              <BrainCircuit className="w-4 h-4 text-zinc-400" />
+              <h2 className="text-sm font-semibold text-zinc-200 uppercase tracking-wider">AI / LLM Settings</h2>
+            </div>
+
+            {aiSuccess && (
+              <div className="flex items-start gap-2.5 rounded-lg border border-emerald-900/30 bg-emerald-950/20 p-4 text-xs text-emerald-400">
+                <CheckCircle2 className="h-4 w-4 shrink-0 text-emerald-500 mt-0.5" />
+                <span>{aiSuccess}</span>
+              </div>
+            )}
+
+            {isEditingAI ? (
+              <div>
+                <AIConfigForm
+                  isSettingsMode={true}
+                  onSaveSuccess={() => {
+                    setIsEditingAI(false);
+                    setAiSuccess('AI configuration updated successfully.');
+                    setTimeout(() => setAiSuccess(null), 4050);
+                  }}
+                />
+                <div className="mt-3 flex justify-start">
+                  <button
+                    type="button"
+                    onClick={() => setIsEditingAI(false)}
+                    className="px-4 py-2 border border-zinc-800 hover:border-zinc-700 rounded-lg text-xs font-semibold text-zinc-400 hover:text-zinc-200 transition-all cursor-pointer"
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <div className="space-y-4">
+                {isAiConfigLoading ? (
+                  <div className="py-4 flex justify-center text-zinc-500">
+                    <Loader2 className="w-6 h-6 animate-spin text-zinc-400" />
+                  </div>
+                ) : aiConfig?.configured ? (
+                  <div className="space-y-4">
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      <div className="p-4 bg-zinc-950/40 border border-zinc-900 rounded-lg space-y-1">
+                        <span className="text-[10px] uppercase font-semibold text-zinc-500 tracking-wider">Provider</span>
+                        <span className="block text-sm font-semibold text-zinc-200 capitalize">
+                          {aiConfig.provider}
+                        </span>
+                      </div>
+                      <div className="p-4 bg-zinc-950/40 border border-zinc-900 rounded-lg space-y-1">
+                        <span className="text-[10px] uppercase font-semibold text-zinc-500 tracking-wider">Model</span>
+                        <span className="block text-sm font-semibold text-zinc-200 font-mono">
+                          {aiConfig.model}
+                        </span>
+                      </div>
+                    </div>
+                    
+                    {aiConfig.provider === 'ollama' && aiConfig.base_url && (
+                      <div className="p-4 bg-zinc-950/40 border border-zinc-900 rounded-lg space-y-1">
+                        <span className="text-[10px] uppercase font-semibold text-zinc-500 tracking-wider">Base URL</span>
+                        <span className="block text-xs text-zinc-350 font-mono">
+                          {aiConfig.base_url}
+                        </span>
                       </div>
                     )}
+
+                    <button
+                      type="button"
+                      onClick={() => setIsEditingAI(true)}
+                      className="flex items-center justify-center px-4 py-2.5 rounded-lg bg-zinc-900 hover:bg-zinc-800 border border-zinc-850 hover:border-zinc-700 text-xs font-semibold text-zinc-50 transition-all cursor-pointer shadow-sm"
+                    >
+                      Change AI Configuration
+                    </button>
                   </div>
+                ) : (
+                  <div className="space-y-4">
+                    <div className="flex items-start gap-2.5 rounded-lg border border-amber-900/30 bg-amber-950/15 p-4 text-xs text-amber-400">
+                      <AlertCircle className="h-4 w-4 shrink-0 text-amber-500 mt-0.5" />
+                      <span>AI provider is not configured. Sidekick requires an AI provider configuration to run messaging pipeline, summaries, and executive planner.</span>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setIsEditingAI(true)}
+                      className="flex items-center justify-center px-4 py-2.5 rounded-lg bg-zinc-100 hover:bg-zinc-200 text-xs font-semibold text-zinc-950 transition-all cursor-pointer shadow-md"
+                    >
+                      Configure AI Provider
+                    </button>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
 
-                </div>
-              )}
-
+          {/* 4. Password Change */}
+          <div className="bg-zinc-900/20 border border-zinc-900 rounded-xl p-6 space-y-6">
+            <div className="flex items-center gap-2 border-b border-zinc-900 pb-3">
+              <Lock className="w-4 h-4 text-zinc-400" />
+              <h2 className="text-sm font-semibold text-zinc-200 uppercase tracking-wider">Change Security Credentials</h2>
             </div>
+
+            {passwordSuccess && (
+              <div className="flex items-start gap-2.5 rounded-lg border border-emerald-900/30 bg-emerald-950/20 p-4 text-xs text-emerald-400">
+                <CheckCircle2 className="h-4 w-4 shrink-0 text-emerald-500 mt-0.5" />
+                <span>{passwordSuccess}</span>
+              </div>
+            )}
+
+            {passwordError && (
+              <div className="flex items-start gap-2.5 rounded-lg border border-red-900/30 bg-red-950/20 p-4 text-xs text-red-400">
+                <AlertTriangle className="h-4 w-4 shrink-0 text-red-500 mt-0.5" />
+                <span>{passwordError}</span>
+              </div>
+            )}
+
+            <form onSubmit={handleSubmitPassword((data) => updatePasswordMutation.mutate(data))} className="space-y-4">
+              <div className="space-y-2">
+                <label className="block text-xs font-semibold uppercase tracking-wider text-zinc-400">
+                  Current Password
+                </label>
+                <input
+                  type="password"
+                  {...registerPassword('currentPassword')}
+                  className="w-full bg-zinc-950 border border-zinc-850 rounded-lg px-3 py-2 text-xs text-zinc-100 placeholder-zinc-500 outline-none focus:border-zinc-700 transition-all"
+                />
+                {passwordErrors.currentPassword && (
+                  <p className="text-xs text-red-400 mt-1">{passwordErrors.currentPassword.message}</p>
+                )}
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <label className="block text-xs font-semibold uppercase tracking-wider text-zinc-400">
+                    New Password
+                  </label>
+                  <input
+                    type="password"
+                    {...registerPassword('newPassword')}
+                    className="w-full bg-zinc-950 border border-zinc-850 rounded-lg px-3 py-2 text-xs text-zinc-100 placeholder-zinc-500 outline-none focus:border-zinc-700 transition-all"
+                  />
+                  {passwordErrors.newPassword && (
+                    <p className="text-xs text-red-400 mt-1">{passwordErrors.newPassword.message}</p>
+                  )}
+                </div>
+
+                <div className="space-y-2">
+                  <label className="block text-xs font-semibold uppercase tracking-wider text-zinc-400">
+                    Confirm New Password
+                  </label>
+                  <input
+                    type="password"
+                    {...registerPassword('confirmPassword')}
+                    className="w-full bg-zinc-950 border border-zinc-850 rounded-lg px-3 py-2 text-xs text-zinc-100 placeholder-zinc-500 outline-none focus:border-zinc-700 transition-all"
+                  />
+                  {passwordErrors.confirmPassword && (
+                    <p className="text-xs text-red-400 mt-1">{passwordErrors.confirmPassword.message}</p>
+                  )}
+                </div>
+              </div>
+
+              <button
+                type="submit"
+                disabled={isPasswordSubmitting}
+                className="flex items-center justify-center gap-1.5 px-4 py-2.5 rounded-lg bg-zinc-100 hover:bg-zinc-200 text-xs font-semibold text-zinc-950 transition-all cursor-pointer disabled:opacity-50"
+              >
+                {isPasswordSubmitting && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
+                Change Password
+              </button>
+            </form>
+          </div>
+
+          {/* 5. Clear/Reset Application Data */}
+          <div className="bg-zinc-900/20 border border-zinc-900 rounded-xl p-6 space-y-4">
+            <div className="flex items-center gap-2 border-b border-zinc-900 pb-3">
+              <Trash2 className="w-4 h-4 text-amber-500" />
+              <h2 className="text-sm font-semibold text-zinc-200 uppercase tracking-wider">Reset Application Data</h2>
+            </div>
+            <p className="text-xs text-zinc-400 leading-relaxed">
+              Clearing application data resets your inbox state by deleting all synced messages, direct chats, and AI briefings. This allows you to start with a clean slate. Discovered integrations and user settings will not be affected.
+            </p>
+            <button
+              onClick={() => {
+                if (confirm('Are you sure you want to clear all synced messages and memory logs? This action is irreversible.')) {
+                  clearDataMutation.mutate();
+                }
+              }}
+              disabled={clearDataMutation.isPending}
+              className="flex items-center justify-center gap-1.5 px-4 py-2.5 rounded-lg bg-zinc-950 hover:bg-amber-950/20 hover:text-amber-400 border border-zinc-850 hover:border-amber-900/20 text-xs font-semibold text-zinc-400 transition-all cursor-pointer disabled:opacity-50"
+            >
+              {clearDataMutation.isPending ? (
+                <>
+                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                  Clearing data...
+                </>
+              ) : (
+                <>
+                  <Trash2 className="w-3.5 h-3.5" />
+                  Clear All Test Messages & Logs
+                </>
+              )}
+            </button>
+          </div>
+
+          {/* 6. Danger Zone */}
+          <div className="bg-zinc-950 border border-red-950/60 rounded-xl p-6 space-y-4">
+            <div className="flex items-center gap-2 border-b border-red-950/20 pb-3">
+              <ShieldAlert className="w-4 h-4 text-red-400" />
+              <h2 className="text-sm font-semibold text-red-400 uppercase tracking-wider">Danger Zone</h2>
+            </div>
+            <p className="text-xs text-zinc-455 leading-relaxed font-normal">
+              Deactivating your profile will disable all background messaging cycles, terminate Gmail synchronization, and log you out. Account deactivation can be undone by logging back in with your username.
+            </p>
+            <button
+              onClick={handleDeactivateAccount}
+              disabled={isDeleting}
+              className="flex items-center justify-center gap-1.5 px-4 py-2 rounded-lg bg-red-950/20 hover:bg-red-950/40 border border-red-900/30 text-xs font-semibold text-red-400 transition-all cursor-pointer"
+            >
+              {isDeleting && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
+              Deactivate Profile Account
+            </button>
           </div>
 
         </div>
