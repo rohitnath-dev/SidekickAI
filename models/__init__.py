@@ -7,6 +7,7 @@ from models.memory_item import MemoryItem
 from models.session import UserSession
 from models.ai_config import UserAIConfig
 from models.ai_run import AIRun
+from models.planner_task import PlannerTask
 
 __all__ = [
     "User",
@@ -19,5 +20,6 @@ __all__ = [
     "UserSession",
     "UserAIConfig",
     "AIRun",
+    "PlannerTask",
 ]
 
