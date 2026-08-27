@@ -41,6 +41,40 @@ class AIJobState(str, Enum):
     STALE = "stale"
 
 
+def persist_ai_run_stage(job: ProcessingJob, error_cat: Optional[str] = None, db_session: Optional[Session] = None):
+    try:
+        def _do_persist(db: Session):
+            from models.ai_run import AIRun
+            run = db.query(AIRun).filter_by(run_id=job.job_id).first()
+            if not run:
+                run = AIRun(run_id=job.job_id, user_id=job.user_id)
+                db.add(run)
+            run.status = job.state.value if hasattr(job.state, "value") else str(job.state)
+            run.stage = job.current_stage
+            run.discovered_count = job.total_items_discovered
+            run.synced_count = sum(s.get("synced", 0) for s in (job.connected_integrations or []))
+            run.analyzed_count = job.items_processed
+            run.set_integrations(job.connected_integrations)
+            if job.briefing:
+                run.set_briefing_data(job.briefing)
+                run.briefing_status = "completed"
+            if job.errors:
+                run.error_message = job.errors[-1]
+                run.error_category = error_cat or "processing_error"
+            if job.completed_at:
+                run.completed_at = job.completed_at
+            run.updated_at = datetime.utcnow()
+            db.commit()
+
+        if db_session:
+            _do_persist(db_session)
+        else:
+            with SessionLocal() as db:
+                _do_persist(db)
+    except Exception as e:
+        logger.error("Failed to persist AIRun to DB for job %s: %s", job.job_id, e)
+
+
 class ProcessingJob:
     """In-memory authoritative processing job object per user."""
 
@@ -57,6 +91,7 @@ class ProcessingJob:
         self.created_at: datetime = datetime.utcnow()
         self.updated_at: datetime = datetime.utcnow()
         self.completed_at: Optional[datetime] = None
+        persist_ai_run_stage(self)
 
     def update_stage(
         self,
@@ -72,10 +107,12 @@ class ProcessingJob:
         if processed is not None:
             self.items_processed = processed
         self.updated_at = datetime.utcnow()
+        persist_ai_run_stage(self)
 
     def add_error(self, error_msg: str):
         self.errors.append(error_msg)
         self.updated_at = datetime.utcnow()
+        persist_ai_run_stage(self)
 
     def heartbeat(self):
         self.updated_at = datetime.utcnow()
@@ -86,6 +123,7 @@ class ProcessingJob:
         if briefing_data:
             self.briefing = briefing_data
         self.updated_at = datetime.utcnow()
+        persist_ai_run_stage(self)
 
     def mark_completed(self, briefing_data: Optional[Dict[str, Any]] = None):
         self.state = AIJobState.COMPLETED
@@ -94,13 +132,15 @@ class ProcessingJob:
             self.briefing = briefing_data
         self.completed_at = datetime.utcnow()
         self.updated_at = datetime.utcnow()
+        persist_ai_run_stage(self)
 
-    def mark_failed(self, error_msg: str):
+    def mark_failed(self, error_msg: str, error_cat: Optional[str] = None):
         self.state = AIJobState.FAILED
         self.current_stage = f"Failed: {error_msg}"
         self.add_error(error_msg)
         self.completed_at = datetime.utcnow()
         self.updated_at = datetime.utcnow()
+        persist_ai_run_stage(self, error_cat=error_cat)
 
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -155,8 +195,24 @@ class AIJobManager:
             logger.warning("Job %s for user %s detected as stale (inactive >120s). Marking STALE.", job.job_id, user_id_str)
             job.state = AIJobState.STALE
             job.current_stage = "Job timed out / stale"
+            persist_ai_run_stage(job, error_cat="stale_job_timeout")
 
         return job
+
+    def get_latest_db_run(self, user_id: str) -> Optional[Dict[str, Any]]:
+        user_id_str = str(user_id)
+        job = self.get_job(user_id_str)
+        if job:
+            return job.to_dict()
+        try:
+            with SessionLocal() as db:
+                from models.ai_run import AIRun
+                run = db.query(AIRun).filter_by(user_id=user_id_str).order_by(AIRun.started_at.desc()).first()
+                if run:
+                    return run.to_dict()
+        except Exception as e:
+            logger.error("Failed to query latest AIRun from DB for user %s: %s", user_id_str, e)
+        return None
 
     async def start_job(
         self,

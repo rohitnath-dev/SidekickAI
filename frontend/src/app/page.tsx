@@ -292,10 +292,10 @@ export default function DashboardPage() {
             </div>
             <button
               onClick={() => setBannerDismissed(true)}
-              className="text-zinc-400 hover:text-zinc-200 text-sm font-bold px-2 py-0.5 cursor-pointer bg-transparent border-none z-10"
-              title="Dismiss warning"
+              className="px-3 py-1 bg-rose-500/10 hover:bg-rose-500/20 text-rose-300 text-xs font-semibold rounded-lg border border-rose-500/30 transition-all cursor-pointer z-10 shrink-0"
+              aria-label="Dismiss AI Service Notice"
             >
-              ×
+              Dismiss
             </button>
           </div>
         )}

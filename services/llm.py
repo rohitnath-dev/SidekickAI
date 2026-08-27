@@ -370,32 +370,49 @@ class LLMClient:
                 f"Could not connect to Ollama at {self.ollama_base_url}."
             ) from exc
 
-        if response.status_code != 200:
-            self._handle_provider_status(
-                response,
-                provider="Ollama",
-            )
+        max_retries = 2
+        last_err = None
 
-        try:
-            data = response.json()
-        except ValueError as exc:
-            raise LLMResponseError(
-                "Ollama returned an invalid JSON response."
-            ) from exc
+        for attempt in range(max_retries + 1):
+            try:
+                async with httpx.AsyncClient(timeout=self.timeout) as client:
+                    response = await client.post(url, json=payload)
 
-        try:
-            content = data["message"]["content"]
-        except (KeyError, TypeError) as exc:
-            raise LLMResponseError(
-                f"Unexpected Ollama response format: {data}"
-            ) from exc
+                if response.status_code != 200:
+                    self._handle_provider_status(response, provider="Ollama")
 
-        if not isinstance(content, str) or not content.strip():
-            raise LLMResponseError(
-                "Ollama returned an empty response."
-            )
+                try:
+                    data = response.json()
+                except ValueError as exc:
+                    raise LLMResponseError("Ollama returned an invalid JSON response.") from exc
 
-        return content.strip()
+                try:
+                    content = data["message"]["content"]
+                except (KeyError, TypeError) as exc:
+                    raise LLMResponseError(f"Unexpected Ollama response format.") from exc
+
+                if isinstance(content, str) and content.strip():
+                    return content.strip()
+
+                logger.warning("[LLM_LOG] Ollama returned empty content (attempt %d/%d)", attempt + 1, max_retries + 1)
+                last_err = LLMResponseError("The AI service returned an empty response. Please try again later.")
+            except (httpx.TimeoutException, httpx.RequestError) as exc:
+                last_err = LLMConnectionError(f"Could not connect to Ollama at {self.ollama_base_url}.")
+                if attempt == max_retries:
+                    raise last_err
+            except (LLMRateLimitError, LLMAuthenticationError):
+                raise
+            except Exception as exc:
+                last_err = exc
+                if attempt == max_retries:
+                    raise
+
+            if attempt < max_retries:
+                import asyncio
+                await asyncio.sleep(1.0 * (2 ** attempt))
+
+        logger.error("[LLM_LOG] Ollama failed after retries: %s", last_err)
+        raise last_err or LLMResponseError("The AI service returned an empty response. Please try again later.")
 
     # ====================================================================
     # OpenRouter
@@ -409,30 +426,19 @@ class LLMClient:
         model: Optional[str] = None,
     ) -> str:
         """
-        Send a chat request to OpenRouter.
+        Send a chat request to OpenRouter with bounded retries.
         """
 
         if not self.openrouter_api_key:
-            raise LLMException('No valid OpenRouter API key found for the user')
+            raise LLMAuthenticationError("No valid OpenRouter API key found. Please configure your key in Settings.")
 
-        url = (
-            f"{self.openrouter_base_url}"
-            "/chat/completions"
-        )
+        url = f"{self.openrouter_base_url}/chat/completions"
 
         headers = {
             "Authorization": f"Bearer {self.openrouter_api_key}",
             "Content-Type": "application/json",
-            "HTTP-Referer": getattr(
-                settings,
-                "HTTP_REFERER",
-                "https://sidekickai.onrender.com",
-            ),
-            "X-Title": getattr(
-                settings,
-                "APP_TITLE",
-                "SidekickAI",
-            ),
+            "HTTP-Referer": getattr(settings, "HTTP_REFERER", "https://sidekickai.onrender.com"),
+            "X-Title": getattr(settings, "APP_TITLE", "SidekickAI"),
         }
 
         payload: dict[str, Any] = {
@@ -451,53 +457,49 @@ class LLMClient:
         if temperature is not None:
             payload["temperature"] = temperature
 
-        try:
-            async with httpx.AsyncClient(
-                timeout=self.timeout
-            ) as client:
+        max_retries = 2
+        last_err = None
 
-                response = await client.post(
-                    url,
-                    headers=headers,
-                    json=payload,
-                )
+        for attempt in range(max_retries + 1):
+            try:
+                async with httpx.AsyncClient(timeout=self.timeout) as client:
+                    response = await client.post(url, headers=headers, json=payload)
 
-        except httpx.TimeoutException as exc:
-            raise LLMConnectionError(
-                "OpenRouter request timed out."
-            ) from exc
+                if response.status_code != 200:
+                    self._handle_provider_status(response, provider="OpenRouter")
 
-        except httpx.RequestError as exc:
-            raise LLMConnectionError(
-                "Could not connect to OpenRouter."
-            ) from exc
+                try:
+                    data = response.json()
+                except ValueError as exc:
+                    raise LLMResponseError("OpenRouter returned invalid JSON.") from exc
 
-        if response.status_code != 200:
-            self._handle_provider_status(
-                response,
-                provider="OpenRouter",
-            )
+                try:
+                    content = data["choices"][0]["message"]["content"]
+                except (KeyError, IndexError, TypeError) as exc:
+                    raise LLMResponseError("Unexpected OpenRouter response format.") from exc
 
-        try:
-            data = response.json()
-        except ValueError as exc:
-            raise LLMResponseError(
-                "OpenRouter returned invalid JSON."
-            ) from exc
+                if isinstance(content, str) and content.strip():
+                    return content.strip()
 
-        try:
-            content = data["choices"][0]["message"]["content"]
-        except (KeyError, IndexError, TypeError) as exc:
-            raise LLMResponseError(
-                f"Unexpected OpenRouter response format: {data}"
-            ) from exc
+                logger.warning("[LLM_LOG] OpenRouter returned empty response (attempt %d/%d)", attempt + 1, max_retries + 1)
+                last_err = LLMResponseError("The AI service returned an empty response. Please try again later.")
 
-        if not isinstance(content, str) or not content.strip():
-            raise LLMResponseError(
-                "OpenRouter returned an empty response."
-            )
+            except (httpx.TimeoutException, httpx.RequestError) as exc:
+                logger.warning("[LLM_LOG] OpenRouter network error (attempt %d/%d): %s", attempt + 1, max_retries + 1, exc)
+                last_err = LLMConnectionError("Could not connect to OpenRouter.")
+            except (LLMRateLimitError, LLMAuthenticationError):
+                raise
+            except Exception as exc:
+                last_err = exc
+                if attempt == max_retries:
+                    raise
 
-        return content.strip()
+            if attempt < max_retries:
+                import asyncio
+                await asyncio.sleep(1.0 * (2 ** attempt))
+
+        logger.error("[LLM_LOG] OpenRouter failed after retries: %s", last_err)
+        raise last_err or LLMResponseError("The AI service returned an empty response. Please try again later.")
 
     # ====================================================================
     # Error handling
@@ -511,34 +513,32 @@ class LLMClient:
 
         status = response.status_code
 
-        # Never log/expose API keys.
+        # Never log/expose API keys or raw tokens.
         try:
             body = response.json()
+            err_msg = body.get("error", {}).get("message") or body.get("message") or str(body)
         except ValueError:
-            body = response.text[:500]
+            err_msg = response.text[:200]
 
-        if status == 401:
-            raise LLMAuthenticationError(
-                f"{provider} authentication failed."
-            )
+        logger.error("[LLM_LOG] Provider %s status %d: %s", provider, status, err_msg)
 
-        if status == 403:
+        if status in (401, 403):
             raise LLMAuthenticationError(
-                f"{provider} rejected the request."
+                "AI provider authentication failed. Please check your API key in Settings."
             )
 
         if status == 429:
             raise LLMRateLimitError(
-                f"{provider} rate limit reached."
+                "AI limit reached. Please use another API key or try again later."
             )
 
         if 500 <= status < 600:
             raise LLMConnectionError(
-                f"{provider} server error ({status})."
+                f"{provider} server error ({status}). Please try again later."
             )
 
         raise LLMException(
-            f"{provider} request failed ({status}): {body}"
+            f"{provider} request failed ({status})."
         )
 
     # ====================================================================

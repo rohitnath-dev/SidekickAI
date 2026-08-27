@@ -814,7 +814,7 @@ function InboxContent() {
                       className="flex items-center gap-1.5 px-3.5 py-2 rounded-lg text-xs font-semibold bg-zinc-900 border border-zinc-800 hover:bg-zinc-850 hover:border-zinc-750 text-zinc-300 transition-all cursor-pointer disabled:opacity-50"
                     >
                       {analyzeMutation.isPending ? <Loader2 className="w-3.5 h-3.5 animate-spin text-indigo-400" /> : <Sparkles className="w-3.5 h-3.5 text-indigo-400" />}
-                      {analyzeMutation.isPending ? 'Running AI...' : 'Run AI'}
+                      {analyzeMutation.isPending ? 'Syncing & Running...' : 'Sync & Run AI'}
                     </button>
                     {selectedMessage.status === 'unread' && (
                       <button 
@@ -968,12 +968,16 @@ function InboxContent() {
                                     {tmsg.received_at ? new Date(tmsg.received_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : ''}
                                   </span>
                                 </div>
-                                <div className="text-xs text-zinc-200 leading-relaxed break-words font-sans font-normal">
+                                <div className="text-xs text-zinc-200 leading-relaxed break-words font-sans font-normal overflow-x-auto">
                                   {tmsg.html_body ? (
                                     <div 
-                                      className="prose prose-invert max-w-none text-zinc-200"
-                                      style={{ color: 'inherit' }}
-                                      dangerouslySetInnerHTML={{ __html: typeof window !== 'undefined' ? DOMPurify.sanitize(tmsg.html_body) : tmsg.html_body }}
+                                      className="prose prose-invert max-w-none text-zinc-200 overflow-x-auto [&_img]:max-w-full [&_img]:h-auto [&_img]:max-h-[500px] [&_img]:object-contain [&_table]:max-w-full [&_table]:overflow-x-auto [&_a]:text-indigo-400 [&_a]:underline"
+                                      style={{ color: '#e4e4e7', background: 'transparent' }}
+                                      dangerouslySetInnerHTML={{
+                                        __html: typeof window !== 'undefined'
+                                          ? DOMPurify.sanitize(tmsg.html_body, { ADD_ATTR: ['target'], FORBID_TAGS: ['style', 'script'] })
+                                          : tmsg.html_body
+                                      }}
                                     />
                                   ) : (
                                     <p className="whitespace-pre-wrap">{sanitizeEmailBody(tmsg.body)}</p>
@@ -988,9 +992,13 @@ function InboxContent() {
                       <div className="glass-panel rounded-xl p-5 text-sm text-zinc-300 font-normal leading-relaxed font-sans overflow-x-auto">
                         {selectedMessage.html_body ? (
                           <div 
-                            className="prose prose-invert max-w-none text-zinc-300"
-                            style={{ color: 'inherit' }}
-                            dangerouslySetInnerHTML={{ __html: typeof window !== 'undefined' ? DOMPurify.sanitize(selectedMessage.html_body) : selectedMessage.html_body }}
+                            className="prose prose-invert max-w-none text-zinc-200 overflow-x-auto [&_img]:max-w-full [&_img]:h-auto [&_img]:max-h-[500px] [&_img]:object-contain [&_table]:max-w-full [&_table]:overflow-x-auto [&_a]:text-indigo-400 [&_a]:underline"
+                            style={{ color: '#e4e4e7', background: 'transparent' }}
+                            dangerouslySetInnerHTML={{
+                              __html: typeof window !== 'undefined'
+                                ? DOMPurify.sanitize(selectedMessage.html_body, { ADD_ATTR: ['target'], FORBID_TAGS: ['style', 'script'] })
+                                : selectedMessage.html_body
+                            }}
                           />
                         ) : (
                           <div className="whitespace-pre-wrap break-words">{sanitizeEmailBody(selectedMessage.body)}</div>

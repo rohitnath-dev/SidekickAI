@@ -6,6 +6,7 @@ from models.token import OAuthToken
 from models.memory_item import MemoryItem
 from models.session import UserSession
 from models.ai_config import UserAIConfig
+from models.ai_run import AIRun
 
 __all__ = [
     "User",
@@ -17,5 +18,6 @@ __all__ = [
     "MemoryItem",
     "UserSession",
     "UserAIConfig",
+    "AIRun",
 ]
 

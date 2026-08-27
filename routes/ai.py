@@ -579,8 +579,8 @@ async def get_ai_job_status(
     current_user: User = Depends(get_current_user),
 ):
     """Get active or latest processing job status for current user."""
-    job = job_manager.get_job(str(current_user.id))
-    if not job:
+    latest_run = job_manager.get_latest_db_run(str(current_user.id))
+    if not latest_run:
         return {
             "has_job": False,
             "state": "idle",
@@ -592,9 +592,8 @@ async def get_ai_job_status(
             "briefing": None,
         }
     
-    res = job.to_dict()
-    res["has_job"] = True
-    return res
+    latest_run["has_job"] = True
+    return latest_run
 
 
 @router.post("/job/cancel")

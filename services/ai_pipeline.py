@@ -175,6 +175,34 @@ Return ONLY the JSON object. No preamble, no markdown code blocks.
     sentiment = str(res.get("sentiment", "neutral")).strip()
     category = str(res.get("category", "other")).strip()
 
+    # Rule 5: Strict filtering for requires_reply
+    requires_reply = bool(res.get("requires_reply", False))
+    sender_lower = (message.sender or "").lower()
+    subject_lower = (message.subject or "").lower()
+    body_lower = (message.body or "").lower()
+    category_lower = category.lower()
+
+    automated_keywords = [
+        "noreply", "no-reply", "do-not-reply", "donotreply",
+        "notification", "newsletter", "mailer-daemon", "bounce",
+        "security-noreply", "support-noreply", "alert@"
+    ]
+
+    automated_subject_keywords = [
+        "security alert", "password reset", "verification code",
+        "receipt for", "your invoice", "order confirmation", "newsletter",
+        "privacy policy", "terms of service", "unsubscribed", "login alert"
+    ]
+
+    is_automated = (
+        any(kw in sender_lower for kw in automated_keywords)
+        or any(kw in subject_lower for kw in automated_subject_keywords)
+        or category_lower in ["promotions", "social", "updates", "sales", "security"]
+    )
+
+    if is_automated:
+        requires_reply = False
+
     action_list = res.get("action_items", [])
     action_items_str = ""
     if isinstance(action_list, list) and action_list:
@@ -198,7 +226,10 @@ Return ONLY the JSON object. No preamble, no markdown code blocks.
                 user_id=message.user_id,
             )
             if isinstance(reply_res, dict) and reply_res.get("reply"):
-                suggested_reply = reply_res["reply"]
+                raw_reply = reply_res["reply"]
+                # Validate draft: filter out generic robotic placeholder text
+                if raw_reply and not any(robotic in raw_reply.lower() for robotic in ["as an ai", "i am an ai", "i will handle this as soon as possible"]):
+                    suggested_reply = raw_reply
         except Exception as reply_err:
             logger.warning("Failed to generate suggested reply for message %d: %s", message.id, reply_err)
 
