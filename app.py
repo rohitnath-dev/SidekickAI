@@ -31,6 +31,7 @@ from routes.settings import router as settings_router
 from routes.telegram import router as telegram_router
 from routes.slack import router as slack_router
 from routes.ai import router as ai_router
+from routes.autopilot import router as autopilot_router
 
 # ---------------------------------------------------------------------------
 # Logging
@@ -176,6 +177,8 @@ app.include_router(slack_router,    prefix=API_PREFIX)
 app.include_router(slack_router,    prefix="/api")
 app.include_router(slack_router,    prefix="")
 app.include_router(ai_router,      prefix=API_PREFIX)
+app.include_router(autopilot_router, prefix=API_PREFIX)
+app.include_router(autopilot_router, prefix="")
 
 # ---------------------------------------------------------------------------
 # Root / Frontend UI + Health

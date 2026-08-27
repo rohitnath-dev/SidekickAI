@@ -8,6 +8,8 @@ from models.session import UserSession
 from models.ai_config import UserAIConfig
 from models.ai_run import AIRun
 from models.planner_task import PlannerTask
+from models.autopilot_config import AutoPilotConfig
+from models.autopilot_activity import AutoPilotActivity
 
 __all__ = [
     "User",
@@ -21,5 +23,7 @@ __all__ = [
     "UserAIConfig",
     "AIRun",
     "PlannerTask",
+    "AutoPilotConfig",
+    "AutoPilotActivity",
 ]
 
