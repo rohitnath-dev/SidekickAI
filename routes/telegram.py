@@ -60,12 +60,31 @@ def decrypt_session(encrypted_str: str) -> str:
 # -----------------------------------------------------------------------------
 # Pydantic Schemas
 # -----------------------------------------------------------------------------
+import re
+from pydantic import field_validator
+
+def validate_country_code_phone(v: str) -> str:
+    cleaned = (v or "").strip()
+    if not cleaned.startswith("+"):
+        raise ValueError("Phone number must include country code starting with '+' (e.g. +1234567890).")
+    if not re.match(r"^\+\d{7,15}$", cleaned):
+        raise ValueError("Invalid phone number format. Please include full country code (e.g. +1234567890).")
+    return cleaned
+
 class TelegramUserConnectRequest(BaseModel):
     phone_number: str
     session_string: Optional[str] = None
 
+    @field_validator("phone_number")
+    def check_phone(cls, v):
+        return validate_country_code_phone(v)
+
 class SendCodeRequest(BaseModel):
     phone_number: str
+
+    @field_validator("phone_number")
+    def check_phone(cls, v):
+        return validate_country_code_phone(v)
 
 class VerifyCodeRequest(BaseModel):
     phone_number: str

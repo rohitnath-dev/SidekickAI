@@ -228,10 +228,15 @@ Return ONLY the JSON object. No preamble, no markdown code blocks.
             if isinstance(reply_res, dict) and reply_res.get("reply"):
                 raw_reply = reply_res["reply"]
                 # Validate draft: filter out generic robotic placeholder text
-                if raw_reply and not any(robotic in raw_reply.lower() for robotic in ["as an ai", "i am an ai", "i will handle this as soon as possible"]):
+                if raw_reply and not any(robotic in raw_reply.lower() for robotic in ["as an ai", "i am an ai"]):
                     suggested_reply = raw_reply
         except Exception as reply_err:
             logger.warning("Failed to generate suggested reply for message %d: %s", message.id, reply_err)
+
+    if requires_reply and not suggested_reply:
+        sender_name = message.sender.split("<")[0].strip().replace('"', '') if message.sender else "there"
+        sub_str = message.subject or "your message"
+        suggested_reply = f"Hi {sender_name},\n\nThank you for reaching out regarding '{sub_str}'. I have received your communication and will follow up shortly.\n\nBest regards,"
 
     message.update_from_ai(
         summary=summary,

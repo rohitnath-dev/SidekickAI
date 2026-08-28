@@ -28,6 +28,7 @@ import {
 import SidebarLayout from '@/components/layout';
 import { apiClient } from '@/lib/api-client';
 import AIConfigForm from '@/components/ai-config-form';
+import UIButton from '@/components/ui-button';
 
 // Validation Schemas
 const profileSchema = zod.object({
@@ -813,53 +814,64 @@ export default function SettingsPage({ isOnboarding = false }: { isOnboarding?: 
                           </div>
                         )}
                       </div>
-                      <button
+                      <UIButton
+                        variant="danger"
+                        size="sm"
+                        className="w-full"
                         onClick={() => disconnectMutation.mutate('telegram')}
-                        className="w-full text-center py-2 bg-zinc-950 hover:bg-red-950/20 hover:text-red-400 rounded text-xs font-semibold text-zinc-400 border border-zinc-850 hover:border-red-900/20 transition-all cursor-pointer"
                       >
                         Disconnect Account
-                      </button>
+                      </UIButton>
                     </div>
                   ) : (
                     <div className="space-y-4">
                       <div className="space-y-2">
                         <label className="block text-[10px] uppercase tracking-wider font-semibold text-zinc-400">
-                          Phone Number
+                          Phone Number (include country code, e.g. +1234567890)
                         </label>
                         <input
                           type="text"
-                          placeholder="e.g. +1234567890"
+                          placeholder="Enter your phone number with country code, e.g. +XX..."
                           value={telegramPhoneNumber}
-                          onChange={(e) => setTelegramPhoneNumber(e.target.value)}
+                          onChange={(e) => {
+                            setTelegramPhoneNumber(e.target.value);
+                            setTelegramOtpError(null);
+                          }}
                           disabled={telegramAuthState !== 'idle'}
-                          className="w-full bg-zinc-955 border border-zinc-850 rounded px-2.5 py-1.5 text-xs text-zinc-100 placeholder-zinc-500 outline-none focus:border-zinc-700 transition-all"
+                          className="w-full bg-zinc-950 border border-zinc-800 rounded-lg px-3 py-2 text-xs text-zinc-100 placeholder-zinc-500 outline-none focus:border-indigo-500 transition-all"
                         />
                       </div>
 
                       {telegramOtpError && (
-                        <div className="text-[10px] text-red-400 bg-red-950/20 border border-red-900/20 rounded p-2">
+                        <div className="text-[10px] text-red-400 bg-red-950/20 border border-red-900/30 rounded-lg p-2.5">
                           {telegramOtpError}
                         </div>
                       )}
 
                       {telegramAuthState === 'idle' && (
                         <div className="space-y-3">
-                          <button
+                          <UIButton
+                            variant="primary"
+                            size="md"
+                            className="w-full"
+                            isLoading={telegramOtpLoading}
                             onClick={() => {
-                              if (!telegramPhoneNumber) {
-                                alert('Please enter your Telegram Phone Number.');
+                              const cleaned = telegramPhoneNumber.trim();
+                              if (!cleaned) {
+                                setTelegramOtpError('Please enter your Telegram phone number with country code.');
+                                return;
+                              }
+                              if (!cleaned.startsWith('+') || !/^\+\d{7,15}$/.test(cleaned)) {
+                                setTelegramOtpError('Please enter a valid phone number with international country code (e.g. +1234567890).');
                                 return;
                               }
                               sendTelegramCodeMutation.mutate({
-                                phone_number: telegramPhoneNumber
+                                phone_number: cleaned
                               });
                             }}
-                            disabled={telegramOtpLoading}
-                            className="w-full flex items-center justify-center gap-1.5 py-2 bg-zinc-900 hover:bg-zinc-855 rounded text-xs font-semibold text-zinc-50 border border-zinc-850 hover:border-zinc-700 transition-all cursor-pointer disabled:opacity-50"
                           >
-                            {telegramOtpLoading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : null}
                             Request OTP Login Code
-                          </button>
+                          </UIButton>
 
                           {user?.is_admin && (
                             <>
@@ -875,12 +887,16 @@ export default function SettingsPage({ isOnboarding = false }: { isOnboarding?: 
                                   value={telegramSessionString}
                                   onChange={(e) => setTelegramSessionString(e.target.value)}
                                   rows={2}
-                                  className="w-full bg-zinc-955 border border-zinc-855 rounded p-2 text-xs text-zinc-100 placeholder-zinc-500 outline-none focus:border-zinc-700 transition-all resize-none"
+                                  className="w-full bg-zinc-950 border border-zinc-800 rounded-lg p-2 text-xs text-zinc-100 placeholder-zinc-500 outline-none focus:border-indigo-500 transition-all resize-none"
                                 />
-                                <button
+                                <UIButton
+                                  variant="secondary"
+                                  size="md"
+                                  className="w-full"
+                                  isLoading={connectTelegramMutation.isPending}
                                   onClick={() => {
                                     if (!telegramPhoneNumber || !telegramSessionString) {
-                                      alert('Please supply both Phone Number and Session String.');
+                                      setTelegramOtpError('Please supply both Phone Number and Session String.');
                                       return;
                                     }
                                     connectTelegramMutation.mutate({
@@ -888,11 +904,9 @@ export default function SettingsPage({ isOnboarding = false }: { isOnboarding?: 
                                       session_string: telegramSessionString
                                     });
                                   }}
-                                  disabled={connectTelegramMutation.isPending}
-                                  className="w-full py-2 bg-zinc-900 hover:bg-zinc-855 border border-zinc-850 text-zinc-300 rounded text-xs font-semibold hover:text-zinc-50 transition-all cursor-pointer disabled:opacity-50"
                                 >
-                                  {connectTelegramMutation.isPending ? 'Connecting...' : 'Connect with Session String'}
-                                </button>
+                                  Connect with Session String
+                                </UIButton>
                               </div>
                             </>
                           )}
@@ -901,7 +915,7 @@ export default function SettingsPage({ isOnboarding = false }: { isOnboarding?: 
 
                       {telegramAuthState === 'code_sent' && (
                         <div className="space-y-2.5">
-                          <div className="text-[10px] text-amber-400 bg-amber-955/20 border border-amber-900/30 rounded p-2">
+                          <div className="text-[10px] text-amber-400 bg-amber-950/20 border border-amber-900/30 rounded-lg p-2.5 leading-relaxed">
                             OTP code has been sent to your Telegram app. Enter it below to sign in.
                           </div>
                           <input
@@ -909,13 +923,17 @@ export default function SettingsPage({ isOnboarding = false }: { isOnboarding?: 
                             placeholder="Enter Telegram OTP Code"
                             value={telegramOtpCode}
                             onChange={(e) => setTelegramOtpCode(e.target.value)}
-                            className="w-full bg-zinc-955 border border-zinc-855 rounded px-2.5 py-1.5 text-xs text-zinc-100 placeholder-zinc-500 outline-none focus:border-zinc-700 transition-all text-center tracking-widest font-bold"
+                            className="w-full bg-zinc-950 border border-zinc-800 rounded-lg px-3 py-2 text-xs text-zinc-100 placeholder-zinc-500 outline-none focus:border-indigo-500 transition-all text-center tracking-widest font-bold"
                           />
                           <div className="flex gap-2">
-                            <button
+                            <UIButton
+                              variant="primary"
+                              size="md"
+                              className="flex-1"
+                              isLoading={telegramOtpLoading}
                               onClick={() => {
                                 if (!telegramOtpCode) {
-                                  alert('Please enter the verification code.');
+                                  setTelegramOtpError('Please enter the verification code.');
                                   return;
                                 }
                                 verifyTelegramCodeMutation.mutate({
@@ -924,17 +942,16 @@ export default function SettingsPage({ isOnboarding = false }: { isOnboarding?: 
                                   phone_code_hash: telegramPhoneCodeHash
                                 });
                               }}
-                              disabled={telegramOtpLoading}
-                              className="flex-1 py-2 bg-zinc-100 hover:bg-zinc-200 text-zinc-955 rounded text-xs font-semibold transition-all cursor-pointer disabled:opacity-50"
                             >
-                              {telegramOtpLoading ? 'Verifying...' : 'Verify OTP Code'}
-                            </button>
-                            <button
+                              Verify OTP Code
+                            </UIButton>
+                            <UIButton
+                              variant="secondary"
+                              size="md"
                               onClick={() => setTelegramAuthState('idle')}
-                              className="px-3 py-2 bg-zinc-955 hover:bg-zinc-900 text-zinc-400 border border-zinc-850 rounded text-xs transition-all cursor-pointer"
                             >
                               Cancel
-                            </button>
+                            </UIButton>
                           </div>
                         </div>
                       )}

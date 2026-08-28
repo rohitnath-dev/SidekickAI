@@ -228,27 +228,40 @@ export default function DedicatedRunAIPage() {
 
                 {/* Action Controls */}
                 <div className="pt-4 flex flex-col sm:flex-row items-center justify-between gap-3 border-t border-zinc-900">
-                  {isFailed || isStale ? (
+                  <div className="flex flex-wrap items-center gap-2">
+                    {isFailed || isStale ? (
+                      <button
+                        onClick={() => retryJobMutation.mutate()}
+                        disabled={retryJobMutation.isPending}
+                        className="px-4 py-2.5 bg-zinc-900 hover:bg-zinc-800 text-zinc-200 text-xs font-semibold rounded-lg border border-zinc-800 transition-all cursor-pointer flex items-center gap-2"
+                      >
+                        <RefreshCw className={`w-3.5 h-3.5 ${retryJobMutation.isPending ? 'animate-spin' : ''}`} />
+                        Retry Sync & AI Run
+                      </button>
+                    ) : !isCompleted ? (
+                      <button
+                        onClick={() => startJobMutation.mutate()}
+                        disabled={startJobMutation.isPending || !jobStatus?.has_job}
+                        className="px-4 py-2.5 bg-zinc-900 hover:bg-zinc-800 text-zinc-200 text-xs font-semibold rounded-lg border border-zinc-800 transition-all cursor-pointer flex items-center gap-2 disabled:opacity-50"
+                      >
+                        {startJobMutation.isPending ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Sparkles className="w-3.5 h-3.5 text-indigo-400" />}
+                        Sync & Run AI
+                      </button>
+                    ) : null}
+                    
                     <button
-                      onClick={() => retryJobMutation.mutate()}
-                      disabled={retryJobMutation.isPending}
-                      className="w-full sm:w-auto flex items-center justify-center gap-2 px-5 py-2.5 bg-zinc-900 hover:bg-zinc-850 text-zinc-200 text-xs font-semibold rounded-lg border border-zinc-800 transition-all cursor-pointer"
+                      onClick={handleFinishAndGoToDashboard}
+                      className="px-4 py-2.5 bg-zinc-900 hover:bg-zinc-800 text-zinc-400 hover:text-zinc-200 text-xs font-semibold rounded-lg border border-zinc-800 transition-all cursor-pointer"
                     >
-                      <RefreshCw className={`w-3.5 h-3.5 ${retryJobMutation.isPending ? 'animate-spin' : ''}`} />
-                      Retry Sync & AI Run
+                      Skip & Open Dashboard
                     </button>
-                  ) : (
-                    <div className="text-[11px] text-zinc-500">
-                      {!isCompleted && 'Processes 24-hour communications window.'}
-                    </div>
-                  )}
+                  </div>
 
                   <button
                     onClick={handleFinishAndGoToDashboard}
-                    disabled={!isCompleted && !isFailed && !isStale}
-                    className="w-full sm:w-auto flex items-center justify-center gap-2 px-6 py-2.5 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-40 disabled:cursor-not-allowed text-white text-xs font-semibold rounded-lg shadow-lg shadow-indigo-600/20 transition-all cursor-pointer"
+                    className="w-full sm:w-auto flex items-center justify-center gap-2 px-6 py-2.5 bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold rounded-lg shadow-md transition-all cursor-pointer"
                   >
-                    {isCompleted ? 'View Executive Dashboard' : 'Processing...'}
+                    {isCompleted ? 'Open Executive Dashboard' : 'Continue to Dashboard'}
                     <ArrowRight className="w-4 h-4" />
                   </button>
                 </div>

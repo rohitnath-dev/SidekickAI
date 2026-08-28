@@ -473,96 +473,39 @@ export default function DashboardPage() {
         </div>
 
         {/* SECTION 2: AUTO PILOT OVERVIEW */}
-        <div className="glass-panel rounded-xl p-6 relative overflow-hidden border border-zinc-850 hover:border-indigo-500/20 transition-all duration-300">
+        <div className="glass-panel rounded-xl p-6 relative overflow-hidden border border-zinc-850">
           <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
             <div className="space-y-1.5">
               <div className="flex items-center gap-2.5">
                 <Bot className="w-4 h-4 text-indigo-400" />
                 <h2 className="text-xs font-bold uppercase tracking-wider text-zinc-300">Auto Pilot</h2>
-                
-                {autopilotSummary?.status === 'active' && (
-                  <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-emerald-500/10 border border-emerald-500/20 text-emerald-400">
-                    <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
-                    ACTIVE
-                  </span>
-                )}
-                {autopilotSummary?.status === 'paused' && (
-                  <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-amber-500/10 border border-amber-500/20 text-amber-400">
-                    <span className="h-1.5 w-1.5 rounded-full bg-amber-500"></span>
-                    OFF
-                  </span>
-                )}
-                {autopilotSummary?.status === 'waiting_for_connection' && (
-                  <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-zinc-800 border border-zinc-700 text-zinc-400">
-                    WAITING FOR CONNECTION
-                  </span>
-                )}
+                <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-indigo-500/10 border border-indigo-500/30 text-indigo-300">
+                  AUTO PILOT — COMING SOON
+                </span>
               </div>
 
               <p className="text-xs text-zinc-400 leading-relaxed">
-                {autopilotSummary?.status === 'active'
-                  ? 'Continuous background monitoring across your connected applications.'
-                  : autopilotSummary?.status === 'waiting_for_connection'
-                  ? 'No connected applications available for Auto Pilot.'
-                  : 'Auto Pilot is currently disabled.'}
+                Automatic background assistance across your connected applications is planned for an upcoming release.
               </p>
             </div>
 
             <div className="flex items-center gap-3 shrink-0">
-              {autopilotSummary?.status === 'waiting_for_connection' ? (
-                <Link
-                  href="/settings"
-                  className="flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-semibold bg-indigo-600 hover:bg-indigo-500 text-white shadow-lg shadow-indigo-600/20 transition-all"
-                >
-                  Connect Applications
-                  <ArrowRight className="w-3.5 h-3.5" />
-                </Link>
-              ) : (
-                <Link
-                  href="/autopilot"
-                  className="flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-semibold bg-zinc-900 border border-zinc-800 hover:bg-zinc-850 text-zinc-200 transition-all"
-                >
-                  View Auto Pilot
-                  <ArrowRight className="w-3.5 h-3.5 text-indigo-400" />
-                </Link>
-              )}
+              <Link
+                href="/autopilot"
+                className="flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-semibold bg-zinc-900 border border-zinc-800 hover:bg-zinc-850 text-zinc-200 transition-all cursor-pointer"
+              >
+                View Auto Pilot Preview
+                <ArrowRight className="w-3.5 h-3.5 text-indigo-400" />
+              </Link>
             </div>
           </div>
 
-          {/* Quick Metrics Bar */}
-          {autopilotSummary && (
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 pt-5 mt-5 border-t border-zinc-900/60 text-xs">
-              <div>
-                <span className="text-[10px] font-mono uppercase tracking-wider text-zinc-500">Monitored</span>
-                <p className="font-semibold text-zinc-200 mt-0.5">
-                  {autopilotSummary.active_sources_count > 0
-                    ? `${autopilotSummary.active_sources_count} source(s)`
-                    : 'None active'}
-                </p>
-              </div>
-
-              <div>
-                <span className="text-[10px] font-mono uppercase tracking-wider text-zinc-500">Processed Today</span>
-                <p className="font-semibold text-zinc-200 mt-0.5 font-mono">
-                  {autopilotSummary.processed_today_count || 0} items
-                </p>
-              </div>
-
-              <div>
-                <span className="text-[10px] font-mono uppercase tracking-wider text-zinc-500">Drafts Generated</span>
-                <p className="font-semibold text-indigo-400 mt-0.5 font-mono">
-                  {autopilotSummary.actions_taken_count || 0} drafts
-                </p>
-              </div>
-
-              <div>
-                <span className="text-[10px] font-mono uppercase tracking-wider text-zinc-500">Needs Attention</span>
-                <p className="font-semibold text-amber-400 mt-0.5 font-mono">
-                  {autopilotSummary.pending_review_count || 0} waiting
-                </p>
-              </div>
-            </div>
-          )}
+          <div className="pt-4 mt-4 border-t border-zinc-900 text-xs text-zinc-400 leading-relaxed">
+            <span className="text-[10px] font-mono uppercase tracking-wider text-indigo-400 font-semibold block mb-1">
+              Planned Automation Capabilities:
+            </span>
+            Continuous background message classification, automatic memory updates, proactive draft generation, and intelligent alert dispatch.
+          </div>
         </div>
 
         {/* Dashboard Grid */}

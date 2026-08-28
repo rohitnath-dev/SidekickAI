@@ -105,6 +105,25 @@ class PlannerAgent(BaseAgent):
 
         try:
             # ----------------------------------------------------------
+            # 0. Check connected sources for user
+            # ----------------------------------------------------------
+            from repositories.token_repo import TokenRepository
+            tokens = TokenRepository.list_by_user(db, str(user_id)) if user_id else []
+            connected_providers = [t.provider for t in tokens if t.access_token and t.access_token != "disabled"]
+
+            has_gmail = "google" in connected_providers
+            has_slack = "slack" in connected_providers
+            has_telegram = "telegram" in connected_providers
+            has_calendar = "calendar" in connected_providers
+
+            connected_sources_str = (
+                f"Gmail: {'Connected' if has_gmail else 'Not Connected'}, "
+                f"Slack: {'Connected' if has_slack else 'Not Connected'}, "
+                f"Telegram: {'Connected' if has_telegram else 'Not Connected'}, "
+                f"Calendar: {'Connected' if has_calendar else 'Not Connected'}"
+            )
+
+            # ----------------------------------------------------------
             # 1. Fetch recent messages
             # ----------------------------------------------------------
 
@@ -166,7 +185,7 @@ class PlannerAgent(BaseAgent):
             emails_summary = (
                 "\n".join(email_summaries)
                 if email_summaries
-                else "No recent emails."
+                else "No recent messages from connected sources."
             )
 
             high_priority_str = (
@@ -191,21 +210,21 @@ class PlannerAgent(BaseAgent):
                 self.logger.warning("PlannerAgent: failed to retrieve long-term memories: %s", mem_err)
 
             # ----------------------------------------------------------
-            # 3. Build briefing prompt
+            # 3. Build briefing prompt with STRICT connected sources constraint
             # ----------------------------------------------------------
 
             prompt = build_daily_briefing_prompt(
                 today_date=today_date,
                 emails_summary=emails_summary,
-                calendar_summary="No calendar connected.",
+                calendar_summary=f"Calendar status: {'Connected' if has_calendar else 'Not connected'}",
                 outstanding_items=None,
                 high_priority_messages=high_priority_str,
                 user_memories=user_memories_str,
             )
+            prompt += f"\n\nCONNECTED INTEGRATIONS STATUS: {connected_sources_str}\nCRITICAL INSTRUCTION: Synthesize data ONLY from connected integrations. DO NOT hallucinate calendar events, Slack messages, meetings, or emails for disconnected services!"
 
             self.logger.info(
-                "PlannerAgent: Prompt prepared. "
-                "Character count = %d",
+                "PlannerAgent: Prompt prepared. Character count = %d",
                 len(prompt),
             )
 
@@ -214,18 +233,9 @@ class PlannerAgent(BaseAgent):
             # ----------------------------------------------------------
 
             self.logger.info(
-                "PlannerAgent: Requesting daily briefing "
-                "from configured LLM provider=%s model=%s",
-                getattr(
-                    self.llm,
-                    "provider",
-                    "unknown",
-                ),
-                getattr(
-                    self.llm,
-                    "_active_model",
-                    lambda: "unknown",
-                )(),
+                "PlannerAgent: Requesting daily briefing from configured LLM provider=%s model=%s",
+                getattr(self.llm, "provider", "unknown"),
+                getattr(self.llm, "_active_model", lambda: "unknown")(),
             )
 
             raw = await self._call_llm(
@@ -234,37 +244,31 @@ class PlannerAgent(BaseAgent):
             )
 
             self.logger.info(
-                "PlannerAgent: Received raw LLM response "
-                "(first 250 chars): %s",
+                "PlannerAgent: Received raw LLM response (first 250 chars): %s",
                 raw[:250] if raw else "",
             )
 
-            result = self.parse_json_response(
-                raw
-            )
+            result = self.parse_json_response(raw)
 
-            if (
-                not isinstance(result, dict)
-                or "executive_summary" not in result
-            ):
+            if not isinstance(result, dict) or "executive_summary" not in result:
                 return self._fallback_briefing(
                     today_date,
                     len(messages),
+                    messages=messages,
                 )
 
             return result
 
         except Exception as exc:
-
             self.logger.error(
                 "Daily briefing generation failed: %s",
                 exc,
                 exc_info=True,
             )
-
             return self._fallback_briefing(
                 today_date,
-                0,
+                len(messages) if 'messages' in locals() else 0,
+                messages=messages if 'messages' in locals() else None,
             )
 
     # ------------------------------------------------------------------
@@ -275,37 +279,46 @@ class PlannerAgent(BaseAgent):
         self,
         today_date: str,
         message_count: int,
+        messages: list[Message] | None = None,
     ) -> dict:
-        """Return a minimal fallback briefing when LLM parsing fails."""
-
-        msg_word = (
-            "message"
-            if message_count == 1
-            else "messages"
-        )
+        """Return a useful, deterministic structured fallback briefing when LLM is unavailable."""
+        msg_word = "message" if message_count == 1 else "messages"
 
         if message_count > 0:
             summary = (
-                f"You have {message_count} "
-                f"{msg_word} in the last 24 hours. "
-                "AI briefing generation failed — "
-                "please try again."
+                f"{message_count} {msg_word} processed in the last 24 hours. "
+                "AI summary enrichment is temporarily unavailable, but your synced communications are stored and accessible."
             )
         else:
             summary = (
-                "No new messages in the last 24 hours. "
-                "AI briefing generation failed."
+                "No new communications recorded in the last 24 hours. "
+                "Your assistant is connected and ready to process incoming activity."
             )
+
+        critical_items: list[dict] = []
+        pending_work: list[str] = []
+
+        if messages:
+            for msg in messages[:5]:
+                is_high = getattr(msg.priority, 'value', str(msg.priority)) in ('high', 'critical')
+                if is_high or msg.requires_reply:
+                    critical_items.append({
+                        "item": msg.subject or f"Message from {msg.sender}",
+                        "action": f"Review and respond to {msg.sender}",
+                        "deadline": None,
+                    })
+                else:
+                    pending_work.append(msg.subject or f"Communication from {msg.sender}")
 
         return {
             "date": today_date,
             "executive_summary": summary,
-            "critical_items": [],
-            "pending_work": [],
+            "critical_items": critical_items,
+            "pending_work": pending_work,
             "upcoming_deadlines": [],
-            "recommended_priorities": [],
+            "recommended_priorities": ["Review recent incoming communications"],
             "risks": [],
             "next_actions": [
-                "Review recent emails manually."
+                "Inspect Inbox for unread items."
             ],
         }

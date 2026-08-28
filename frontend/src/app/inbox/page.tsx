@@ -1050,9 +1050,9 @@ function InboxContent() {
                         <button 
                           onClick={handleGenerateReply}
                           disabled={isGeneratingReply}
-                          className="flex items-center gap-1.5 px-3 py-1.5 bg-zinc-100 text-zinc-950 hover:bg-zinc-200 text-xs font-semibold rounded-lg transition-all cursor-pointer disabled:opacity-50"
+                          className="flex items-center gap-1.5 px-3 py-1.5 bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold rounded-lg transition-all cursor-pointer disabled:opacity-50 border border-indigo-500/30"
                         >
-                          {isGeneratingReply ? <Loader2 className="w-3 h-3 animate-spin" /> : <Sparkles className="w-3 h-3" />}
+                          {isGeneratingReply ? <Loader2 className="w-3 h-3 animate-spin" /> : <Sparkles className="w-3 h-3 text-indigo-200" />}
                           Draft
                         </button>
                       </div>
