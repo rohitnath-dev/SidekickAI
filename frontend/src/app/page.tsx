@@ -345,6 +345,19 @@ export default function DashboardPage() {
           </div>
         </div>
 
+        {/* Application Purpose Banner */}
+        <div className="glass-panel rounded-xl p-4 md:p-5 border border-indigo-500/20 bg-indigo-950/10 flex items-start sm:items-center gap-3.5 text-zinc-300">
+          <div className="p-2 rounded-lg bg-indigo-500/10 border border-indigo-500/20 text-indigo-400 shrink-0 mt-0.5 sm:mt-0">
+            <ShieldCheck className="w-5 h-5" />
+          </div>
+          <div className="space-y-0.5">
+            <h2 className="text-xs font-bold uppercase tracking-wider text-indigo-400">Application Purpose</h2>
+            <p className="text-xs text-zinc-300 leading-relaxed">
+              SidekickAI is your premium AI executive assistant designed to securely sync messages, manage integrations, and automate workflow tasks.
+            </p>
+          </div>
+        </div>
+
         {(syncStatus || aiStatus) && (
           <div className={`flex items-start gap-3 p-4 rounded-xl border ${
             (syncStatus?.includes('failed') || aiStatus?.includes('failed'))
