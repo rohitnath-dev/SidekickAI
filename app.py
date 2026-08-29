@@ -7,6 +7,7 @@ from fastapi.responses import FileResponse, HTMLResponse
 import os
 import logging
 from contextlib import asynccontextmanager
+import traceback
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -69,14 +70,21 @@ async def lifespan(app: FastAPI):
         except Exception as exc:
             logger.warning("Alembic startup migration warning (non-fatal): %s", exc)
 
-        # Start background poller task
+                # Start background poller task
         import asyncio
-        from services.poller import start_polling
-        polling_task = asyncio.create_task(start_polling())
+        polling_task = None
+        try:
+            from services.poller import start_polling
+            polling_task = asyncio.create_task(start_polling())
+        except Exception as poll_exc:
+            logger.warning("Background poller failed to start (non-fatal): %s", poll_exc)
 
         # Start persistent Telegram client tasks
-        from services.telegram_manager import telegram_manager
-        asyncio.create_task(telegram_manager.start_all_clients())
+        try:
+            from services.telegram_manager import telegram_manager
+            asyncio.create_task(telegram_manager.start_all_clients())
+        except Exception as tg_exc:
+            logger.warning("Telegram manager failed to start (non-fatal): %s", tg_exc)
 
         logger.info("Sidekick AI backend is ready.")
     except Exception as e:
@@ -87,12 +95,13 @@ async def lifespan(app: FastAPI):
 
     yield
 
-    # Shutdown background poller
-    polling_task.cancel()
-    try:
-        await polling_task
-    except asyncio.CancelledError:
-        logger.info("Background poller task stopped.")
+        # Shutdown background poller
+    if polling_task is not None:
+        polling_task.cancel()
+        try:
+            await polling_task
+        except asyncio.CancelledError:
+            logger.info("Background poller task stopped.")
 
     # Stop persistent Telegram client connections
     for user_id in list(telegram_manager._clients.keys()):
