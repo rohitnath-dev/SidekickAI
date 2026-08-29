@@ -8,6 +8,8 @@ import logging
 from typing import Optional
 from datetime import datetime, timedelta
 import httpx
+import base64
+
 from sqlalchemy.orm import Session
 
 from config import settings
@@ -90,18 +92,34 @@ async def exchange_twitter_code_for_tokens(
         logger.error("Twitter OAuth credentials not configured")
         return None
     
+        import base64
+    
+    # Twitter expects form-urlencoded data, NOT json
     payload = {
         "grant_type": "authorization_code",
         "code": code,
         "redirect_uri": settings.TWITTER_REDIRECT_URI,
         "client_id": settings.TWITTER_CLIENT_ID,
-        "client_secret": settings.TWITTER_CLIENT_SECRET,
-        "code_verifier": "challenge"  # PKCE verifier (must match challenge from auth URL)
+        "code_verifier": "challenge"
+    }
+    
+    # Twitter requires Basic Auth header with base64(client_id:client_secret)
+    credentials = base64.b64encode(
+        f"{settings.TWITTER_CLIENT_ID}:{settings.TWITTER_CLIENT_SECRET}".encode()
+    ).decode()
+    
+    headers = {
+        "Authorization": f"Basic {credentials}",
+        "Content-Type": "application/x-www-form-urlencoded",
     }
     
     try:
         async with httpx.AsyncClient(timeout=30.0) as client:
-            response = await client.post(TWITTER_TOKEN_URL, json=payload)
+            response = await client.post(
+                TWITTER_TOKEN_URL, 
+                data=payload,      
+                headers=headers    
+            )
             response.raise_for_status()
             data = response.json()
             
