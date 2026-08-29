@@ -53,7 +53,11 @@ async def lifespan(app: FastAPI):
     logger.info("Starting Sidekick AI v%s …", settings.VERSION)
     try:
         # Create database tables if missing
-        Base.metadata.create_all(bind=engine)
+        try:
+            Base.metadata.create_all(bind=engine)
+            logger.info("Database schema initialized successfully.")
+        except Exception as db_exc:
+            logger.warning("Database schema creation warning (non-fatal): %s", db_exc)
 
         # Run Alembic migrations automatically on startup
         try:
@@ -63,7 +67,7 @@ async def lifespan(app: FastAPI):
             command.upgrade(alembic_cfg, "head")
             logger.info("Alembic database migrations applied successfully on startup.")
         except Exception as exc:
-            logger.warning("Alembic startup migration notification: %s", exc)
+            logger.warning("Alembic startup migration warning (non-fatal): %s", exc)
 
         # Start background poller task
         import asyncio
