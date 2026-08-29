@@ -4,6 +4,7 @@ Twitter OAuth 2.0 Service
 Handles OAuth 2.0 flow for per-user Twitter authentication.
 """
 
+import base64
 import logging
 from typing import Optional
 from datetime import datetime, timedelta
@@ -90,18 +91,22 @@ async def exchange_twitter_code_for_tokens(
         logger.error("Twitter OAuth credentials not configured")
         return None
     
+    auth_str = f"{settings.TWITTER_CLIENT_ID}:{settings.TWITTER_CLIENT_SECRET}"
+    basic_auth = base64.b64encode(auth_str.encode("utf-8")).decode("utf-8")
+    headers = {
+        "Authorization": f"Basic {basic_auth}",
+    }
+
     payload = {
         "grant_type": "authorization_code",
         "code": code,
         "redirect_uri": settings.TWITTER_REDIRECT_URI,
-        "client_id": settings.TWITTER_CLIENT_ID,
-        "client_secret": settings.TWITTER_CLIENT_SECRET,
         "code_verifier": "challenge"  # PKCE verifier (must match challenge from auth URL)
     }
     
     try:
         async with httpx.AsyncClient(timeout=30.0) as client:
-            response = await client.post(TWITTER_TOKEN_URL, json=payload)
+            response = await client.post(TWITTER_TOKEN_URL, json=payload, headers=headers)
             response.raise_for_status()
             data = response.json()
             
