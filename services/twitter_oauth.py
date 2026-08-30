@@ -120,6 +120,10 @@ async def exchange_twitter_code_for_tokens(
                 data=payload,      
                 headers=headers    
             )
+            
+            print(f"TWITTER STATUS: {response.status_code}")
+            print(f"TWITTER BODY: {response.text[:500]}")
+            # -----------------------------------
             response.raise_for_status()
             data = response.json()
             

@@ -9,6 +9,7 @@ import json
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, BackgroundTasks, status
+from passlib import exc
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
@@ -117,12 +118,21 @@ async def twitter_callback(
         )
     
     # Exchange code for tokens
-    token = await exchange_twitter_code_for_tokens(code, db, user_id)
+    try:
+        token = await exchange_twitter_code_for_tokens(code, db, user_id)
+    except Exception as exc:
+        import traceback
+        error_detail = f"Twitter callback error: {str(exc)}\n\n{traceback.format_exc()}"
+        logger.error(error_detail)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=error_detail
+        )
+    
     if not token:
-        logger.error("Twitter token exchange failed for user_id=%d", user_id)
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
-            detail="Failed to exchange authorization code for tokens. Check logs."
+            detail="Token exchange returned None. Check Twitter credentials."
         )
     
     logger.info("Twitter OAuth completed successfully for user_id=%d", user_id)
