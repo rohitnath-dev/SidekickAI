@@ -94,24 +94,31 @@ async def twitter_callback(
 ):
     """
     Handle Twitter OAuth2 callback.
-    
-    Twitter redirects here after user authorizes the app.
-    Exchanges authorization code for access token.
     """
     from services.twitter_oauth import exchange_twitter_code_for_tokens
     
-    # Identify user from state or current auth
+    # Parse state: "user_id:code_verifier"
     user_id = None
-    if current_user:
-        user_id = current_user.id
+    code_verifier = "challenge"
+    
+    if state and ":" in state:
+        parts = state.split(":", 1)
+        try:
+            user_id = int(parts[0])
+        except (ValueError, TypeError):
+            user_id = parts[0]
+        code_verifier = parts[1] if len(parts) > 1 else "challenge"
     elif state:
         try:
             user_id = int(state)
         except (ValueError, TypeError):
             user_id = state
     
+    if not user_id and current_user:
+        user_id = current_user.id
+    
     if not user_id:
-        logger.warning("Twitter callback: Could not identify user (no auth, invalid state)")
+        logger.warning("Twitter callback: Could not identify user")
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="User identification failed. Please authorize again."
@@ -119,7 +126,7 @@ async def twitter_callback(
     
     # Exchange code for tokens
     try:
-        token = await exchange_twitter_code_for_tokens(code, db, user_id)
+        token = await exchange_twitter_code_for_tokens(code, db, user_id, code_verifier)
     except Exception as exc:
         import traceback
         error_detail = f"Twitter callback error: {str(exc)}\n\n{traceback.format_exc()}"

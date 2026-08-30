@@ -9,6 +9,8 @@ from typing import Optional
 from datetime import datetime, timedelta
 import httpx
 import base64
+import hashlib
+import secrets
 
 from sqlalchemy.orm import Session
 
@@ -23,39 +25,31 @@ TWITTER_TOKEN_URL = "https://api.twitter.com/2/oauth2/token"
 
 def generate_twitter_authorization_url(state: Optional[str] = None) -> tuple[str, str]:
     """
-    Generate Twitter OAuth2 authorization URL.
-    
-    User will be redirected to Twitter to authorize the app.
-    After authorization, Twitter redirects to /twitter/callback with a code.
-    
-    Args:
-        state: Optional state parameter to prevent CSRF (use JWT token or user_id)
-    
-    Returns:
-        (authorization_url, state)
+    Generate Twitter OAuth2 authorization URL with PKCE S256.
     """
     if not settings.TWITTER_CLIENT_ID:
-        raise ValueError("TWITTER_CLIENT_ID not configured in environment")
+        raise ValueError("TWITTER_CLIENT_ID not configured")
     
-    # Scopes needed for Sidekick
+    # PKCE S256 — proper verifier and challenge
+    code_verifier = base64.urlsafe_b64encode(
+        secrets.token_bytes(32)
+    ).rstrip(b'=').decode('ascii')
+    
+    code_challenge = base64.urlsafe_b64encode(
+        hashlib.sha256(code_verifier.encode()).digest()
+    ).rstrip(b'=').decode('ascii')
+    
     scopes = [
-        "tweet.read",           # Read tweets
-        "tweet.write",          # Post tweets/replies
-        "tweet.moderate.write", # Delete tweets
-        "users.read",           # Read user info
-        "follows.read",         # Read who user follows
-        "follows.write",        # Follow/unfollow
-        "mute.read",            # Read muted accounts
-        "mute.write",           # Mute/unmute
-        "block.read",           # Read blocked accounts
-        "block.write",          # Block/unblock
-        "offline.access",       # Refresh tokens
+        "tweet.read", "tweet.write", "tweet.moderate.write",
+        "users.read", "follows.read", "follows.write",
+        "mute.read", "mute.write", "block.read", "block.write",
+        "offline.access",
     ]
     
     state_param = state or "default"
     
-    # PKCE code challenge (simple version)
-    code_challenge = "challenge"  # In production, use random value
+    # Embed verifier in state so callback can retrieve it
+    full_state = f"{state_param}:{code_verifier}"
     
     url = (
         f"{TWITTER_AUTH_URL}"
@@ -63,9 +57,9 @@ def generate_twitter_authorization_url(state: Optional[str] = None) -> tuple[str
         f"&redirect_uri={settings.TWITTER_REDIRECT_URI}"
         f"&response_type=code"
         f"&scope={'+'.join(scopes)}"
-        f"&state={state_param}"
+        f"&state={full_state}"
         f"&code_challenge={code_challenge}"
-        f"&code_challenge_method=plain"
+        f"&code_challenge_method=S256"
     )
     
     logger.info("Generated Twitter OAuth URL for state=%s", state_param)
@@ -75,35 +69,28 @@ def generate_twitter_authorization_url(state: Optional[str] = None) -> tuple[str
 async def exchange_twitter_code_for_tokens(
     code: str,
     db: Session,
-    user_id: int
+    user_id: int,
+    code_verifier: str,
 ) -> Optional[OAuthToken]:
     """
     Exchange OAuth2 authorization code for access token.
-    
-    Args:
-        code: Authorization code from Twitter callback
-        db: Database session
-        user_id: User ID to associate tokens with
-    
-    Returns:
-        OAuthToken object if successful, None otherwise
     """
     if not all([settings.TWITTER_CLIENT_ID, settings.TWITTER_CLIENT_SECRET, settings.TWITTER_REDIRECT_URI]):
         logger.error("Twitter OAuth credentials not configured")
         return None
     
-        import base64
+    import base64
     
-    # Twitter expects form-urlencoded data, NOT json
+    # Twitter expects form-urlencoded data
     payload = {
         "grant_type": "authorization_code",
         "code": code,
         "redirect_uri": settings.TWITTER_REDIRECT_URI,
         "client_id": settings.TWITTER_CLIENT_ID,
-        "code_verifier": "challenge"
+        "code_verifier": code_verifier,
     }
     
-    # Twitter requires Basic Auth header with base64(client_id:client_secret)
+    # Basic Auth header
     credentials = base64.b64encode(
         f"{settings.TWITTER_CLIENT_ID}:{settings.TWITTER_CLIENT_SECRET}".encode()
     ).decode()
@@ -116,14 +103,12 @@ async def exchange_twitter_code_for_tokens(
     try:
         async with httpx.AsyncClient(timeout=30.0) as client:
             response = await client.post(
-                TWITTER_TOKEN_URL, 
-                data=payload,      
-                headers=headers    
+                TWITTER_TOKEN_URL,
+                data=payload,
+                headers=headers,
             )
-            
             print(f"TWITTER STATUS: {response.status_code}")
             print(f"TWITTER BODY: {response.text[:500]}")
-            # -----------------------------------
             response.raise_for_status()
             data = response.json()
             
@@ -142,19 +127,16 @@ async def exchange_twitter_code_for_tokens(
             else:
                 logger.info("Updated existing Twitter OAuth token for user_id=%d", user_id)
             
-            # Store tokens
             token.access_token = data.get("access_token")
             token.refresh_token = data.get("refresh_token")
             
-            # Store scopes
             scope_str = data.get("scope", "")
             if isinstance(scope_str, str):
                 token.scopes = scope_str
             else:
                 token.scopes = " ".join(scope_str) if isinstance(scope_str, list) else ""
             
-            # Calculate expiry time
-            expires_in = data.get("expires_in", 7200)  # Default 2 hours
+            expires_in = data.get("expires_in", 7200)
             token.expires_at = datetime.utcnow() + timedelta(seconds=expires_in)
             
             db.commit()
@@ -163,7 +145,7 @@ async def exchange_twitter_code_for_tokens(
             logger.info(
                 "Twitter token stored with expiry at %s for user_id=%d",
                 token.expires_at,
-                user_id
+                user_id,
             )
             return token
             
