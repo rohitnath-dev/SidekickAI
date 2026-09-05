@@ -22,8 +22,7 @@ import {
   MessageSquare,
   Globe,
   ChevronDown,
-  ChevronUp,
-  Bot
+  ChevronUp
 } from 'lucide-react';
 import SidebarLayout from '@/components/layout';
 import { apiClient } from '@/lib/api-client';
@@ -60,15 +59,6 @@ export default function DashboardPage() {
       return response.data;
     },
     retry: false, // Don't spam if backend LLM API fails
-  });
-
-  const { data: autopilotSummary } = useQuery({
-    queryKey: ['autopilot-dashboard-summary'],
-    queryFn: async () => {
-      const response = await apiClient.get('/autopilot/dashboard-summary');
-      return response.data;
-    },
-    refetchInterval: 15000,
   });
 
   const queryClient = useQueryClient();
@@ -483,42 +473,6 @@ export default function DashboardPage() {
               </Link>
             </div>
           )}
-        </div>
-
-        {/* SECTION 2: AUTO PILOT OVERVIEW */}
-        <div className="glass-panel rounded-xl p-6 relative overflow-hidden border border-zinc-850">
-          <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-            <div className="space-y-1.5">
-              <div className="flex items-center gap-2.5">
-                <Bot className="w-4 h-4 text-indigo-400" />
-                <h2 className="text-xs font-bold uppercase tracking-wider text-zinc-300">Auto Pilot</h2>
-                <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-indigo-500/10 border border-indigo-500/30 text-indigo-300">
-                  AUTO PILOT — COMING SOON
-                </span>
-              </div>
-
-              <p className="text-xs text-zinc-400 leading-relaxed">
-                Automatic background assistance across your connected applications is planned for an upcoming release.
-              </p>
-            </div>
-
-            <div className="flex items-center gap-3 shrink-0">
-              <Link
-                href="/autopilot"
-                className="flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-semibold bg-zinc-900 border border-zinc-800 hover:bg-zinc-850 text-zinc-200 transition-all cursor-pointer"
-              >
-                View Auto Pilot Preview
-                <ArrowRight className="w-3.5 h-3.5 text-indigo-400" />
-              </Link>
-            </div>
-          </div>
-
-          <div className="pt-4 mt-4 border-t border-zinc-900 text-xs text-zinc-400 leading-relaxed">
-            <span className="text-[10px] font-mono uppercase tracking-wider text-indigo-400 font-semibold block mb-1">
-              Planned Automation Capabilities:
-            </span>
-            Continuous background message classification, automatic memory updates, proactive draft generation, and intelligent alert dispatch.
-          </div>
         </div>
 
         {/* Dashboard Grid */}

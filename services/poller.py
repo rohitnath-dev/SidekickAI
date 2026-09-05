@@ -149,13 +149,9 @@ async def start_polling() -> None:
                                 synced_count = res.get("synced", 0) if isinstance(res, dict) else 0
                                 if synced_count == 0:
                                     logger.info("Poller skipped: 0 messages found, skipping AI pipeline for Slack user_id=%d", user.id)
-                    # 5. Trigger Auto Pilot Background Processing Cycle
-                    try:
-                        from services.autopilot_service import AutoPilotService
-                        logger.info("Background Poller: Running Auto Pilot cycle for user_id=%s", user.id)
-                        await AutoPilotService.run_autopilot_cycle(db=db, user_id=str(user.id))
-                    except Exception as ap_err:
-                        logger.error("Background Poller: Auto Pilot cycle failed for user_id=%s: %s", user.id, ap_err)
+                        except Exception as e:
+                            logger.error("Background Poller: Slack sync failed for user_id=%d: %s", user.id, e)
+
 
 
 

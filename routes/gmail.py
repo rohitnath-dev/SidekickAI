@@ -192,18 +192,17 @@ async def sync(
     """Fetch new Gmail messages and store them in the database."""
     from agents.gmail_agent import GmailAgent
 
-    creds = get_credentials(current_user.id, db)
+    creds = None
+    try:
+        creds = get_credentials(current_user.id, db)
+    except Exception as cred_err:
+        logger.warning("Could not retrieve Google credentials for user %s: %s", current_user.id, cred_err)
+
     if creds is None:
-        active_providers = get_active_providers(current_user.id, db)
-        if active_providers:
-            return SyncResponse(
-                synced=0,
-                total_stored=0,
-                status="success",
-            )
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Google account not connected. Call /gmail/authorize first.",
+        return SyncResponse(
+            synced=0,
+            total_stored=0,
+            status="skipped",
         )
 
     try:
@@ -216,29 +215,29 @@ async def sync(
             unread_only=request.unread_only,
             category=request.category,
         )
+        return SyncResponse(
+            synced=result.get("synced", 0),
+            total_stored=result.get("total_stored", 0),
+            status="success",
+        )
     except Exception as exc:
-        logger.error("Gmail sync failed for user %d: %s", current_user.id, exc, exc_info=True)
-        raise HTTPException(
-            status_code=status.HTTP_502_BAD_GATEWAY,
-            detail=f"Gmail sync failed: {str(exc)}"
+        logger.warning("Gmail sync skipped due to error for user %s: %s", current_user.id, exc)
+        return SyncResponse(
+            synced=0,
+            total_stored=0,
+            status="skipped",
         )
 
-    return SyncResponse(
-        synced=result.get("synced", 0),
-        total_stored=result.get("total_stored", 0),
-        status="success",
-    )
 
-def get_active_providers(user_id: int, db: Session) -> set[str]:
+def get_active_providers(user_id: str | int, db: Session) -> set[str]:
     from repositories.token_repo import TokenRepository
     from config import settings
     
-    tokens = TokenRepository.list_by_user(db, user_id)
-    connected = {t.provider for t in tokens if t.access_token != "disabled"}
+    tokens = TokenRepository.list_by_user(db, str(user_id))
+    connected = {t.provider for t in tokens if t.access_token and t.access_token != "disabled"}
     
     # Check system default fallbacks
     if settings.TWITTER_BEARER_TOKEN and "twitter" not in connected:
-        # Check if user explicitly disabled it
         disabled_token = next((t for t in tokens if t.provider == "twitter"), None)
         if not (disabled_token and disabled_token.access_token == "disabled"):
             connected.add("twitter")
@@ -257,31 +256,6 @@ async def list_messages(
     db: Session = Depends(get_db),
 ):
     """List stored messages for the current user."""
-    logger.info("LIST_MESSAGES_FUNCTION_ENTRY_MARKER_12345")
-    print("LIST_MESSAGES_FUNCTION_ENTRY_MARKER_12345")
-    try:
-        from models.message import Message, MessageSource
-        db_messages = db.query(Message).filter_by(source=MessageSource.GMAIL).order_by(Message.id.desc()).limit(10).all()
-        raw_values = [(m.id, m.subject, m.category) for m in db_messages]
-        log_msg = f"GMAIL_DIAGNOSTIC: category parameter = {category}, raw stored GMAIL count = {db.query(Message).filter_by(source=MessageSource.GMAIL).count()}, raw response snippet = {raw_values}"
-        logger.info(log_msg)
-        print(log_msg)
-    except Exception as exc:
-        logger.error(f"GMAIL_DIAGNOSTIC QUERY FAILED: {exc}")
-        print(f"GMAIL_DIAGNOSTIC QUERY FAILED: {exc}")
-
-    active_providers = get_active_providers(current_user.id, db)
-
-    if source:
-        provider_map = {"GMAIL": "google", "TWITTER": "twitter", "WHATSAPP": "whatsapp", "SLACK": "slack", "TELEGRAM": "telegram", "DISCORD": "discord"}
-        provider = provider_map.get(source.upper())
-        if not provider or provider not in active_providers:
-            return []
-            
-    # If no active providers exist at all, return empty list immediately
-    if not active_providers:
-        return []
-
     messages = MessageRepository.list_by_user(
         db,
         user_id=current_user.id,
@@ -292,17 +266,7 @@ async def list_messages(
         high_priority_only=high_priority_only,
         category=category,
     )
-    
-    # Filter messages to only show those where source maps to an active provider
-    provider_map = {"GMAIL": "google", "TWITTER": "twitter", "WHATSAPP": "whatsapp", "SLACK": "slack", "TELEGRAM": "telegram", "DISCORD": "discord"}
-    filtered_messages = []
-    for m in messages:
-        m_source = m.source.value.upper() if hasattr(m.source, "value") else str(m.source).upper()
-        provider = provider_map.get(m_source)
-        if provider in active_providers:
-            filtered_messages.append(m)
-            
-    return [_msg_to_response(m) for m in filtered_messages]
+    return [_msg_to_response(m) for m in messages]
 
 
 @router.get("/messages/{message_id}", response_model=MessageResponse)

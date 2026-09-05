@@ -326,41 +326,76 @@ class AIJobManager:
                         if provider == "gmail":
                             from services.oauth import get_credentials
                             from agents.gmail_agent import GmailAgent
-                            creds = get_credentials(user_id, db)
-                            if creds:
-                                agent = GmailAgent()
-                                res = await agent.sync_messages(creds=creds, db=db, user_id=user_id, limit=20)
-                                synced_count = res.get("synced", 0) if isinstance(res, dict) else 0
+                            try:
+                                creds = get_credentials(user_id, db)
+                                if creds:
+                                    agent = GmailAgent()
+                                    res = await agent.sync_messages(creds=creds, db=db, user_id=user_id, limit=20)
+                                    synced_count = res.get("synced", 0) if isinstance(res, dict) else 0
+                                    service["status"] = "synced"
+                                    service["synced"] = synced_count
+                                    total_discovered += synced_count
+                                else:
+                                    logger.info("Job %s: Gmail credentials not available or disconnected. Gracefully skipping.", job_id)
+                                    service["status"] = "skipped"
+                                    service["synced"] = 0
+                            except Exception as gmail_err:
+                                logger.warning("Job %s: Gmail sync skipped due to error: %s", job_id, gmail_err)
+                                service["status"] = "skipped"
+                                service["synced"] = 0
+                                service["error"] = str(gmail_err)
 
                         elif provider == "telegram":
                             from routes.telegram import sync_telegram
                             if current_user:
-                                res = await sync_telegram(current_user=current_user, db=db)
-                                synced_count = getattr(res, "synced", 0) if hasattr(res, "synced") else (res.get("synced", 0) if isinstance(res, dict) else 0)
+                                try:
+                                    res = await sync_telegram(current_user=current_user, db=db)
+                                    synced_count = getattr(res, "synced", 0) if hasattr(res, "synced") else (res.get("synced", 0) if isinstance(res, dict) else 0)
+                                    service["status"] = "synced"
+                                    service["synced"] = synced_count
+                                    total_discovered += synced_count
+                                except Exception as tg_err:
+                                    logger.warning("Job %s: Telegram sync error (skipped): %s", job_id, tg_err)
+                                    service["status"] = "skipped"
+                                    service["synced"] = 0
+                                    service["error"] = str(tg_err)
 
                         elif provider == "slack":
                             from agents.slack_agent import SlackAgent
                             slack_t = next((t for t in tokens if t.provider == "slack"), None)
                             if slack_t and slack_t.access_token:
-                                agent = SlackAgent()
-                                res = await agent.sync_slack(access_token=slack_t.access_token, db=db, user_id=user_id, limit=20)
-                                synced_count = res.get("synced", 0) if isinstance(res, dict) else 0
+                                try:
+                                    agent = SlackAgent()
+                                    res = await agent.sync_slack(access_token=slack_t.access_token, db=db, user_id=user_id, limit=20)
+                                    synced_count = res.get("synced", 0) if isinstance(res, dict) else 0
+                                    service["status"] = "synced"
+                                    service["synced"] = synced_count
+                                    total_discovered += synced_count
+                                except Exception as slack_err:
+                                    logger.warning("Job %s: Slack sync error (skipped): %s", job_id, slack_err)
+                                    service["status"] = "skipped"
+                                    service["synced"] = 0
+                                    service["error"] = str(slack_err)
 
                         elif provider == "twitter":
                             from routes.twitter import sync_twitter_mentions
                             if current_user:
-                                res = await sync_twitter_mentions(current_user=current_user, db=db)
-                                synced_count = res.get("synced", 0) if isinstance(res, dict) else 0
-
-                        service["status"] = "synced"
-                        service["synced"] = synced_count
-                        total_discovered += synced_count
+                                try:
+                                    res = await sync_twitter_mentions(current_user=current_user, db=db)
+                                    synced_count = res.get("synced", 0) if isinstance(res, dict) else 0
+                                    service["status"] = "synced"
+                                    service["synced"] = synced_count
+                                    total_discovered += synced_count
+                                except Exception as tw_err:
+                                    logger.warning("Job %s: Twitter sync error (skipped): %s", job_id, tw_err)
+                                    service["status"] = "skipped"
+                                    service["synced"] = 0
+                                    service["error"] = str(tw_err)
 
                     except Exception as sync_err:
-                        logger.error("Job %s: Sync failed for provider %s: %s", job_id, provider, sync_err)
-                        service["status"] = "failed"
+                        logger.warning("Job %s: Sync skipped for provider %s: %s", job_id, provider, sync_err)
+                        service["status"] = "skipped"
                         service["error"] = str(sync_err)
-                        job.add_error(f"{service['name']}: {str(sync_err)}")
 
             job.total_items_discovered = total_discovered
 

@@ -6,14 +6,13 @@ import { usePathname, useRouter } from 'next/navigation';
 import Cookies from 'js-cookie';
 import { 
   LayoutDashboard, 
-  Bot,
   Inbox, 
   CalendarDays, 
   BrainCircuit, 
   Settings, 
-  LogOut,
-  Menu,
-  X
+  LogOut, 
+  Menu, 
+  X 
 } from 'lucide-react';
 
 import Logo from './logo';
@@ -110,7 +109,6 @@ export default function SidebarLayout({ children }: SidebarProps) {
 
   const navItems = [
     { name: 'Dashboard', href: '/', icon: LayoutDashboard },
-    { name: 'Auto Pilot', href: '/autopilot', icon: Bot },
     { name: 'Inbox', href: '/inbox', icon: Inbox },
     { name: 'AI Planner', href: '/planner', icon: CalendarDays },
     { name: 'Long-term Memory', href: '/memory', icon: BrainCircuit },
