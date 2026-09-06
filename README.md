@@ -40,7 +40,6 @@ It includes areas such as:
 - Suggested Next Actions
 - Pending Work Items
 - Proactive Action Queue
-- Auto Pilot
 
 ## Executive Inbox
 
@@ -71,12 +70,6 @@ SidekickAI uses connected third-party services to synchronize relevant informati
 
 The application currently includes integration support for services used for communication and productivity workflows. Available integrations depend on the configuration of the deployed application and the permissions granted by the user.
 
-## Auto Pilot
-
-Auto Pilot is intended to provide background assistance by allowing SidekickAI to monitor connected applications and handle supported tasks automatically.
-
-The Auto Pilot interface is currently being developed. Advanced automatic actions may not yet be available.
-
 ## Privacy & Security
 
 SidekickAI requires authorization to access data from connected services.
@@ -87,14 +80,6 @@ For details about how information is handled, see:
 
 - `privacy.md`
 - `terms.md`
-
-## Project Status
-
-SidekickAI is under active development.
-
-The application is being continuously improved across AI processing, integrations, automation, reliability, and user experience.
-
-Features may change as development progresses.
 
 ## Contact
 
